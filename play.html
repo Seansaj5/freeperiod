@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Free Period</title>
+  <meta name="theme-color" content="#06080e" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    html, body { height: 100%; overflow: hidden; }
+    .player { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+    .bar {
+      flex: none; height: 54px; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+      background: rgba(10, 13, 22, 0.96); border-bottom: 1px solid var(--line);
+    }
+    .bar .logo svg { width: 30px; height: 30px; }
+    .bar .wordmark { font-size: 17px; }
+    .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+    .now { display: flex; flex-direction: column; min-width: 0; }
+    .now strong { font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .now small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tools { margin-left: auto; display: flex; gap: 6px; }
+    .tool {
+      height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; border-radius: 10px; cursor: pointer;
+      background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); font-size: 14px; font-weight: 600; color: #d4dbef;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .tool:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.18); }
+    .tool svg { width: 16px; height: 16px; }
+    .tool.main { background: var(--lime); color: #0a0f05; border-color: var(--lime); }
+    .tool.main:hover { background: #d6ff6a; }
+
+    .stage { position: relative; flex: 1; background: #000; }
+    .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #000; }
+
+    .loader {
+      position: absolute; inset: 0; display: grid; place-items: center; text-align: center; overflow: hidden;
+      background: var(--bg); transition: opacity 0.45s ease;
+    }
+    .loader.gone { opacity: 0; pointer-events: none; }
+    .loader .bg { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(28px) brightness(0.35) saturate(1.3); }
+    .loader .box { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px; max-width: 460px; }
+    .loader h1 { margin: 0; font: 400 clamp(30px, 5vw, 46px)/1 'Bungee', 'Outfit', sans-serif; }
+    .loader p { margin: 0; color: #c5cce0; font-size: 16px; line-height: 1.45; }
+    .loader .why { font-size: 14px; color: var(--muted); min-height: 40px; }
+    .spinner { width: 54px; height: 54px; border-radius: 50%; border: 4px solid rgba(255, 255, 255, 0.12); border-top-color: var(--lime); animation: spin 0.9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader .secs { font-variant-numeric: tabular-nums; color: var(--lime); font-weight: 700; }
+
+    .missing { display: grid; place-items: center; height: 100%; text-align: center; gap: 12px; color: var(--muted); }
+    .missing h1 { font: 400 28px 'Bungee', sans-serif; color: var(--text); margin: 0 0 8px; }
+
+    @media (max-width: 640px) {
+      .bar .wordmark, .sep, .tool .label { display: none; }
+      .now small { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="player">
+    <div class="bar">
+      <a class="logo" href="./" title="Back to all games">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <g class="bell" fill="none" stroke="#c6ff3d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 42h28l-3.5-5V27a10.5 10.5 0 0 0-21 0v10z" /><path d="M28 48a4.5 4.5 0 0 0 8 0" /><path d="M32 12v4" />
+          </g>
+          <circle cx="47" cy="17" r="6" fill="#3de0ff" />
+        </svg>
+        <span class="wordmark">FREE <b>PERIOD</b></span>
+      </a>
+      <span class="sep"></span>
+      <div class="now"><strong id="title">Loading</strong><small id="controls"></small></div>
+      <div class="tools">
+        <button class="tool" id="reload" title="Reload the game">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span class="label">Reload</span>
+        </button>
+        <a class="tool" id="newtab" target="_blank" rel="noopener" title="Open the game in its own tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg><span class="label">New tab</span>
+        </a>
+        <button class="tool main" id="full" title="Fullscreen (Esc to leave)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span class="label">Fullscreen</span>
+        </button>
+      </div>
+    </div>
+    <div class="stage" id="stage"></div>
+  </div>
+
+  <script src="games.js"></script>
+  <script>
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const id = new URLSearchParams(location.search).get('g');
+      const game = (window.GAMES || []).find((g) => g.id === id);
+      const stage = $('stage');
+
+      if (!game) {
+        $('title').textContent = 'Game not found';
+        document.querySelector('.tools').style.display = 'none';
+        stage.innerHTML = '<div class="missing"><div><h1>That game isn\'t here</h1><a class="tool main" href="./">See all games</a></div></div>';
+        return;
+      }
+
+      document.title = `${game.title} · Free Period`;
+      $('title').textContent = game.title;
+      $('controls').textContent = game.controls || '';
+      $('newtab').href = game.url;
+
+      const loader = document.createElement('div');
+      loader.className = 'loader';
+      loader.innerHTML = `
+        <div class="bg"></div>
+        <div class="box">
+          <div class="spinner"></div>
+          <h1></h1>
+          <p id="status">Loading the game...</p>
+          <div class="why" id="why"></div>
+        </div>`;
+      loader.querySelector('.bg').style.backgroundImage = `url('${game.thumb}')`;
+      loader.querySelector('h1').textContent = game.title;
+
+      let frame, timer;
+      function start() {
+        clearInterval(timer);
+        stage.innerHTML = '';
+        loader.classList.remove('gone');
+        $('status') && ($('status').textContent = 'Loading the game...');
+        frame = document.createElement('iframe');
+        frame.src = game.url;
+        frame.title = game.title;
+        frame.allow = 'fullscreen; autoplay; gamepad; clipboard-read; clipboard-write; microphone';
+        frame.allowFullscreen = true;
+        stage.append(frame, loader);
+
+        const t0 = Date.now();
+        timer = setInterval(() => {
+          const s = Math.round((Date.now() - t0) / 1000);
+          if (s >= 4) {
+            loader.querySelector('#status').innerHTML = game.wakes
+              ? `Waking up the server... <span class="secs">${s}s</span>`
+              : `Still loading... <span class="secs">${s}s</span>`;
+            loader.querySelector('#why').textContent = game.wakes
+              ? 'The game runs on a free server that naps when nobody is playing. The first load can take up to a minute, then it is fast.'
+              : '';
+          }
+          if (s >= 90) loader.querySelector('#why').textContent = 'Taking longer than usual. Try Reload, or New tab up top.';
+        }, 1000);
+
+        frame.addEventListener('load', () => {
+          clearInterval(timer);
+          loader.classList.add('gone');
+          frame.focus();
+        }, { once: true });
+      }
+      start();
+
+      $('reload').addEventListener('click', start);
+
+      function fullscreen() {
+        const el = stage;
+        if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+        else (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+        frame && frame.focus();
+      }
+      $('full').addEventListener('click', fullscreen);
+      // clicking anywhere on the bar should not leave the game without keyboard focus for long
+      document.querySelector('.bar').addEventListener('mouseup', () => setTimeout(() => frame && document.activeElement === document.body && frame.focus(), 0));
+    })();
+  </script>
+</body>
+</html>

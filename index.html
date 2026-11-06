@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Free Period</title>
+  <meta name="description" content="Free Period: games made by us, for us." />
+  <meta name="theme-color" content="#06080e" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preload" href="assets/fonts/bungee.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="sky"></div>
+
+  <div class="wrap">
+    <header class="top">
+      <a class="logo" href="./" aria-label="Free Period home">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <g class="bell" fill="none" stroke="#c6ff3d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 42h28l-3.5-5V27a10.5 10.5 0 0 0-21 0v10z" /><path d="M28 48a4.5 4.5 0 0 0 8 0" /><path d="M32 12v4" />
+          </g>
+          <circle cx="47" cy="17" r="6" fill="#3de0ff" />
+        </svg>
+        <span class="wordmark">FREE <b>PERIOD</b></span>
+      </a>
+      <div class="clock" id="clock" aria-live="off"><span id="time">--:--</span> · <em id="mood" style="font-style:normal">free period</em></div>
+      <label class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        <input id="q" type="search" placeholder="Search games" autocomplete="off" spellcheck="false" aria-label="Search games" />
+        <kbd>/</kbd>
+      </label>
+    </header>
+
+    <section id="hero"></section>
+
+    <div class="section-head">
+      <h2>All games</h2>
+      <span class="count" id="count"></span>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="grid" id="grid"></div>
+    <p class="empty" id="empty">No games match that. Yet.</p>
+
+    <footer>
+      <span>Free Period · games made by us, for us</span>
+      <span id="foot-count"></span>
+    </footer>
+  </div>
+
+  <script src="games.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
