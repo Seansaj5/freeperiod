@@ -6,6 +6,7 @@
 //   tags      shown on the card and used by the filter chips
 //   controls  one line shown under the title on the play page
 //   wakes     true if the game runs on a free server that naps when idle (Render): the play page explains the wait
+//   wake      optional URL to poke when the home page opens (a game's multiplayer server on Render)
 //   featured  the big banner at the top of the home page (only one)
 window.GAMES = [
   {
@@ -21,5 +22,17 @@ window.GAMES = [
     wakes: true,
     featured: true,
     added: '2026-11-06',
+  },
+  {
+    id: 'close-call',
+    title: 'Close Call',
+    tagline: 'Weave through midnight highway traffic. Near misses build combos, combos buy cars.',
+    url: 'games/close-call/',
+    thumb: 'assets/close-call.jpg',
+    tags: ['3D', 'Multiplayer', 'Racing'],
+    controls: 'W/S gas & brake · A/D steer · Shift nitro · C camera · Esc pause',
+    accent: '#ffb020',
+    wake: 'https://freeperiod-closecall.onrender.com/health',
+    added: '2026-11-07',
   },
 ];

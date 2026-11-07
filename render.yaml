@@ -1,0 +1,18 @@
+# Render Blueprint for Free Period game servers (the games themselves are on GitHub Pages).
+# Dashboard: New + -> Blueprint -> pick Seansaj5/freeperiod.
+services:
+  # Close Call multiplayer relay (rooms of up to 8; traffic is computed on each player's machine)
+  - type: web
+    name: freeperiod-closecall
+    runtime: node
+    plan: free
+    rootDir: games/close-call/server
+    buildCommand: npm install --omit=dev
+    startCommand: node index.js
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - games/close-call/server/**
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

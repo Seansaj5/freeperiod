@@ -8,7 +8,7 @@
   const isNew = (g) => g.added && Date.now() - new Date(g.added).getTime() < 14 * 864e5;
 
   // Free servers (Render) nap after ~15 idle minutes. Poke them now so they are awake by the time someone clicks Play.
-  games.filter((g) => g.wakes).forEach((g) => fetch(g.url, { mode: 'no-cors', cache: 'no-store' }).catch(() => {}));
+  games.filter((g) => g.wakes || g.wake).forEach((g) => fetch(g.wake || g.url, { mode: 'no-cors', cache: 'no-store' }).catch(() => {}));
 
   // ---------- featured banner ----------
   const hero = games.find((g) => g.featured) || games[0];

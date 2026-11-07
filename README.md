@@ -9,6 +9,15 @@ Games made by us, for us. Live at https://seansaj5.github.io/freeperiod/
 
 A game can be anything with a URL that allows being shown in a frame: a GitHub Pages site, a Render server, or a folder inside this repo (for example `games/my-game/index.html`, then `url: 'games/my-game/'`).
 
+## Games
+- **Bing Ball** runs on its own Render server (bing-ball.onrender.com) and is shown in a frame.
+- **Close Call** lives in `games/close-call/` (static, served by GitHub Pages). Its multiplayer server is
+  `games/close-call/server/`, deployed to Render by `render.yaml` (service `freeperiod-closecall`).
+  Test locally: `node games/close-call/server/index.js` (port 8787) and open
+  `games/close-call/?server=ws://localhost:8787`.
+
+Shared libraries for games go in `lib/` (Three.js r170 is there).
+
 ## Files
 - `index.html` + `app.js`: the home page (featured banner, search, tag filters, game grid)
 - `play.html`: plays one game full-window in a frame, with Reload / New tab / Fullscreen

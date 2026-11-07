@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Close Call</title>
+  <meta name="theme-color" content="#0b1224" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <style>
+    @font-face { font-family: 'Bungee'; src: url('../../assets/fonts/bungee.woff2') format('woff2'); font-display: swap; }
+    @font-face { font-family: 'Outfit'; src: url('../../assets/fonts/outfit.woff2') format('woff2'); font-weight: 400 800; font-display: swap; }
+    :root { --amber: #ffb020; --cyan: #3de0ff; --red: #ff3b4e; --green: #6dff8a; --ink: #eef2ff; --muted: #9aa3bd; --panel: rgba(9, 13, 26, 0.82); --line: rgba(255, 255, 255, 0.1); }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1224; color: var(--ink); font-family: 'Outfit', system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; touch-action: none; }
+    canvas { display: block; }
+    button { font: inherit; color: inherit; cursor: pointer; }
+    .hidden { display: none !important; }
+    .disp { font-family: 'Bungee', 'Outfit', sans-serif; font-weight: 400; }
+
+    /* ---------- menus ---------- */
+    .screen { position: fixed; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 5vh 6vw; pointer-events: none; }
+    .screen > * { pointer-events: auto; }
+    .screen.menu-bg { background: linear-gradient(90deg, rgba(5, 8, 18, 0.88) 0%, rgba(5, 8, 18, 0.55) 40%, rgba(5, 8, 18, 0) 70%); }
+    .logo { font-family: 'Bungee', sans-serif; font-size: clamp(44px, 7.4vw, 96px); line-height: 0.88; margin: 0 0 6px; letter-spacing: 0.01em; }
+    .logo span { display: block; color: var(--amber); text-shadow: 0 0 28px rgba(255, 176, 32, 0.55); }
+    .tag { color: var(--muted); font-size: 17px; margin: 6px 0 26px; max-width: 420px; line-height: 1.4; }
+    .stack { display: flex; flex-direction: column; gap: 10px; width: min(360px, 100%); }
+    .btn {
+      height: 54px; border-radius: 12px; border: 1px solid var(--line); background: rgba(16, 22, 40, 0.85); font-family: 'Bungee', sans-serif; font-size: 17px;
+      text-align: left; padding: 0 20px; display: flex; align-items: center; gap: 12px; transition: transform 0.12s, background 0.12s, border-color 0.12s;
+    }
+    .btn:hover, .btn:focus-visible { transform: translateX(4px); border-color: rgba(255, 176, 32, 0.6); background: rgba(28, 34, 58, 0.95); outline: none; }
+    .btn small { margin-left: auto; font-family: 'Outfit', sans-serif; font-size: 13px; color: var(--muted); font-weight: 600; }
+    .btn.primary { background: linear-gradient(135deg, #ffc443, #ff8a1a); color: #1a0f00; border: 0; box-shadow: 0 10px 30px -10px rgba(255, 150, 30, 0.8); }
+    .btn.primary small { color: rgba(26, 15, 0, 0.7); }
+    .btn.small { height: 44px; font-size: 14px; }
+    .btn:disabled { opacity: 0.45; cursor: default; transform: none; }
+    .wallet { position: fixed; top: 18px; right: 22px; display: flex; gap: 10px; pointer-events: auto; }
+    .pill { padding: 8px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-weight: 700; font-size: 15px; }
+    .pill b { color: var(--green); }
+    .pill .k { color: var(--muted); font-weight: 600; margin-right: 6px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .online { font-size: 13px; color: var(--muted); margin-top: 16px; display: flex; align-items: center; gap: 8px; }
+    .online i { width: 8px; height: 8px; border-radius: 50%; background: #666; display: inline-block; }
+    .online.up i { background: var(--green); box-shadow: 0 0 10px var(--green); }
+    .keys { position: fixed; left: 6vw; bottom: 4vh; color: var(--muted); font-size: 13px; line-height: 1.7; pointer-events: none; }
+    kbd { font: 700 11px 'Outfit', sans-serif; padding: 2px 6px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, 0.22); color: var(--ink); margin-right: 2px; }
+
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 24px; width: min(440px, 100%); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+    .panel h2 { font-family: 'Bungee', sans-serif; font-weight: 400; margin: 0 0 16px; font-size: 26px; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .field { width: 100%; height: 46px; border-radius: 10px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.35); color: var(--ink); padding: 0 14px; font: 600 16px 'Outfit', sans-serif; outline: none; user-select: text; -webkit-user-select: text; }
+    .field:focus { border-color: var(--amber); }
+    .lbl { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; display: block; }
+    .status { min-height: 22px; margin-top: 14px; font-size: 14px; color: var(--muted); line-height: 1.45; }
+    .status.err { color: #ff8a95; }
+
+    /* garage */
+    #garage { justify-content: flex-end; align-items: stretch; }
+    .g-card { width: min(420px, 100%); margin-top: auto; }
+    .g-top { display: flex; align-items: center; gap: 10px; }
+    .g-top h2 { margin: 0; flex: 1; text-align: center; }
+    .arrow { width: 46px; height: 46px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); font-size: 22px; }
+    .g-cls { text-align: center; color: var(--muted); font-weight: 600; margin: 4px 0 16px; }
+    .stat { display: grid; grid-template-columns: 90px 1fr 70px; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; color: var(--muted); margin: 8px 0; }
+    .bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+    .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--amber), #ff7a1a); border-radius: 4px; transition: width 0.25s; }
+    .stat span:last-child { text-align: right; color: var(--ink); }
+    .swatches { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 18px; }
+    .sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.15); }
+    .sw.on { border-color: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25); }
+    .count { text-align: center; font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+    /* ---------- HUD ---------- */
+    #hud { position: fixed; inset: 0; pointer-events: none; }
+    .tl { position: absolute; top: 16px; left: 18px; display: flex; flex-direction: column; gap: 6px; }
+    .score { font-family: 'Bungee', sans-serif; font-size: 30px; line-height: 1; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6); }
+    .sub { font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8); }
+    .sub b { color: var(--green); }
+    .combo { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; min-width: 240px; transition: opacity 0.2s; }
+    .combo.off { opacity: 0; }
+    .combo .pts { font-family: 'Bungee', sans-serif; font-size: 40px; line-height: 1; color: var(--amber); text-shadow: 0 0 22px rgba(255, 170, 30, 0.6), 0 2px 8px rgba(0, 0, 0, 0.7); }
+    .combo .mult { display: inline-block; margin-top: 6px; font-family: 'Bungee', sans-serif; font-size: 18px; padding: 2px 10px; border-radius: 8px; background: rgba(255, 176, 32, 0.18); color: #ffd27a; }
+    .combo .chain { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.1em; margin-left: 8px; }
+    .tbar { height: 5px; width: 240px; margin: 8px auto 0; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+    .tbar i { display: block; height: 100%; width: 100%; background: var(--amber); transform-origin: left; }
+    .speedo { position: absolute; right: 22px; bottom: 18px; text-align: right; }
+    .kmh { font-family: 'Bungee', sans-serif; font-size: 64px; line-height: 0.9; font-variant-numeric: tabular-nums; text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6); }
+    .unit { font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: 0.12em; }
+    .gear { display: inline-block; margin-right: 10px; font-family: 'Bungee', sans-serif; font-size: 20px; color: var(--cyan); }
+    .nitro { width: 200px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); margin: 10px 0 0 auto; overflow: hidden; }
+    .nitro i { display: block; height: 100%; background: linear-gradient(90deg, #3de0ff, #8af7ff); box-shadow: 0 0 10px #3de0ff; }
+    .nitro-l { font-size: 11px; font-weight: 800; letter-spacing: 0.14em; color: var(--cyan); margin-top: 4px; }
+    #pops { position: absolute; left: 50%; top: 36%; width: 0; height: 0; }
+    .pop { position: absolute; left: 0; top: 0; transform: translate(-50%, 0); white-space: nowrap; font-family: 'Bungee', sans-serif; text-align: center; animation: rise 1.1s ease-out forwards; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7); }
+    .pop small { display: block; font-size: 15px; color: #fff; opacity: 0.9; }
+    @keyframes rise { 0% { opacity: 0; transform: translate(-50%, 10px) scale(0.7); } 15% { opacity: 1; transform: translate(-50%, 0) scale(1.08); } 30% { transform: translate(-50%, -6px) scale(1); } 100% { opacity: 0; transform: translate(-50%, -70px) scale(0.96); } }
+    #banner { position: absolute; left: 50%; top: 24%; transform: translate(-50%, -50%); text-align: center; font-family: 'Bungee', sans-serif; font-size: clamp(30px, 5vw, 56px); opacity: 0; white-space: nowrap; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.7); }
+    #banner small { display: block; font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 18px; margin-top: 6px; color: #fff; }
+    #banner.show { animation: banner 1.8s ease-out forwards; }
+    @keyframes banner { 0% { opacity: 0; transform: translate(-50%, -50%) scale(1.3); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -60%); } }
+    #flash { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255, 40, 60, 0) 40%, rgba(255, 40, 60, 0.55)); opacity: 0; }
+    #flash.on { animation: flash 0.6s ease-out; }
+    @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+    .tr { position: absolute; top: 16px; right: 18px; width: 230px; }
+    .board { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 14px; }
+    .board .h { font-size: 11px; font-weight: 800; letter-spacing: 0.14em; color: var(--muted); margin-bottom: 6px; display: flex; justify-content: space-between; }
+    .board .p { display: flex; gap: 8px; padding: 3px 0; align-items: center; }
+    .board .p.me { color: var(--amber); }
+    .board .p span:nth-child(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .board .p .dist { color: var(--muted); font-size: 12px; min-width: 48px; text-align: right; }
+    .feed { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+    .feed div { background: var(--panel); border-radius: 8px; padding: 5px 9px; animation: fade 6s forwards; }
+    @keyframes fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+    .hint { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); font-size: 13px; color: var(--muted); text-shadow: 0 1px 6px #000; transition: opacity 1s; }
+
+    /* touch controls */
+    #touch { position: fixed; inset: auto 0 0 0; height: 46vh; pointer-events: none; }
+    #touch .tz { position: absolute; bottom: 18px; width: 86px; height: 86px; border-radius: 22px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); display: grid; place-items: center; font: 400 15px 'Bungee', sans-serif; pointer-events: auto; }
+    #touch .tz.on { background: rgba(255, 176, 32, 0.35); }
+    #t-left { left: 18px; } #t-right { left: 116px; } #t-brake { right: 214px; } #t-nitro { right: 116px; } #t-gas { right: 18px; height: 120px !important; }
+
+    body.touch .speedo { right: auto; left: 50%; bottom: 14px; transform: translateX(-50%); text-align: center; }
+    body.touch .kmh { font-size: 40px; }
+    body.touch .nitro { width: 130px; margin: 6px auto 0; }
+    body.touch .nitro-l, body.touch .hint { display: none; }
+    @media (max-width: 700px) {
+      .kmh { font-size: 44px; } .score { font-size: 22px; } .combo .pts { font-size: 28px; }
+      .tr { width: 170px; } .keys { display: none; }
+      .speedo { bottom: auto; top: 70px; right: 14px; }
+      .nitro { width: 120px; }
+    }
+  </style>
+  <script type="importmap">{ "imports": { "three": "../../lib/three.module.min.js" } }</script>
+</head>
+<body>
+  <!-- main menu -->
+  <section id="menu" class="screen menu-bg">
+    <h1 class="logo">CLOSE<span>CALL</span></h1>
+    <p class="tag">Weave through midnight traffic. Every near miss builds your combo. Bank it for cash, crash and it's gone.</p>
+    <div class="stack">
+      <button class="btn primary" id="b-solo">Drive solo <small>endless highway</small></button>
+      <button class="btn" id="b-mp">Multiplayer <small>up to 8 drivers</small></button>
+      <button class="btn" id="b-garage">Garage <small id="garage-count"></small></button>
+      <button class="btn small" id="b-settings">Settings</button>
+    </div>
+    <div class="online" id="online"><i></i><span>Checking the multiplayer server…</span></div>
+  </section>
+
+  <!-- garage -->
+  <section id="garage" class="screen hidden">
+    <div class="panel g-card">
+      <div class="g-top">
+        <button class="arrow" id="g-prev" aria-label="Previous car">‹</button>
+        <h2 id="g-name">Car</h2>
+        <button class="arrow" id="g-next" aria-label="Next car">›</button>
+      </div>
+      <div class="g-cls" id="g-cls"></div>
+      <div class="stat"><span>TOP SPEED</span><div class="bar"><i id="g-top"></i></div><span id="g-topv"></span></div>
+      <div class="stat"><span>ACCEL</span><div class="bar"><i id="g-acc"></i></div><span id="g-accv"></span></div>
+      <div class="stat"><span>HANDLING</span><div class="bar"><i id="g-han"></i></div><span id="g-hanv"></span></div>
+      <span class="lbl">Paint</span>
+      <div class="swatches" id="g-sw"></div>
+      <div class="row">
+        <button class="btn small" id="g-back" style="flex:0 0 auto">Back</button>
+        <button class="btn primary small" id="g-act" style="flex:1;justify-content:center"></button>
+      </div>
+      <div class="count" id="g-count"></div>
+    </div>
+  </section>
+
+  <!-- multiplayer -->
+  <section id="mp" class="screen menu-bg hidden">
+    <div class="panel">
+      <h2>Multiplayer</h2>
+      <span class="lbl" style="margin-top:0">Your name</span>
+      <input class="field" id="mp-name" maxlength="16" spellcheck="false" autocomplete="off" />
+      <div class="stack" style="width:100%;margin-top:16px">
+        <button class="btn primary" id="mp-quick">Quick play <small>join anyone</small></button>
+        <button class="btn" id="mp-create">Create room <small>play with friends</small></button>
+      </div>
+      <span class="lbl">Join a friend's room</span>
+      <div class="row">
+        <input class="field" id="mp-code" maxlength="4" placeholder="CODE" spellcheck="false" autocomplete="off" style="text-transform:uppercase;letter-spacing:0.3em;font-family:Bungee,sans-serif" />
+        <button class="btn small" id="mp-join" style="flex:0 0 auto">Join</button>
+      </div>
+      <div class="status" id="mp-status"></div>
+      <button class="btn small" id="mp-back" style="margin-top:8px">Back</button>
+    </div>
+  </section>
+
+  <!-- settings -->
+  <section id="settings" class="screen menu-bg hidden">
+    <div class="panel">
+      <h2>Settings</h2>
+      <span class="lbl" style="margin-top:0">Volume</span>
+      <input type="range" id="s-vol" min="0" max="1" step="0.05" style="width:100%" />
+      <span class="lbl">Graphics</span>
+      <div class="row"><button class="btn small" data-q="low" style="flex:1">Fast</button><button class="btn small" data-q="high" style="flex:1">Pretty</button></div>
+      <span class="lbl">Speed units</span>
+      <div class="row"><button class="btn small" data-u="kmh" style="flex:1">km/h</button><button class="btn small" data-u="mph" style="flex:1">mph</button></div>
+      <span class="lbl">Solo traffic</span>
+      <div class="row"><button class="btn small" data-t="0.7" style="flex:1">Light</button><button class="btn small" data-t="1" style="flex:1">Normal</button><button class="btn small" data-t="1.4" style="flex:1">Rush hour</button></div>
+      <div class="status" id="s-note"></div>
+      <button class="btn small" id="s-back" style="margin-top:8px">Back</button>
+    </div>
+  </section>
+
+  <!-- pause -->
+  <section id="pause" class="screen menu-bg hidden">
+    <h1 class="logo" style="font-size:56px">PAUSED</h1>
+    <p class="tag" id="p-room"></p>
+    <div class="stack">
+      <button class="btn primary" id="p-resume">Resume <small>Esc</small></button>
+      <button class="btn" id="p-regroup">Regroup <small>jump behind the leader</small></button>
+      <button class="btn" id="p-quit">Quit to menu <small>banks your combo</small></button>
+    </div>
+  </section>
+
+  <div class="wallet" id="wallet"><div class="pill"><span class="k">Cash</span><b id="w-cash">$0</b></div><div class="pill"><span class="k">Best combo</span><span id="w-best">0</span></div></div>
+  <div class="keys" id="keys"><kbd>W</kbd><kbd>S</kbd> gas / brake &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp; <kbd>Shift</kbd> nitro &nbsp; <kbd>C</kbd> camera &nbsp; <kbd>Esc</kbd> pause</div>
+
+  <!-- in-game HUD -->
+  <div id="hud" class="hidden">
+    <div class="tl">
+      <div class="sub">Score</div>
+      <div class="score" id="h-run">0</div>
+      <div class="sub">Cash <b id="h-cash">$0</b></div>
+    </div>
+    <div class="combo off" id="h-combo">
+      <div class="pts" id="h-pend">0</div>
+      <div><span class="mult" id="h-mult">x1.0</span><span class="chain" id="h-chain"></span></div>
+      <div class="tbar"><i id="h-timer"></i></div>
+    </div>
+    <div id="pops"></div>
+    <div id="banner"></div>
+    <div id="flash"></div>
+    <div class="speedo">
+      <div><span class="gear" id="h-gear">1</span><span class="kmh" id="h-kmh">0</span></div>
+      <div class="unit" id="h-unit">KM/H</div>
+      <div class="nitro"><i id="h-nitro"></i></div>
+      <div class="nitro-l">NITRO · SHIFT</div>
+    </div>
+    <div class="tr hidden" id="h-mp">
+      <div class="board"><div class="h"><span>ROOM <span id="h-code"></span></span><span>SCORE</span></div><div id="h-board"></div></div>
+      <div class="feed" id="h-feed"></div>
+    </div>
+    <div class="hint" id="h-hint">Pass cars close to start a combo · don't crash before it banks</div>
+  </div>
+
+  <div id="touch" class="hidden">
+    <div class="tz" id="t-left">◀</div><div class="tz" id="t-right">▶</div>
+    <div class="tz" id="t-brake">BRK</div><div class="tz" id="t-nitro">N2O</div><div class="tz" id="t-gas">GAS</div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
