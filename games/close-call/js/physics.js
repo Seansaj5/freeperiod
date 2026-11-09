@@ -25,6 +25,7 @@ export class CarSim {
     this.gear = 0; this.rpm = 1000; this.load = 0;
     this.braking = false;
     this.wallCool = 0;
+    this.scrape = 0;
   }
 
   /** Half width across the road, counting the car's angle. */
@@ -82,10 +83,12 @@ export class CarSim {
 
     // --- walls ---
     const lim = WALL - this.hwEff;
-    if (Math.abs(this.d) > lim) {
+    this.scrape = 0;
+    if (Math.abs(this.d) > lim - 0.01) {
       const side = Math.sign(this.d);
       const lat = -v * Math.sin(this.yaw) * side; // speed into the wall
-      this.d = side * lim;
+      this.d = side * Math.min(Math.abs(this.d), lim);
+      this.scrape = side;
       if (lat > 0) {
         this.yaw = -this.yaw * 0.25;
         this.v = Math.max(0, this.v - lat * 0.9 - this.v * 0.03);
@@ -115,7 +118,7 @@ export class CarSim {
           this.v = Math.max(this.v, c.v * 1.05);
         }
         this.ghost = 1.6;
-        ev.push({ type: 'crash', impact, side });
+        ev.push({ type: 'crash', impact, side, ds, dd });
         break;
       }
     }

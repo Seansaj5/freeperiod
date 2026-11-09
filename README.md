@@ -16,7 +16,7 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   Test locally: `node games/close-call/server/index.js` (port 8787) and open
   `games/close-call/?server=ws://localhost:8787`.
 
-Shared libraries for games go in `lib/` (Three.js r170 is there).
+Shared libraries for games go in `lib/` (Three.js r170 is there, plus the post-processing addons it needs for bloom in `lib/addons/`, mapped as `three/addons/`).
 
 ## Files
 - `index.html` + `app.js`: the home page (featured banner, search, tag filters, game grid)

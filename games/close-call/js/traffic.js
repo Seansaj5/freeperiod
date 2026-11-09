@@ -11,13 +11,16 @@ const LANE_FILL = [0.42, 0.52, 0.58, 0.6]; // chance a slot has a car (times den
 
 // vehicle kinds: half length, half width, chance per lane (left -> right)
 export const KINDS = [
-  { id: 'sedan', hl: 2.35, hw: 0.88, w: [5, 5, 4, 3] },
-  { id: 'hatch', hl: 2.0, hw: 0.86, w: [3, 4, 4, 3] },
+  { id: 'sedan', hl: 2.35, hw: 0.89, w: [5, 5, 4, 3] },
+  { id: 'taxi', hl: 2.35, hw: 0.89, w: [0.5, 0.8, 0.8, 0.6] },
+  { id: 'hatch', hl: 2.0, hw: 0.87, w: [3, 4, 4, 3] },
   { id: 'suv', hl: 2.4, hw: 0.97, w: [3, 3, 3, 3] },
+  { id: 'pickup', hl: 2.65, hw: 0.99, w: [0.8, 1.4, 1.6, 1.6] },
   { id: 'van', hl: 2.6, hw: 0.99, w: [0, 1, 2, 3] },
-  { id: 'truck', hl: 4.6, hw: 1.2, w: [0, 0.5, 1.5, 2.5] },
+  { id: 'truck', hl: 4.6, hw: 1.25, w: [0, 0.5, 1.5, 2.5] },
   { id: 'bus', hl: 5.8, hw: 1.24, w: [0, 0, 0.4, 1] },
 ];
+const TAXI = 1, TAXI_YELLOW = 0xf2b705;
 const KIND_TOTAL = [0, 1, 2, 3].map((l) => KINDS.reduce((a, k) => a + k.w[l], 0));
 
 const PAINTS = [0xd8dde6, 0x1d2129, 0x8a919c, 0xb3202a, 0x22407a, 0xe8e2d0, 0x2f5d43, 0x5a5f6b, 0x0f1115, 0xc7a14a, 0x7a2238, 0x3d8fd1];
@@ -55,7 +58,7 @@ export function trafficNear(seed, density, t, sMin, sMax, out, skipMask = 0) {
       o.kind = kind;
       o.hl = KINDS[kind].hl;
       o.hw = KINDS[kind].hw;
-      o.color = PAINTS[Math.floor(hash(seed + 37, L, k) * PAINTS.length)];
+      o.color = kind === TAXI ? TAXI_YELLOW : PAINTS[Math.floor(hash(seed + 37, L, k) * PAINTS.length)];
       n++;
     }
   }

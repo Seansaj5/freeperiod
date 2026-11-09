@@ -7,6 +7,11 @@ import { Sound } from './audio.js';
 import { Net } from './net.js';
 import { CARS, PAINT_SWATCHES, carById } from './cars.js';
 import { buildCar } from './models.js';
+import { Fx } from './fx.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { laneCenter } from './road.js';
 import { trafficNear, LANE_KMH } from './traffic.js';
 import { clamp, damp, fmt } from './util.js';
@@ -31,46 +36,63 @@ const paintOf = (id) => save.paint[id] ?? carById(id).color;
 
 // ---------------- renderer + world ----------------
 const hi = save.settings.quality === 'high';
-const renderer = new THREE.WebGLRenderer({ antialias: hi, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, hi ? 1.75 : 1));
+// low quality draws straight to the screen, so it gets the canvas's MSAA; high quality has its own in the bloom buffer
+const renderer = new THREE.WebGLRenderer({ antialias: !hi, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, hi ? 1.5 : 1));
 renderer.setSize(innerWidth, innerHeight);
 document.body.prepend(renderer.domElement);
 const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 2400);
 const world = new World(renderer, save.settings.quality);
 const scene = world.scene;
 // soft fill light riding with the camera so the car you are chasing is never a black silhouette
-const fill = new THREE.PointLight(0xffffff, 14, 20, 1.4);
+const fill = new THREE.PointLight(0xffffff, hi ? 6 : 14, 20, 1.4);
 fill.position.set(0, 1.5, 0);
 camera.add(fill);
 scene.add(camera);
 const sound = new Sound();
 sound.volume = save.settings.vol;
-addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+// high quality: render into a multisampled HDR buffer, then bloom so lights glow
+let composer = null;
+if (hi) {
+  // sharp screens get no MSAA (the pixels are already small and MSAA is the costliest part); others get 4x
+  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: renderer.getPixelRatio() >= 1.5 ? 0 : 4 }));
+  composer.addPass(new RenderPass(scene, camera));
+  composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.45, 0.92));
+  composer.addPass(new OutputPass());
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(innerWidth, innerHeight);
+}
+const fx = new Fx(scene, camera, hi);
+// if a machine can't keep up, drop the render resolution a step at a time
+let slowFor = 0;
+function adaptResolution(dt) {
+  slowFor = fpsAvg < 45 ? slowFor + dt : 0;
+  const pr = renderer.getPixelRatio();
+  if (slowFor > 3 && pr > 0.75) {
+    slowFor = 0;
+    renderer.setPixelRatio(Math.max(0.75, pr - 0.25));
+    renderer.setSize(innerWidth, innerHeight);
+    if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight); }
+  }
+}
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); if (composer) composer.setSize(innerWidth, innerHeight); });
 
 // ---------------- the player's car ----------------
 let spec = carById(save.car);
 const sim = new CarSim(spec);
-let carMesh = null, flames = null;
-const headlight = new THREE.SpotLight(0xfff0d0, 140, 120, 0.46, 0.6, 1.2);
+let carMesh = null;
+const headlight = hi ? new THREE.SpotLight(0xfff0d0, 70, 130, 0.46, 0.6, 1.5) : new THREE.SpotLight(0xfff0d0, 140, 120, 0.46, 0.6, 1.2);
 const hlTarget = new THREE.Object3D();
-const flameMat = new THREE.MeshBasicMaterial({ color: 0x4fd8ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
 
 function setCarModel(s, paint) {
-  if (carMesh) { scene.remove(carMesh); carMesh.traverse((o) => { if (o.isMesh && o.geometry) o.geometry.dispose(); }); }
+  if (carMesh) { scene.remove(carMesh); carMesh.userData.dispose(); }
   carMesh = buildCar(s, paint);
   carMesh.rotation.order = 'YXZ';
   carMesh.add(headlight, hlTarget);
   headlight.position.set(0, 0.75, s.body.L / 2 - 0.2);
   hlTarget.position.set(0, -0.6, 30);
   headlight.target = hlTarget;
-  flames = new THREE.Group();
-  for (const x of [-0.35, 0.35]) {
-    const f = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.9, 8).rotateX(-Math.PI / 2), flameMat);
-    f.position.set(x, s.body.clear + 0.18, -s.body.L / 2 - 0.45);
-    flames.add(f);
-  }
-  flames.visible = false;
-  carMesh.add(flames);
+  fx.attachFlames(carMesh);
   scene.add(carMesh);
 }
 setCarModel(spec, paintOf(spec.id));
@@ -81,7 +103,7 @@ let net = null, mpStart = 0, autoRegroupUntil = 0;
 let wt = 600; // world clock (seconds): traffic positions are a function of it
 const scorer = new Scorer();
 const remotes = new Map(); // player id -> { mesh, tag, car, color }
-let camMode = 0, camD = 0, fov = 66, shake = 0, menuAng = 0.6, lastV = 0, aLong = 0, playTime = 0;
+let camLift = 0, camMode = 0, camD = 0, fov = 66, shake = 0, menuAng = 0.6, lastV = 0, aLong = 0, playTime = 0;
 const MENU_SEED = 20261107;
 
 function enterMenuWorld() {
@@ -375,12 +397,12 @@ function dropRemote(id) {
   const r = remotes.get(id);
   if (!r) return;
   scene.remove(r.mesh, r.tag);
-  r.mesh.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+  r.mesh.userData.dispose();
   r.tag.material.map.dispose(); r.tag.material.dispose();
   remotes.delete(id);
 }
 const RS = {}, RP = {};
-function updateRemotes() {
+function updateRemotes(dt) {
   if (!net) return;
   const ts = net.serverNow() - 180;
   for (const p of net.players.values()) {
@@ -399,6 +421,7 @@ function updateRemotes() {
     world.road.toWorld(smp.s, smp.d, RP);
     r.mesh.position.set(RP.x, 0, RP.z);
     r.mesh.rotation.set(0, RP.h + smp.y, 0);
+    r.mesh.userData.spin(dt, smp.v, 0);
     r.tag.position.set(RP.x, 2.3, RP.z);
   }
 }
@@ -526,7 +549,14 @@ function updateCamera(dt) {
     const dist = 6.3 + kmh * 0.009, h = 1.95 + kmh * 0.0026;
     camD = damp(camD, sim.d, 7, dt);
     road.toWorld(sim.s - dist, camD, P2);
-    camera.position.set(P2.x, h, P2.z);
+    // rise over any vehicle parked where the camera wants to be (after a rear-end shunt)
+    let lift = 0;
+    for (let i = 0; i < world.trafficCount; i++) {
+      const c = world.traffic[i];
+      if (Math.abs(c.s - (sim.s - dist)) < c.hl + 1.4 && Math.abs(c.d - camD) < c.hw + 1) lift = Math.max(lift, (c.hl > 4 ? 3.7 : 2.1) + 0.8 - h);
+    }
+    camLift = damp(camLift, lift, lift > camLift ? 9 : 3, dt);
+    camera.position.set(P2.x, h + camLift, P2.z);
     road.toWorld(sim.s + 14, sim.d * 0.55 + camD * 0.45, P2);
     camera.lookAt(P2.x, 0.85, P2.z);
     const target = 64 + clamp((kmh - 60) / 260, 0, 1) * 22 + (sim.boosting ? 7 : 0);
@@ -534,7 +564,7 @@ function updateCamera(dt) {
   } else {
     const hd = P.h + sim.yaw;
     fwd.set(Math.sin(hd), 0, Math.cos(hd));
-    camera.position.set(P.x + fwd.x * 0.2, 1.0 + spec.body.H * 0.3, P.z + fwd.z * 0.2);
+    camera.position.set(P.x + fwd.x * 0.2, carMesh.userData.roofH - 0.22, P.z + fwd.z * 0.2);
     camera.lookAt(P.x + fwd.x * 30, 0.9, P.z + fwd.z * 30);
     fov = damp(fov, 72 + clamp((kmh - 60) / 260, 0, 1) * 14 + (sim.boosting ? 6 : 0), 3, dt);
   }
@@ -548,6 +578,8 @@ function updateCamera(dt) {
 // ---------------- main loop ----------------
 const clock = new THREE.Clock();
 let fpsAvg = 60;
+let inputNow = { gas: false }, lastGas = false;
+const CV = new THREE.Vector3(), FV = new THREE.Vector3(), FD = new THREE.Vector3(), BV = new THREE.Vector3(), FP = {};
 function frame() {
   const dt = Math.min(0.05, clock.getDelta());
   fpsAvg = fpsAvg * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
@@ -563,12 +595,17 @@ function frame() {
     playTime += dt;
     if (mode === 'pause') sim.ghost = Math.max(sim.ghost, 0.3);
     const inp = mode === 'play' ? readInput() : { gas: false, brake: false, steer: 0, nitro: false };
+    inputNow = inp;
     const ev = [];
     for (const e of sim.step(dt, inp, world.road, traffic, n)) {
       if (e.type === 'crash') {
         scorer.lose(ev, 'crash');
         if (!ev.length) pop('CRASH', '', '#ff3b4e', true);
         sound.crash(e.impact); shake = 1; flash();
+        // sparks where the cars touched
+        world.road.toWorld(sim.s + (e.side ? 0 : Math.sign(e.ds) * sim.hl), sim.d + (e.side ? -Math.sign(e.dd) * sim.hw : 0), FP);
+        FV.set(FP.x, 0.5, FP.z);
+        fx.burst(FV, FD.set(0, 0.5, 0), 26 + Math.min(40, e.impact * 2), 10, BV.copy(CV).multiplyScalar(0.6));
         if (net) net.send({ t: 'ev', k: 'crash', p: 0 });
       } else if (e.type === 'wall') { scorer.scrape(); sound.wall(e.impact); shake = Math.max(shake, 0.3); if (scorer.timer > 0) pop('WALL', '-1.5s', '#ff8a95'); }
     }
@@ -596,15 +633,29 @@ function frame() {
   carMesh.rotation.set(clamp(-aLong * 0.0035, -0.035, 0.035), P.h + sim.yaw, sim.steer * clamp(sim.v / 70, 0, 1) * 0.045);
   carMesh.visible = !(playing && sim.ghost > 0 && Math.floor(now / 90) % 2 === 0);
   carMesh.userData.setBrake(sim.braking);
-  flames.visible = sim.boosting && playing;
-  if (flames.visible) for (const f of flames.children) f.scale.set(1, 1, 0.7 + Math.random() * 0.6);
+  carMesh.userData.spin(dt, frozen ? 0 : sim.v, sim.steer);
+  // sparks off the barrier while scraping it, backfire pops when lifting off at high revs
+  CV.set(Math.sin(P.h + sim.yaw) * sim.v, 0, Math.cos(P.h + sim.yaw) * sim.v);
+  if (playing && !frozen) {
+    if (sim.scrape && sim.v > 8) {
+      world.road.toWorld(sim.s + (Math.random() - 0.3) * sim.hl, sim.scrape * (sim.d * sim.scrape + sim.hwEff), FP);
+      FV.set(FP.x, 0.35 + Math.random() * 0.25, FP.z); FD.set(0, 0.3, 0); BV.copy(CV).multiplyScalar(0.72);
+      fx.burst(FV, FD, 2 + Math.floor(sim.v / 25), 6, BV);
+    }
+    const lifting = !inputNow.gas && lastGas && sim.rpm > 5200;
+    if (lifting && Math.random() < 0.75) { fx.pop(); sound.pop(); }
+    lastGas = inputNow.gas;
+  }
+  fx.update(dt, sim.v * 3.6, sim.boosting, CV, playing);
 
-  updateRemotes();
+  updateRemotes(dt);
   updateCamera(dt);
   world.follow(camera);
+  world.tick(sim.s, now / 1000);
   if (playing) updateHud(now);
+  if (mode === 'play') adaptResolution(dt);
   sound.engine(playing ? sim.rpm : 1800, playing ? sim.load : 0.1, playing ? sim.v : 0, mode === 'play', sim.boosting);
-  renderer.render(scene, camera);
+  if (composer) composer.render(dt); else renderer.render(scene, camera);
 }
 function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
 

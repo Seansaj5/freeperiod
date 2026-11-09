@@ -44,6 +44,9 @@ export class Sound {
     this.wFilter.frequency.setTargetAtTime(500 + w * 1500, t, 0.1);
   }
 
+  /** Exhaust backfire. */
+  pop() { this.burst({ dur: 0.06, from: 1600, to: 250, q: 0.7, gain: 0.5, type: 'lowpass' }); }
+
   burst({ dur, from, to, q = 1, gain = 0.5, pan = 0, type = 'bandpass' }) {
     if (!this.ctx) return;
     const ctx = this.ctx, t = ctx.currentTime;
