@@ -10,6 +10,7 @@ const KINDS = {
   emoji: { gif: 1, maxW: 128, maxH: 128, fit: 'inside' },
 };
 export const CHAT_PICTURE_MAX = 5 * MB; // re-encoded chat pictures must end up at or under this
+const BUCKET_MAX = 8 * MB;               // the storage bucket's own cap, the limit for avatars, banners and emoji
 
 export function planUpload({ type, size } = {}, kind) {
   const k = KINDS[kind];
@@ -21,7 +22,7 @@ export function planUpload({ type, size } = {}, kind) {
     return { ok: true, mode: 'asis', maxW: k.maxW, maxH: k.maxH };
   }
   if (size > MAX_INPUT) return { ok: false, reason: 'That picture is too big (max 25 MB)' };
-  return { ok: true, mode: 'reencode', maxW: k.maxW, maxH: k.maxH, fit: k.fit };
+  return { ok: true, mode: 'reencode', maxW: k.maxW, maxH: k.maxH, fit: k.fit, kind, cap: kind === 'chat' ? CHAT_PICTURE_MAX : BUCKET_MAX };
 }
 
 function canvasFor(w, h) {
@@ -50,14 +51,22 @@ export async function reencode(file, plan) {
       const scale = Math.min(1, plan.maxW / sw, plan.maxH / sh);
       cw = Math.max(1, Math.round(sw * scale)); ch = Math.max(1, Math.round(sh * scale));
     }
-    const c = canvasFor(cw, ch);
-    c.getContext('2d').drawImage(bmp, sx, sy, sWidth, sHeight, 0, 0, cw, ch);
-    let blob = await toBlob(c, 0.86);
-    for (const q of [0.7, 0.5]) { // keep chat pictures under the cap
-      if (blob.size <= CHAT_PICTURE_MAX) break;
-      blob = await toBlob(c, q);
+    const cap = plan.cap || CHAT_PICTURE_MAX;
+    let encoded = false; // did the browser ever hand back a type we accept?
+    for (const scale of [1, 0.75, 0.56, 0.42]) {
+      const w = Math.max(1, Math.round(cw * scale)), h = Math.max(1, Math.round(ch * scale));
+      const c = canvasFor(w, h);
+      c.getContext('2d').drawImage(bmp, sx, sy, sWidth, sHeight, 0, 0, w, h);
+      for (const q of [0.86, 0.7]) {
+        const blob = await toBlob(c, q);
+        // WebP expected; a browser that cannot encode it hands back PNG, acceptable only for chat pictures.
+        const okType = blob.type === 'image/webp' || (blob.type === 'image/png' && plan.kind === 'chat');
+        if (!okType) break;
+        encoded = true;
+        if (blob.size <= cap) return blob;
+      }
     }
-    return blob;
+    throw new Error(encoded ? 'That picture is too big' : "This browser can't convert pictures to WebP");
   } finally {
     if (typeof bmp.close === 'function') bmp.close();
   }

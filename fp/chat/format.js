@@ -1,5 +1,7 @@
 // Message formatting: body string -> tokens -> DOM. No innerHTML anywhere; user text only ever reaches textContent/text nodes.
 
+import { CHAT } from './config.js';
+
 const MAX_DEPTH = 6;
 const NAME_RE = /^@([A-Za-z0-9_]{1,32})/;
 const EMOJI_RE = /^:([a-z0-9_]{2,32}):/;
@@ -32,9 +34,17 @@ function closer(s, mark, from) {
   return j;
 }
 
+const lowCache = new WeakMap();
+function lowered(set) { // lowercase name -> name as stored; cached per Set
+  let m = lowCache.get(set);
+  if (!m || m.size !== set.size) { m = new Map(); for (const u of set) m.set(String(u).toLowerCase(), String(u)); lowCache.set(set, m); }
+  return m;
+}
+
 function parse(s, ctx, depth) {
   const out = [];
-  const users = ctx.users || new Set();
+  const users = ctx.users instanceof Set ? ctx.users : new Set(ctx.users || []);
+  const lowUsers = lowered(users);
   const emoji = ctx.emoji || new Map();
   const me = String(ctx.me || '').toLowerCase();
   let i = 0;
@@ -68,7 +78,7 @@ function parse(s, ctx, depth) {
       if (m) {
         const low = m[1].toLowerCase();
         if (low === 'everyone') { out.push({ t: 'everyone' }); i += m[0].length; continue; }
-        const user = users.has(m[1]) ? m[1] : users.has(low) ? low : null;
+        const user = lowUsers.get(low) || null;
         if (user) { out.push({ t: 'mention', user, me: low === me }); i += m[0].length; continue; }
       }
     } else if (c === ':') {
@@ -85,12 +95,23 @@ export function parseMessage(body, ctx = {}) {
   return parse(typeof body === 'string' ? body.slice(0, 5000) : '', ctx || {}, 0);
 }
 
-export function renderTokens(tokens, doc = globalThis.document) {
+// Emoji images may only come from our Supabase storage origin (public bucket path); opts.storageOrigin overrides it for tests.
+function storageOrigin(opts) {
+  if (opts && opts.storageOrigin !== undefined) return opts.storageOrigin;
+  try { return CHAT && CHAT.url ? new URL(CHAT.url).origin : ''; } catch { return ''; }
+}
+function isStorageSrc(src, origin) {
+  if (!origin || !isSafeHref(src)) return false;
+  try { const u = new URL(src); return u.origin === origin && u.pathname.startsWith('/storage/v1/object/public/'); } catch { return false; }
+}
+
+export function renderTokens(tokens, doc = globalThis.document, opts = {}) {
+  const origin = storageOrigin(opts);
   const frag = doc.createDocumentFragment();
   const wrap = (tag, cls, kids) => {
     const el = doc.createElement(tag);
     if (cls) el.className = cls;
-    el.appendChild(renderTokens(kids, doc));
+    el.appendChild(renderTokens(kids, doc, opts));
     return el;
   };
   for (const k of tokens || []) {
@@ -120,7 +141,7 @@ export function renderTokens(tokens, doc = globalThis.document) {
       case 'mention': { const el = doc.createElement('span'); el.className = k.me ? 'mention me' : 'mention'; el.textContent = '@' + k.user; frag.appendChild(el); break; }
       case 'everyone': { const el = doc.createElement('span'); el.className = 'mention everyone'; el.textContent = '@everyone'; frag.appendChild(el); break; }
       case 'emoji': {
-        if (!isSafeHref(k.src)) { frag.appendChild(doc.createTextNode(':' + k.name + ':')); break; }
+        if (!isStorageSrc(k.src, origin)) { frag.appendChild(doc.createTextNode(':' + k.name + ':')); break; }
         const img = doc.createElement('img');
         img.className = 'emoji';
         img.setAttribute('src', k.src);

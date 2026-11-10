@@ -6,14 +6,14 @@ const MB = 1024 * 1024;
 const f = (type, mb, w = 4000, h = 3000) => ({ type, size: Math.round(mb * MB), width: w, height: h });
 
 test('chat pictures re-encode to 1600, GIFs go as is up to 8 MB', () => {
-  assert.deepEqual(planUpload(f('image/png', 6), 'chat'), { ok: true, mode: 'reencode', maxW: 1600, maxH: 1600, fit: 'inside' });
+  assert.deepEqual(planUpload(f('image/png', 6), 'chat'), { ok: true, mode: 'reencode', maxW: 1600, maxH: 1600, fit: 'inside', kind: 'chat', cap: 5 * MB });
   assert.equal(planUpload(f('image/gif', 9), 'chat').ok, false);
   assert.equal(planUpload(f('image/gif', 7.9), 'chat').mode, 'asis');
 });
 test('avatar / banner / emoji limits', () => {
   assert.equal(planUpload(f('image/gif', 3), 'avatar').mode, 'asis');
   assert.equal(planUpload(f('image/gif', 5), 'avatar').ok, false);
-  assert.deepEqual(planUpload(f('image/jpeg', 2), 'avatar'), { ok: true, mode: 'reencode', maxW: 512, maxH: 512, fit: 'cover' });
+  assert.deepEqual(planUpload(f('image/jpeg', 2), 'avatar'), { ok: true, mode: 'reencode', maxW: 512, maxH: 512, fit: 'cover', kind: 'avatar', cap: 8 * MB });
   assert.equal(planUpload(f('image/gif', 5), 'banner').mode, 'asis');
   assert.equal(planUpload(f('image/gif', 7), 'banner').ok, false);
   const b = planUpload(f('image/png', 1), 'banner');
@@ -43,7 +43,7 @@ test('reencode scales inside the box, WebP at quality 0.86', async (t) => {
   assert.deepEqual(calls.find(c => c[0] === 'blob')[1], { type: 'image/webp', quality: 0.86 });
   assert.equal(blob.type, 'image/webp');
   calls.length = 0;
-  await reencode({ type: 'image/png' }, { ok: true, mode: 'reencode', maxW: 512, maxH: 512, fit: 'cover' });
+  await reencode({ type: 'image/png' }, { ok: true, mode: 'reencode', maxW: 512, maxH: 512, fit: 'cover', kind: 'avatar', cap: 8 * MB });
   assert.deepEqual(calls[0], ['canvas', 512, 512]);
   delete globalThis.OffscreenCanvas; delete globalThis.createImageBitmap;
 });
@@ -56,4 +56,35 @@ test('reencode never upscales and returns asis files untouched', async (t) => {
   const file = { type: 'image/gif' };
   assert.equal(await reencode(file, { ok: true, mode: 'asis' }), file);
   delete globalThis.OffscreenCanvas; delete globalThis.createImageBitmap;
+});
+
+function fakeEnv(blobFor) {
+  const canvases = [];
+  globalThis.createImageBitmap = async () => ({ width: 2000, height: 1000, close() {} });
+  globalThis.OffscreenCanvas = function (w, h) {
+    const c = { w, h, getContext: () => ({ drawImage() {} }), convertToBlob: async (o) => blobFor(c, o) };
+    canvases.push(c); return c;
+  };
+  return canvases;
+}
+const cleanup = () => { delete globalThis.OffscreenCanvas; delete globalThis.createImageBitmap; };
+const chatPlan = { ok: true, mode: 'reencode', maxW: 1600, maxH: 1600, fit: 'inside', kind: 'chat', cap: 5 * MB };
+
+test('reencode scales down when the blob is over the cap, then succeeds', async () => {
+  const cv = fakeEnv((c, o) => ({ type: 'image/webp', size: c.w > 1000 ? 6 * MB : 1 * MB }));
+  const b = await reencode({}, chatPlan);
+  assert.equal(b.type, 'image/webp'); assert.ok(b.size <= 5 * MB);
+  assert.ok(cv.at(-1).w < cv[0].w);
+  cleanup();
+});
+test('reencode accepts a PNG fallback for chat pictures that fits, not for avatars', async () => {
+  fakeEnv(() => ({ type: 'image/png', size: 100 }));
+  assert.equal((await reencode({}, chatPlan)).type, 'image/png');
+  await assert.rejects(reencode({}, { ...chatPlan, kind: 'avatar', fit: 'cover', maxW: 512, maxH: 512, cap: 8 * MB }), /can't|cannot|convert/i);
+  cleanup();
+});
+test('reencode gives up with a readable error', async () => {
+  fakeEnv(() => ({ type: 'image/webp', size: 99 * MB }));
+  await assert.rejects(reencode({}, chatPlan), /That picture is too big/);
+  cleanup();
 });

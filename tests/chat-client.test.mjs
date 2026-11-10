@@ -11,7 +11,7 @@ const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(r => s
 const emailOf = u => u.toLowerCase() + '@users.freeperiod.example';
 
 let n = 0;
-async function setup(t, { signedIn = 'Saj', config = { url: 'http://127.0.0.1:54321', key: 'anon' }, session = null, route = () => res(200, { ok: true, tokenHash: 'th1' }), otp = null } = {}) {
+async function setup(t, { signedIn = 'Saj', config = { url: 'http://127.0.0.1:54321', key: 'anon' }, session = null, route = () => res(200, { ok: true, tokenHash: 'th1' }), otp = null, verifyAs = null } = {}) {
   globalThis.localStorage = fakeStorage();
   globalThis.sessionStorage = fakeStorage();
   globalThis.location = { search: '', hostname: 'localhost' };
@@ -30,7 +30,7 @@ async function setup(t, { signedIn = 'Saj', config = { url: 'http://127.0.0.1:54
     verifyOtp: async (p) => {
       log.otps.push(p);
       if (otp) return otp(p);
-      const username = 'Saj';
+      const username = verifyAs ? verifyAs(p) : 'Saj';
       state.session = { user: { id: 'u-1', email: emailOf(username), app_metadata: { username } } };
       return { data: { session: state.session, user: state.session.user }, error: null };
     },
@@ -150,4 +150,91 @@ test('createClient gets the configured url/key and persists the session', async 
   assert.equal(created[0].url, 'http://127.0.0.1:54321');
   assert.equal(created[0].opts.auth.persistSession, true);
   assert.equal(created[0].opts.auth.autoRefreshToken, true);
+});
+
+// ---- fix round 1: stale runs, switches, retries, probe ----
+const routeFor = (gate) => async (url) => {
+  if (/\/api\/chat\/session$/.test(url)) {
+    const u = JSON.parse(localStorage.getItem('fp.user')).username;
+    const first = gate && !gate.used; if (gate) gate.used = true;
+    if (first) await gate.p;
+    return res(200, { ok: true, tokenHash: 'th-' + u });
+  }
+  return res(200, { ok: true });
+};
+const gateOf = () => { const g = { used: false }; g.p = new Promise(r => { g.release = r; }); return g; };
+const asUser = (p) => p.token_hash.slice(3);
+
+test('logout during waking: the old run cannot sign chat back in', async (t) => {
+  const gate = gateOf();
+  const { chat, log, state, sess } = await setup(t, { route: routeFor(gate), verifyAs: asUser });
+  const p = chat.ensureChatSession();
+  await flush();
+  assert.equal(chat.chatState(), 'waking');
+  await sess.logout();
+  await flush();
+  assert.equal(chat.chatState(), 'guest');
+  gate.release();
+  await p; await flush();
+  assert.equal(chat.chatState(), 'guest');
+  assert.equal(chat.me(), null);
+  assert.equal(state.session, null);
+});
+
+test('switch A -> B during waking ends as B, never A', async (t) => {
+  const gate = gateOf();
+  const { chat, state, sess } = await setup(t, { route: routeFor(gate), verifyAs: asUser });
+  const p = chat.ensureChatSession();
+  await flush();
+  sess.adopt('tokB', { username: 'Bob', role: 'player' });
+  await flush();
+  gate.release();
+  await p; await flush();
+  assert.equal(chat.chatState(), 'ready');
+  assert.equal(chat.me().username, 'Bob');
+  assert.equal(state.session.user.email, emailOf('Bob'));
+});
+
+test('error, then a new login retries', async (t) => {
+  let fail = true;
+  const { chat, sess } = await setup(t, { route: (url) => (fail && /chat\/session/.test(url) ? res(500, { ok: false }) : res(200, { ok: true, tokenHash: 'th-Bob' })), verifyAs: asUser });
+  assert.equal(await chat.ensureChatSession(), 'error');
+  fail = false;
+  sess.adopt('tokB', { username: 'Bob', role: 'player' });
+  await flush();
+  assert.equal(chat.chatState(), 'ready');
+});
+
+test('asleep, then a new login retries', async (t) => {
+  let asleep = true;
+  const { chat, sess } = await setup(t, { verifyAs: asUser, route: (url) => res(200, { ok: true, tokenHash: 'th-' + JSON.parse(localStorage.getItem('fp.user')).username }),
+    otp: async (p) => (asleep ? { data: {}, error: Object.assign(new Error('paused'), { status: 540 }) } : { data: { session: { user: { id: 'b', email: emailOf('Bob'), app_metadata: { username: 'Bob' } } } }, error: null }) });
+  assert.equal(await chat.ensureChatSession(), 'asleep');
+  asleep = false;
+  sess.adopt('tokB', { username: 'Bob', role: 'player' });
+  await flush();
+  assert.equal(chat.chatState(), 'ready');
+});
+
+test('verifyOtp session for the wrong email is signed out', async (t) => {
+  const { chat, log } = await setup(t, { verifyAs: () => 'Mallory' });
+  assert.notEqual(await chat.ensureChatSession(), 'ready');
+  assert.ok(log.signOuts >= 1);
+  assert.equal(chat.me(), null);
+});
+
+test('network-level failure: probes /auth/v1/health once, stays error with readable text', async (t) => {
+  const { chat, log } = await setup(t, { otp: async () => { throw new TypeError('Failed to fetch'); } });
+  const base = globalThis.fetch;
+  globalThis.fetch = async (url, o) => { if (/auth\/v1\/health/.test(url)) { log.fetches.push({ url }); throw new TypeError('x'); } return base(url, o); };
+  assert.equal(await chat.ensureChatSession(), 'error');
+  assert.equal(log.fetches.filter(f => /auth\/v1\/health/.test(f.url)).length, 1);
+  assert.equal(chat.chatError(), "Chat can't be reached right now");
+});
+
+test('network-level failure + health answering 540 -> asleep', async (t) => {
+  const { chat, log } = await setup(t, { otp: async () => { throw new TypeError('Failed to fetch'); } });
+  const base = globalThis.fetch;
+  globalThis.fetch = async (url, o) => (/auth\/v1\/health/.test(url) ? res(540, {}) : base(url, o));
+  assert.equal(await chat.ensureChatSession(), 'asleep');
 });

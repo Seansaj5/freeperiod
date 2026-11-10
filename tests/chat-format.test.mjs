@@ -75,13 +75,24 @@ function fakeDoc() {
 const html = (n) => n.text !== undefined ? n.text : n.tag === '#frag' ? n.kids.map(html).join('') : '<' + n.tag + Object.entries(n.attrs).map(([k, v]) => ` ${k}=${v}`).join('') + (n.className ? ' .' + n.className : '') + '>' + n.kids.map(html).join('') + '</' + n.tag + '>';
 test('renderTokens builds elements, links are safe, text is never markup', () => {
   const d = fakeDoc();
-  const f = renderTokens(parseMessage('<b>x</b> **y** https://a.b @saj :pog:', ctx), d);
+  const f = renderTokens(parseMessage('<b>x</b> **y** https://a.b @saj :pog:', ctx), d, { storageOrigin: 'https://x.supabase.co' });
   const out = f.kids.map(html).join('');
   assert.ok(out.includes('<b>x</b>'));            // literal text, not an element
   assert.match(out, /<strong>y<\/strong>/);
   assert.match(out, /<a href=https:\/\/a\.b target=_blank rel=noopener noreferrer>/);
   assert.match(out, /<img /);
   assert.ok(f.kids[0].text !== undefined && f.kids[0].text.startsWith('<b>'));
+});
+test('emoji must come from the storage origin + public path, else :name: text', () => {
+  const o = { storageOrigin: 'https://x.supabase.co' };
+  const one = (src, opts = o) => renderTokens([{ t: 'emoji', name: 'e', src }], fakeDoc(), opts).kids.map(html).join('');
+  assert.match(one('https://x.supabase.co/storage/v1/object/public/emoji/e.webp'), /<img /);
+  for (const src of ['https://evil.example/storage/v1/object/public/e.webp', 'https://x.supabase.co/other/e.webp', 'https://x.supabase.co.evil.com/storage/v1/object/public/e.webp', 'http://x.supabase.co/storage/v1/object/public/e.webp']) assert.equal(one(src), ':e:', src);
+  assert.equal(one('https://x.supabase.co/storage/v1/object/public/emoji/e.webp', {}), ':e:'); // no configured origin -> never an image
+});
+test('mentions match any case in the users set', () => {
+  const c = { me: 'Saj', users: new Set(['Saj', 'JO']), emoji: new Map() };
+  assert.deepEqual(parseMessage('@saj @jo', c).filter(k => k.t === 'mention').map(k => k.me), [true, false]);
 });
 test('renderTokens refuses an unsafe link token and non-http emoji src', () => {
   const d = fakeDoc();
