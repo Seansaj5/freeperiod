@@ -254,3 +254,129 @@ export async function renderReports(el, { onOpen, me = null } = {}) {
   await load();
   return { reload: load };
 }
+
+// ---------- Hallpass helper (owner): AI on/off, extra instructions, today's usage and the FAQ ----------
+export const FAQ_LIMITS = Object.freeze({ question: 120, answer: 1000, keywords: 30, keyword: 40, instructions: 1000 });
+/** "a, b ,c" -> ['a','b','c'] (trimmed, no blanks, no repeats). */
+export const parseKeywords = (s) => [...new Set(String(s || '').split(',').map((x) => x.trim()).filter(Boolean))];
+/** FAQ form errors: [{ field, message }]. */
+export function checkFaq({ question, answer, keywords }) {
+  const out = [];
+  const len = (s) => [...String(s || '')].length;
+  if (!String(question || '').trim()) out.push({ field: 'question', message: 'Write the question' });
+  else if (len(question) > FAQ_LIMITS.question) out.push({ field: 'question', message: 'Questions are up to 120 characters' });
+  if (!String(answer || '').trim()) out.push({ field: 'answer', message: 'Write the answer' });
+  else if (len(answer) > FAQ_LIMITS.answer) out.push({ field: 'answer', message: 'Answers are up to 1000 characters' });
+  const k = keywords || [];
+  if (k.length > FAQ_LIMITS.keywords) out.push({ field: 'keywords', message: 'Up to 30 keywords' });
+  else if (k.some((w) => len(w) > FAQ_LIMITS.keyword)) out.push({ field: 'keywords', message: 'Each keyword is up to 40 characters' });
+  return out;
+}
+
+/** cx: { reloadFaq() -> Promise (the app's copy of the FAQ), faq() -> rows, bot() -> Hallpass profile }. */
+export async function openHallpassTools(cx) {
+  const sheet = openSheet({ title: 'Hallpass helper' });
+  sheet.el.classList.add('cx-sheet', 'cx-hpman');
+  const errEl = h('p', { class: 'fp-err', role: 'alert' });
+  const aiBox = h('input', { type: 'checkbox', role: 'switch', dataset: { field: 'ai_on' }, disabled: true });
+  const aiNote = h('span', { class: 'cx-dim', text: 'Loading…' });
+  const usage = h('p', { class: 'cx-hint cx-hp-usage', text: '' });
+  const instr = h('textarea', { class: 'cx-field-ta', rows: '3', maxlength: String(FAQ_LIMITS.instructions), placeholder: 'Anything extra Hallpass should know or do…', 'aria-label': 'Extra instructions for Hallpass AI', dataset: { field: 'extra_instructions' } });
+  const instrSave = h('button', { type: 'button', class: 'fp-mini' }, 'Save instructions');
+  const list = h('div', { class: 'cx-faq-list' });
+  let editing = null;   // faq id, or 'new'
+  let busy = false;
+
+  async function loadSettings() {
+    try {
+      const s = await data.getOwnerBotSettings();
+      aiBox.checked = !!s.ai_on; aiBox.disabled = false;
+      instr.value = s.extra_instructions || '';
+      aiNote.textContent = s.ai_on ? 'On: questions the FAQ can’t answer go to Hallpass AI.' : 'Off: Hallpass only answers the questions below and says “AI answers aren’t on yet”.';
+    } catch (e) { aiNote.textContent = errText(e); }
+    try {
+      const rows = await data.botUsage();
+      const day = new Date().toISOString().slice(0, 10);
+      const today = (Array.isArray(rows) ? rows : []).filter((r) => r.day === day);
+      const n = today.reduce((a, r) => a + (r.count || 0), 0);
+      usage.textContent = 'Today: ' + n + ' AI ' + (n === 1 ? 'answer' : 'answers') + ' from ' + today.length + ' ' + (today.length === 1 ? 'person' : 'people') + ' (caps: 10 an hour each, 200 a day).';
+    } catch { usage.textContent = ''; }
+  }
+  aiBox.addEventListener('change', async () => {
+    const want = aiBox.checked;
+    aiBox.disabled = true; errEl.textContent = '';
+    try { await data.setBotSettings({ ai_on: want }); toast(want ? 'Hallpass AI is on' : 'Hallpass AI is off'); }
+    catch (e) { aiBox.checked = !want; errEl.textContent = errText(e); }
+    aiBox.disabled = false;
+    loadSettings();
+  });
+  instrSave.addEventListener('click', async () => {
+    errEl.textContent = '';
+    if ([...instr.value].length > FAQ_LIMITS.instructions) { errEl.textContent = 'Instructions are up to 1000 characters'; return; }
+    instrSave.disabled = true;
+    try { await data.setBotSettings({ extra_instructions: instr.value }); toast('Instructions saved'); } catch (e) { errEl.textContent = errText(e); }
+    instrSave.disabled = false;
+  });
+
+  function form(item) {
+    const q = h('input', { class: 'cx-field', value: item ? item.question : '', maxlength: String(FAQ_LIMITS.question), placeholder: 'How do I…?', 'aria-label': 'Question', dataset: { field: 'question' } });
+    const a = h('textarea', { class: 'cx-field-ta', rows: '4', maxlength: String(FAQ_LIMITS.answer), placeholder: 'A short, friendly answer', 'aria-label': 'Answer', dataset: { field: 'answer' } });
+    a.value = item ? item.answer : '';
+    const k = h('input', { class: 'cx-field', value: item ? (item.keywords || []).join(', ') : '', placeholder: 'log in, login, password', 'aria-label': 'Keywords, separated by commas', dataset: { field: 'keywords' } });
+    const lineErr = h('p', { class: 'fp-err', role: 'alert' });
+    const save = h('button', { type: 'button', class: 'fp-btn' }, item ? 'Save' : 'Add question');
+    save.addEventListener('click', async () => {
+      if (busy) return;
+      const v = { question: q.value.trim(), answer: a.value.trim(), keywords: parseKeywords(k.value) };
+      const errs = checkFaq(v);
+      if (errs.length) { lineErr.textContent = errs[0].message; return; }
+      busy = true; save.disabled = true; lineErr.textContent = '';
+      try {
+        await data.saveFaq(item ? { ...v, id: item.id, position: item.position } : v);
+        await cx.reloadFaq();
+        toast(item ? 'Question saved' : 'Question added');
+        editing = null; draw();
+      } catch (e) { lineErr.textContent = errText(e); save.disabled = false; }
+      busy = false;
+    });
+    return h('div', { class: 'cx-faq-form' + (item ? ' edit' : ''), dataset: { faq: item ? String(item.id) : 'new' } },
+      h('label', { class: 'cx-label' }, 'Question', counter(q, FAQ_LIMITS.question)), q,
+      h('label', { class: 'cx-label' }, 'Answer', counter(a, FAQ_LIMITS.answer)), a,
+      h('label', { class: 'cx-label' }, 'Keywords ', h('span', { class: 'cx-dim', text: '(words people might type, separated by commas)' })), k,
+      lineErr,
+      h('div', { class: 'cx-sheet-actions' }, item || editing === 'new' ? h('button', { type: 'button', class: 'fp-mini', onclick: () => { editing = null; draw(); } }, 'Cancel') : null, save));
+  }
+  function draw() {
+    const rows = cx.faq().slice().sort((x, y) => (x.position ?? 0) - (y.position ?? 0) || x.id - y.id);
+    list.replaceChildren(...rows.map((it) => {
+      if (editing === it.id) return form(it);
+      return h('div', { class: 'cx-faq-item', dataset: { faq: String(it.id) } },
+        h('span', { class: 'cx-faq-text' }, h('b', { class: 'cx-faq-q', text: it.question }), h('small', { text: it.answer })),
+        h('span', { class: 'cx-chm-btns' },
+          h('button', { type: 'button', class: 'cx-iconbtn sm cx-faq-edit', 'aria-label': 'Edit “' + it.question + '”', title: 'Edit', onclick: () => { editing = it.id; draw(); } }, icon('edit')),
+          h('button', { type: 'button', class: 'cx-iconbtn sm danger cx-faq-del', 'aria-label': 'Delete “' + it.question + '”', title: 'Delete', onclick: () => confirmDeleteFaq(it) }, icon('trash'))));
+    }), editing === 'new' ? form(null) : h('button', { type: 'button', class: 'cx-btn ghost cx-faq-new', onclick: () => { editing = 'new'; draw(); } }, icon('plus'), 'Add a question'));
+  }
+  function confirmDeleteFaq(it) {
+    const s2 = openSheet({ title: 'Delete this question?' });
+    s2.el.classList.add('cx-sheet');
+    const b = h('button', { type: 'button', class: 'fp-btn cx-danger-btn' }, 'Delete');
+    s2.body.append(h('p', { class: 'fp-note', text: '“' + it.question + '” goes away for everyone.' }),
+      h('div', { class: 'cx-sheet-actions' }, h('button', { type: 'button', class: 'fp-mini', onclick: () => s2.close() }, 'Cancel'), b));
+    b.addEventListener('click', async () => {
+      s2.close();
+      try { await data.deleteFaq(it.id); await cx.reloadFaq(); toast('Question deleted'); draw(); } catch (e) { errEl.textContent = errText(e); }
+    });
+    b.focus();
+  }
+
+  sheet.body.append(
+    h('label', { class: 'cx-check cx-switch cx-hp-ai' }, aiBox, h('span', {}, h('b', { text: 'Hallpass AI' }), ' ', aiNote)),
+    usage,
+    h('div', { class: 'cx-ed-field' }, h('label', { class: 'cx-label' }, 'Extra instructions ', counter(instr, FAQ_LIMITS.instructions)), instr, h('div', { class: 'cx-sheet-actions' }, instrSave)),
+    errEl,
+    h('h3', { class: 'cx-sheet-sub', text: 'Questions Hallpass answers for free' }), list);
+  draw();
+  loadSettings();
+  return { close: sheet.close, redraw: draw };
+}

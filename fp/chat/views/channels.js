@@ -4,7 +4,7 @@ import { h } from '../../ui.js';
 import { badge } from '../unread.js';
 import { icon, avatar, nameEl, roleMark, hotOnHover } from './common.js';
 
-export function mountChannels(el, { onPick, onManage, onMe, onSettings } = {}) {
+export function mountChannels(el, { onPick, onManage, onTools, onMe, onSettings } = {}) {
   el.classList.add('cx-side');
   const head = h('header', { class: 'cx-srv' });
   const list = h('nav', { class: 'cx-chlist', 'aria-label': 'Channels' });
@@ -29,8 +29,8 @@ export function mountChannels(el, { onPick, onManage, onMe, onSettings } = {}) {
 
   return {
     render({ mode = 'server', channels = [], current = null, unread = new Map(), guest = false, loading = false, status = 'ready', online = 0, members = 0, me = null, meStatus = 'online',
-      canManage = false, dmNodes = null } = {}) {
-      if (mode === 'dms') {
+      canManage = false, canTools = false, dmNodes = null } = {}) {
+      if (mode === 'dms' || mode === 'friends') {
         head.replaceChildren(h('div', { class: 'cx-srv-in' }, h('h2', { class: 'cx-srv-name', text: 'Direct messages' }),
           h('p', { class: 'cx-srv-sub', text: 'Private chats and groups' })));
         head.className = 'cx-srv dms';
@@ -47,6 +47,7 @@ export function mountChannels(el, { onPick, onManage, onMe, onSettings } = {}) {
             guest ? 'Reading as a guest' : status !== 'ready' ? h('span', { class: 'cx-srv-wait', text: status === 'waking' ? 'Connecting…' : status === 'asleep' ? 'Napping' : 'Offline' })
               : h('span', { class: 'cx-srv-on' }, h('i', { 'aria-hidden': 'true' }), online + ' online'),
             !guest && members ? h('span', { class: 'cx-srv-all', text: members + ' members' }) : null)),
+          canTools ? h('button', { type: 'button', class: 'cx-iconbtn cx-srv-tools', title: 'Server tools', 'aria-label': 'Server tools', 'aria-haspopup': 'menu', onclick: (e) => onTools && onTools(e.currentTarget) }, icon('sparkle')) : null,
           canManage ? h('button', { type: 'button', class: 'cx-iconbtn cx-srv-gear', title: 'Manage channels', 'aria-label': 'Manage channels', onclick: () => onManage && onManage() }, icon('gear')) : null].filter(Boolean));
         if (loading) {
           list.replaceChildren(h('div', { class: 'cx-cat', text: 'Channels' }),

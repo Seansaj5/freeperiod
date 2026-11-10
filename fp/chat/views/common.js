@@ -106,7 +106,7 @@ export function roleOf(p) {
 }
 export function roleMark(p) {
   const r = roleOf(p);
-  if (!r) return null;
+  if (!r) return p && p.is_bot ? h('span', { class: 'cx-role bot', title: 'Bot', role: 'img', 'aria-label': 'Bot', text: 'BOT' }) : null;
   return h('span', { class: 'cx-role ' + r, title: r === 'owner' ? 'Owner' : 'Mod', role: 'img', 'aria-label': r === 'owner' ? 'Owner' : 'Mod' },
     icon(r === 'owner' ? 'crown' : 'shield'));
 }

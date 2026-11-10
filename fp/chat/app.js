@@ -14,8 +14,12 @@ import { mountChannels } from './views/channels.js';
 import { mountMessages } from './views/messages.js';
 import { mountComposer } from './views/composer.js';
 import { mountMembers } from './views/members.js';
-import { icon, bellLogo, nameOf, avatar, closeMenu, timeoutText } from './views/common.js';
-import { messageTools, openMemberMenu, openChannelManager } from './views/mod.js';
+import { icon, bellLogo, nameOf, avatar, closeMenu, openMenu, timeoutText } from './views/common.js';
+import { messageTools, openMemberMenu, openChannelManager, openHallpassTools } from './views/mod.js';
+import { mountFriends } from './views/friends.js';
+import { mountHelp } from './views/help.js';
+import { openEmojiManager } from './views/emoji-admin.js';
+import { setEmoji, applyEmojiChange, onEmoji } from './emoji.js';
 import { dmListNodes, dmTitle, dmOthers, groupIcon, openPeoplePicker, confirmLeave } from './views/dms.js';
 import { openProfileCard, refreshProfileCard, closeProfileCard } from './views/profile-card.js';
 import { openProfileEditor } from './views/profile-editor.js';
@@ -56,7 +60,8 @@ export function mountChatApp(root, { compact = false } = {}) {
   const typingEl = h('div', { class: 'cx-typing', 'aria-live': 'polite' });
   const compEl = h('div');
   const membersEl = h('aside');
-  const main = h('section', { class: 'cx-main', 'aria-label': 'Messages' }, headEl, feedEl, h('div', { class: 'cx-bottom' }, typingEl, compEl));
+  const helpEl = h('div');
+  const main = h('section', { class: 'cx-main', 'aria-label': 'Messages' }, headEl, feedEl, h('div', { class: 'cx-bottom' }, helpEl, typingEl, compEl));
   const navEl = h('div', { class: 'cx-nav' }, railEl, sideEl);
   const scrim = h('div', { class: 'cx-scrim', onclick: () => setMembers(false) });
   const shell = h('div', { class: 'cx-shell' }, navEl, main, scrim, membersEl);
@@ -91,6 +96,10 @@ export function mountChatApp(root, { compact = false } = {}) {
   let panel = 'chat';
   let membersOpen = store.get(MEMBERS_KEY) !== '0';
   let muteTimer = 0;
+  let friendRows = [];         // listFriends(): { other, profile, status, incoming }
+  let friendTimer = 0;
+  let faq = [];                // Hallpass FAQ (everyone reads)
+  let aiOn = false;            // bot_settings.ai_on
 
   const myId = () => (chatMe() && chatMe().id) || '';
   const myProfile = () => byId.get(myId()) || (chatMe() ? { id: myId(), username: chatMe().username } : null);
@@ -131,6 +140,8 @@ export function mountChatApp(root, { compact = false } = {}) {
       toast(on ? 'Blocked ' + nameOf(p) : 'Unblocked ' + nameOf(p));
     },
     editProfile: () => openEditor(),
+    friendState: (id) => friendState(id),
+    friend: (p, act) => friendAct(p, act),
     memberMenu: (anchor, p) => openMemberMenu(anchor, live(p), modCx),
   };
   const editorCx = {
@@ -146,8 +157,8 @@ export function mountChatApp(root, { compact = false } = {}) {
   function openEditor(opts) { if (st === 'ready') openProfileEditor(editorCx, opts); }
 
   // ---------- views ----------
-  const rail = mountRail(railEl, { homeLink: !compact, onServer: () => setMode('server'), onDMs: () => setMode('dms') });
-  const side = mountChannels(sideEl, { onPick: (c) => openChannel(c, true), onManage: () => openChannelManager(modCx), onMe: (anchor) => openCard(myProfile(), anchor), onSettings: () => openEditor() });
+  const rail = mountRail(railEl, { homeLink: !compact, onServer: () => setMode('server'), onDMs: () => setMode('dms'), onFriends: () => setMode('friends') });
+  const side = mountChannels(sideEl, { onPick: (c) => openChannel(c, true), onManage: () => openChannelManager(modCx), onTools: (anchor) => openServerTools(anchor), onMe: (anchor) => openCard(myProfile(), anchor), onSettings: () => openEditor() });
   const memberList = mountMembers(membersEl, { onBack: () => goBack(), onPick: (p, anchor) => openCard(p, anchor), onMenu: (p, anchor) => (isStaff() ? openMemberMenu(anchor, live(p), modCx) : false) });
   const messages = mountMessages(feedEl, {
     me: () => (chatMe() ? { id: myId(), username: chatMe().username } : null),
@@ -163,6 +174,26 @@ export function mountChatApp(root, { compact = false } = {}) {
     extraTools: (m, helpers) => (st === 'ready' ? messageTools(m, helpers, modCx) : []),
   });
   const composer = mountComposer(compEl, { onSend: send, onTyping: pingTyping, onLogin: openLogin });
+  const friendsView = mountFriends({
+    rows: () => friendRows,
+    online: () => online,
+    live: (p) => live(p),
+    request: async (name) => { try { return await data.friendRequest(name); } catch (e) { throw { shown: e && e.code === 'not_allowed' ? 'No one with that username can be added' : errText(e) }; } },
+    respond: async (id, accept) => { try { await data.friendRespond(id, accept); } catch (e) { throw { shown: errText(e) }; } },
+    remove: async (id) => { try { await data.friendRemove(id); } catch (e) { throw { shown: errText(e) }; } },
+    message: async (p) => { try { await startDMWith(p); } catch (e) { throw { shown: errText(e) }; } },
+    openCard: (p, anchor) => openCard(p, anchor),
+    refresh: () => loadFriends(),
+  });
+  const help = mountHelp(helpEl, {
+    faq: () => faq,
+    aiOn: () => aiOn,
+    refresh: () => refreshHelp(),
+    bot: () => members.find((p) => p.is_bot) || null,
+    askAI: (q) => sendNow({ body: q, files: [] }),
+  });
+  const offEmoji = onEmoji(() => { viewVersion++; messages.repaint(); });
+
 
   // ---------- layout: wide (rail + channels + chat + members), mid (members as a drawer), narrow (one panel) ----------
   function setLayout(w) {
@@ -176,7 +207,7 @@ export function mountChatApp(root, { compact = false } = {}) {
   }
   function drawPanels() {
     root.dataset.panel = layout === 'narrow' ? panel : '';
-    const showMembers = (st === 'ready' || st === 'waking') && (layout === 'narrow' ? panel === 'members' : membersOpen) && !(mode === 'dms' && !curDM);
+    const showMembers = (st === 'ready' || st === 'waking') && (layout === 'narrow' ? panel === 'members' : membersOpen) && mode !== 'friends' && !(mode === 'dms' && !curDM);
     root.classList.toggle('members-open', showMembers);
     membersBtn.setAttribute('aria-pressed', showMembers ? 'true' : 'false');
   }
@@ -216,7 +247,12 @@ export function mountChatApp(root, { compact = false } = {}) {
   function drawHead() {
     headPic.hidden = true; addBtn.hidden = true; headLock.hidden = true;
     backBtn.setAttribute('aria-label', mode === 'dms' ? 'Back to DMs' : 'Back to channels');
-    if (mode === 'dms') {
+    if (mode === 'friends') {
+      headEmoji.textContent = '';
+      headName.textContent = 'Friends';
+      const n = friendRows.filter((r) => r.status === 'accepted' && online.has(r.profile.id)).length;
+      headTopic.textContent = n ? n + ' online now' : '';
+    } else if (mode === 'dms') {
       const dm = curDMObj();
       headEmoji.textContent = '';
       if (!dm) { headName.textContent = 'Direct messages'; headTopic.textContent = ''; }
@@ -232,8 +268,9 @@ export function mountChatApp(root, { compact = false } = {}) {
       }
     } else if (cur) { headEmoji.textContent = cur.emoji || '#'; headName.textContent = cur.name; headLock.hidden = !cur.owner_only; headTopic.textContent = cur.topic || ''; }
     else { headEmoji.textContent = ''; headName.textContent = st === 'waking' ? 'Connecting…' : st === 'off' ? '' : 'Free Period'; headTopic.textContent = ''; }
-    membersBtn.hidden = guest() || st !== 'ready' || (mode === 'dms' && !curDM);
+    membersBtn.hidden = guest() || st !== 'ready' || mode === 'friends' || (mode === 'dms' && !curDM);
     const dm = mode === 'dms' ? curDMObj() : null;
+    drawHelp();
     membersBtn.lastChild.textContent = dm ? String((dm.members || []).length) : online.size ? String(online.size) : '';
   }
 
@@ -286,17 +323,19 @@ export function mountChatApp(root, { compact = false } = {}) {
     return { unread: u, mentions: m, dms: d };
   }
   function drawSide() {
-    const dmNodes = mode === 'dms' ? dmListNodes({ dms, current: curDM, unread, myId: myId(), online, profile: (id) => byId.get(id), isBlocked: (id) => blocked.has(id),
+    const dmNodes = mode === 'dms' || mode === 'friends' ? dmListNodes({ dms, current: mode === 'dms' ? curDM : null, unread, myId: myId(), online, profile: (id) => byId.get(id), isBlocked: (id) => blocked.has(id),
       onPick: (dm) => openDM(dm, true), onNew: () => newDM(), onNewGroup: () => newGroup() }) : null;
     side.render({ mode, channels, current: cur && cur.id, unread, guest: guest(), loading: loading || (st !== 'ready' && st !== 'guest'), status: st,
       online: online.size, members: members.length, me: st === 'ready' ? myProfile() : null, meStatus: conn === 'live' ? 'online' : 'away',
-      canManage: st === 'ready' && myRole() === 'owner', dmNodes });
+      canManage: st === 'ready' && myRole() === 'owner', canTools: st === 'ready' && isStaff(), dmNodes });
     rail.setActive(mode);
     const t = totals();
-    rail.setBadges({ server: mode === 'server' ? { dot: false, text: '' } : badge(t), dms: badge({ unread: t.dms, mentions: t.dms }) });
+    rail.setBadges({ server: mode === 'server' ? { dot: false, text: '' } : badge(t), dms: badge({ unread: t.dms, mentions: t.dms }),
+      friends: { dot: false, text: friendRows.filter((r) => r.incoming).length ? String(friendRows.filter((r) => r.incoming).length) : '' } });
     if (!compact) document.title = tabTitle(BASE_TITLE, t.mentions + t.dms);
   }
   function drawMembers() {
+    if (mode === 'friends') return;
     if (st === 'waking') { memberList.render({ loading: true }); return; }
     if (st !== 'ready') return;
     const dm = mode === 'dms' ? curDMObj() : null;
@@ -335,6 +374,8 @@ export function mountChatApp(root, { compact = false } = {}) {
     if (st === 'ready' && muted()) muteTimer = setInterval(() => { setComposer(); if (!muted()) { clearInterval(muteTimer); muteTimer = 0; messages.repaint(); } }, 15000);
   }
   function setComposer() {
+    compEl.hidden = mode === 'friends';
+    if (mode === 'friends') { composer.setTarget('none', { placeholder: '', mode: 'wait' }); return; }
     if (mode === 'dms') {
       const dm = curDMObj();
       const key = dm ? 'd:' + dm.id : 'none';
@@ -388,6 +429,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     return p;
   }
   function setMode(m) {
+    if (m === 'friends') { openFriends(); return; }
     if (m === 'server') { if (mode !== 'server' || !cur) openChannel(cur || pickStart(), true); else if (layout === 'narrow') setPanel('nav'); return; }
     if (mode === 'dms' && layout === 'narrow') { setPanel('nav'); return; }
     const dm = curDMObj();
@@ -396,6 +438,15 @@ export function mountChatApp(root, { compact = false } = {}) {
     curDM = null;
     dmHome();
     if (layout === 'narrow') setPanel('nav');
+  }
+  function openFriends() {
+    mode = 'friends';
+    drawSide(); drawHead(); setComposer(); drawMembers(); drawPanels();
+    switchTyping(null);
+    friendsView.draw();
+    messages.waiting(friendsView.el);
+    loadFriends();
+    if (layout === 'narrow') setPanel('chat');
   }
   function dmHome() {
     drawSide(); drawHead(); setComposer(); drawMembers(); drawPanels();
@@ -554,6 +605,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     viewVersion++;
     messages.repaint();
     drawSide(); setComposer();
+    if (on) loadFriends(); // blocking ends a friendship
     refreshProfileCard(byId.get(id));
   }
   function mergeProfile(row) {
@@ -572,8 +624,68 @@ export function mountChatApp(root, { compact = false } = {}) {
     refreshProfileCard(next);
   }
 
+  // ---------- emoji, friends, Hallpass ----------
+  async function loadEmoji() {
+    const g = gen;
+    try { const rows = await data.listEmoji(); if (g === gen) setEmoji(rows); } catch { /* chat works without the emoji list */ }
+  }
+  async function loadFriends() {
+    if (st !== 'ready') return;
+    const g = gen;
+    try {
+      const rows = await data.listFriends();
+      if (g !== gen) return;
+      friendRows = (Array.isArray(rows) ? rows : []).filter((r) => r && r.profile && r.profile.id);
+      if (mode === 'friends') { friendsView.draw(); drawHead(); }
+      drawSide();
+    } catch { /* the page keeps what it had */ }
+  }
+  function friendState(id) {
+    const r = friendRows.find((x) => x.profile.id === id);
+    return !r ? 'none' : r.status === 'accepted' ? 'friends' : r.incoming ? 'in' : 'out';
+  }
+  async function friendAct(p, act) {
+    try {
+      if (act === 'add') { const res = await data.friendRequest(p.username); toast(res === 'accepted' ? 'You and ' + nameOf(p) + ' are friends' : 'Friend request sent to ' + nameOf(p)); }
+      else if (act === 'accept') { await data.friendRespond(p.id, true); toast('You and ' + nameOf(p) + ' are friends'); }
+      else { await data.friendRemove(p.id); toast(friendState(p.id) === 'out' ? 'Request cancelled' : nameOf(p) + ' was removed'); }
+    } catch (e) { throw { shown: e && e.code === 'not_allowed' ? 'You can’t add them as a friend' : errText(e) }; }
+    await loadFriends();
+  }
+  async function refreshHelp() {
+    const [f, s] = await Promise.all([data.listFaq(), data.getBotSettings()]);
+    faq = Array.isArray(f) ? f : [];
+    aiOn = !!(s && s.ai_on);
+    return { faq, aiOn };
+  }
+  // The open conversation is a help one: the #help channel, or a 1:1 DM with a bot.
+  function helpKey() {
+    if (st !== 'ready') return null;
+    if (mode === 'server' && cur && cur.name === 'help') return 'c:' + cur.id;
+    if (mode === 'dms') {
+      const dm = curDMObj();
+      if (dm && !dm.is_group && dmOthers(dm, myId()).some((p) => (live(p) || {}).is_bot)) return 'd:' + dm.id;
+    }
+    return null;
+  }
+  function drawHelp() { help.setTarget(helpKey()); }
+  function openServerTools(anchor) {
+    const items = [{ label: 'Server emoji', icon: 'react', note: 'Upload up to 50', onClick: () => openEmojiManager({ reloadEmoji: loadEmoji }) }];
+    if (myRole() === 'owner') items.push({ label: 'Hallpass helper', icon: 'sparkle', note: 'AI switch and FAQ', onClick: async () => { try { await refreshHelp(); } catch { /* the sheet shows its own errors */ } openHallpassTools({ faq: () => faq, reloadFaq: () => refreshHelp().then(() => help.redraw()) }); } });
+    openMenu(anchor, items, { label: 'Server tools' });
+  }
+
   // ---------- sending ----------
-  function send({ body, files, replyTo, reply }) {
+  // In #help and in a DM with Hallpass a typed question goes to the FAQ first: an answer card only the asker sees, and a
+  // message is posted (for the AI to answer) only when nothing matched and AI answers are on.
+  function send(opts) {
+    if (st === 'ready' && helpKey() && opts.body && opts.body.trim() && !(opts.files && opts.files.length) && !opts.replyTo) {
+      help.ask(opts.body.trim()).then((r) => { if (r === 'send') sendNow(opts); }, () => sendNow(opts));
+      return true;
+    }
+    return sendNow(opts);
+  }
+  function sendNow({ body, files, replyTo, reply }) {
     if (st !== 'ready') return false;
     let target;
     if (mode === 'dms' && curDM) target = { dm: curDM };
@@ -610,6 +722,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     if (serverOff) { try { serverOff(); } catch { /* ignore */ } serverOff = null; }
     if (presenceH) { try { presenceH.stop(); } catch { /* ignore */ } presenceH = null; }
     clearInterval(muteTimer); muteTimer = 0;
+    clearInterval(friendTimer); friendTimer = 0;
     switchTyping(null);
     closeProfileCard(); closeMenu();
   }
@@ -684,6 +797,7 @@ export function mountChatApp(root, { compact = false } = {}) {
           if (st === 'guest') list = list.filter((c) => c.owner_only);
           setChannels(list);
         },
+        emoji: (ev) => applyEmojiChange(ev),
         dmMember: (ev) => {
           if (!ev || st !== 'ready') return;
           if (ev.user_id === myId() || dms.some((d) => d.id === ev.dm_id)) { clearTimeout(dmReload); dmReload = setTimeout(() => loadDMs(), 120); }
@@ -704,6 +818,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     const dropped = messages.reset(uid); // unsent messages of this account stay (Retry / Discard); anyone else's are cancelled
     if (dropped) toast(dropped === 1 ? 'An unsent message was dropped because the account changed.' : dropped + ' unsent messages were dropped because the account changed.', 'err');
     unread.clear(); online = new Set(); blocked = new Set(); setMembersList([]);
+    friendRows = []; faq = []; aiOn = false;
     channels = []; cur = null; dms = []; curDM = null; mode = 'server';
     loading = true;
     drawSide(); drawHead(); setComposer(); drawMembers();
@@ -740,6 +855,8 @@ export function mountChatApp(root, { compact = false } = {}) {
     for (const c of channels) subscribeTarget({ channel: c.id });
     for (const d of dms) subscribeTarget({ dm: d.id });
     liveServer();
+    loadEmoji();
+    if (st === 'ready') { loadFriends(); friendTimer = setInterval(() => { if (!document.hidden) loadFriends(); }, 45000); }
     if (st === 'ready' && typeof data.presence === 'function') {
       try { presenceH = data.presence({ onSync: (x) => { online = new Set(idsOf(x)); drawMembers(); drawSide(); drawHead(); } }); } catch { presenceH = null; }
     }
@@ -796,6 +913,7 @@ export function mountChatApp(root, { compact = false } = {}) {
 
   const offState = onChatState((s) => applyState(s));
   const onVis = () => {
+    if (!document.hidden && st === 'ready' && mode === 'friends') loadFriends();
     if (document.hidden || !messages.atBottom()) return;
     if (cur && mode === 'server') markRead({ channel: cur.id });
     else if (curDM && mode === 'dms') markRead({ dm: curDM });
@@ -828,6 +946,7 @@ export function mountChatApp(root, { compact = false } = {}) {
       if (!compact) removeEventListener('popstate', onPop);
       document.removeEventListener('visibilitychange', onVis);
       clearTimeout(dmReload);
+      offEmoji();
       root.replaceChildren();
     },
   };
