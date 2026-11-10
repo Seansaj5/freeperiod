@@ -435,7 +435,8 @@ export function mountMessages(el, ctx) {
     const more = h('button', { type: 'button', class: 'cx-tool', title: 'Add a reaction', 'aria-label': 'Add a reaction', 'aria-haspopup': 'dialog' }, icon('react'));
     more.addEventListener('click', () => openEmojiPicker(more, { label: 'React', onPick: (e) => toggleReact(m, e, true) }));
     bar.append(h('span', { class: 'cx-tools-sep', 'aria-hidden': 'true' }), more,
-      h('button', { type: 'button', class: 'cx-tool', title: 'Reply', 'aria-label': 'Reply', onclick: () => ctx.onReply && ctx.onReply(m) }, icon('reply')));
+      // Rows that arrived live carry only author_id: hand the composer the author we know, so the chip names them.
+      h('button', { type: 'button', class: 'cx-tool', title: 'Reply', 'aria-label': 'Reply', onclick: () => ctx.onReply && ctx.onReply({ ...m, author: authorOf(m) }) }, icon('reply')));
     if (mine) {
       if (m.body) bar.append(h('button', { type: 'button', class: 'cx-tool', title: 'Edit', 'aria-label': 'Edit', onclick: () => { editing = m.id; m._v++; repaintRow(m); } }, icon('edit')));
       bar.append(h('button', { type: 'button', class: 'cx-tool danger', title: 'Delete', 'aria-label': 'Delete', onclick: () => confirmDelete(m) }, icon('trash')));
