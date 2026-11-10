@@ -77,10 +77,37 @@ test('reencode scales down when the blob is over the cap, then succeeds', async 
   assert.ok(cv.at(-1).w < cv[0].w);
   cleanup();
 });
-test('reencode accepts a PNG fallback for chat pictures that fits, not for avatars', async () => {
-  fakeEnv(() => ({ type: 'image/png', size: 100 }));
+// Safari: a canvas asked for WebP hands back PNG. Pictures then go as PNG, or JPEG when the PNG is too big.
+const safari = (pngSize) => (c, o) => (o.type === 'image/jpeg' ? { type: 'image/jpeg', size: 200 } : { type: 'image/png', size: pngSize(c) });
+const avatarPlan = { ...chatPlan, kind: 'avatar', fit: 'cover', maxW: 512, maxH: 512, cap: 8 * MB };
+test('no WebP encoder (Safari): chat pictures, avatars, banners and emoji go as PNG when it fits', async () => {
+  fakeEnv(safari(() => 100));
   assert.equal((await reencode({}, chatPlan)).type, 'image/png');
-  await assert.rejects(reencode({}, { ...chatPlan, kind: 'avatar', fit: 'cover', maxW: 512, maxH: 512, cap: 8 * MB }), /can't|cannot|convert/i);
+  assert.equal((await reencode({}, avatarPlan)).type, 'image/png', 'avatars no longer fail without WebP');
+  assert.equal((await reencode({}, { ...chatPlan, kind: 'emoji', maxW: 128, maxH: 128, cap: 8 * MB })).type, 'image/png');
+  cleanup();
+});
+test('no WebP encoder: a PNG over the cap falls back to JPEG on a solid background', async () => {
+  const fills = [];
+  globalThis.createImageBitmap = async () => ({ width: 2000, height: 1000, close() {} });
+  globalThis.OffscreenCanvas = function (w, h) {
+    const g = { drawImage() {}, fillRect: (...a) => fills.push(a), fillStyle: '' };
+    return { w, h, getContext: () => g, convertToBlob: async (o) => safari(() => 9 * MB)({ w }, o) };
+  };
+  const b = await reencode({}, chatPlan);
+  assert.equal(b.type, 'image/jpeg'); assert.ok(fills.length >= 1, 'JPEG gets a background so transparency is not black');
+  cleanup();
+});
+test('a browser that can encode none of the formats gets a readable error', async () => {
+  fakeEnv(() => ({ type: 'image/bmp', size: 100 }));
+  await assert.rejects(reencode({}, avatarPlan), /can't convert pictures/i);
+  cleanup();
+});
+test('WebP browsers never fall back to PNG/JPEG (smallest files)', async () => {
+  const types = [];
+  fakeEnv((c, o) => { types.push(o.type); return { type: o.type, size: o.type === 'image/webp' ? 1 * MB : 100 }; });
+  assert.equal((await reencode({}, chatPlan)).type, 'image/webp');
+  assert.deepEqual([...new Set(types)], ['image/webp']);
   cleanup();
 });
 test('reencode gives up with a readable error', async () => {
