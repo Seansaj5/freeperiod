@@ -191,3 +191,24 @@
 
 - [ ] Extend `chat.e2e.mjs`: flair saves and renders for another viewer; emoji upload + use; friend request flow; friends-only DM refused then allowed after accepting. Run all (Phase 1 + 2) scenarios.
 - [ ] Ship like Task 12 (apply `0003_flair.sql` to live first; Bing Ball unchanged unless needed; hub push; live check); remove worktrees; update memory notes; stop everything.
+
+## Phase 3: Helper bot "Hallpass" (spec section 9)
+
+### Task 17: Bot schema, FAQ and hub FAQ answers
+
+**Files:** Create `supabase/migrations/0004_bot.sql` (bing-ball-chat); `fp/chat/faq.js` (`matchFaq(question: string, faq: Faq[]) -> { item: Faq, score: number } | null`, threshold 0.5, keyword + word-overlap score), `fp/chat/views/help.js` (quick-pick buttons, asker-only answer card, "Ask Hallpass AI instead"); owner FAQ editor + AI switch in `views/mod.js`; test `tests/chat-faq.test.mjs`; extend `policies.test.mjs`.
+
+**Interfaces:** `profiles.is_bot` (server-only column); bot profile `hallpass` created by the migration through the admin API step in `apply.mjs`; `faq(id, question <= 120, answer <= 1000, keywords text[], position)` (everyone reads, owner writes); `bot_settings(id = 1, ai_on bool, extra_instructions <= 1000)` (everyone reads ai_on, owner writes); `bot_usage(day date, user_id, count)` (service role only); channel `help` 🤖 added after `horror-exe`; `start_dm` allows DMing the bot regardless of its dm_policy.
+- [ ] Tests first: matchFaq ("how do i log in" -> the login entry; "my close call cars are gone" -> the saves entry; "what is 2+2" -> null); policies (member edits faq -> denied; owner -> ok; member reads bot_usage -> none). Seed ~15 FAQ entries (spec section 9 topics; answers short, accurate to the live site). Build the help views. Commit "Chat: Hallpass FAQ".
+
+### Task 18: Hallpass Edge Function (Claude)
+
+**Files:** Create `supabase/functions/hallpass/index.ts` (Deno; `npm:@anthropic-ai/sdk` pinned), `supabase/functions/hallpass/prompt.ts` (builds the stable system prompt from game info + FAQ + extra instructions, deterministic order), database webhook in `supabase/migrations/0005_bot_webhook.sql`; test `<scratchpad>/chattest/hallpass.test.mjs` (function served locally with `supabase functions serve` or invoked with a fake Anthropic client via an injected `createClient` seam).
+
+- [ ] Behavior: ignore bot-authored messages and anything outside `help` / bot DMs / `@hallpass`; FAQ match first (same algorithm as `fp/chat/faq.js`, shared copy with a comment) -> post the canned answer; else if `ai_on` and `ANTHROPIC_API_KEY` set and caps allow (10/person/hour, 200/day) -> `client.beta.messages.create({ model: 'claude-opus-5-5', max_tokens: 2000, output_config: { effort: 'low' }, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }], messages })`, check `stop_reason` (refusal -> friendly "I can't help with that one"), post the text reply as the bot (reply_to the question); key missing -> "AI answers aren't on yet"; cap hit -> "I've answered a lot today — try the questions above or ask again tomorrow"; Anthropic error -> "I'm having trouble, try again in a bit" (typed SDK errors, no string matching). Log usage tokens (incl. `cache_read_input_tokens`) to `bot_usage`.
+- [ ] Tests with the fake client: canned path makes no Claude call; caps; refusal; missing key; system prompt byte-identical across two questions (cache-safe). Deploy to the TEST project (`supabase functions deploy hallpass --project-ref <test>`); one real end-to-end question only if a test key is available (otherwise fake). Commit "Chat: Hallpass answers with Claude".
+
+### Task 19: Phase 3 end-to-end and ship
+
+- [ ] e2e: quick-pick answer appears instantly for the asker only; typed FAQ question answered; non-FAQ question with AI off -> "AI answers aren't on yet"; owner edits an FAQ entry and toggles AI; bot DM works for a member who has friends-only DMs.
+- [ ] Ship: apply 0004/0005 and deploy the function to live; give Sean click-by-click steps for the Anthropic Console account, a monthly spend limit, the API key, and adding it in Supabase -> Edge Functions -> Secrets as `ANTHROPIC_API_KEY` (Claude never sees it); hub push; live check (FAQ answer as a guest-visible demo in `help`, AI reply after Sean adds the key).

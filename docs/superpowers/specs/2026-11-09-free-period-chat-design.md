@@ -123,3 +123,28 @@ Two phases, each shipped when done (Bing Ball first, then the hub, Sean already 
   name color, display name, pronouns).
 - Phase 2: Nitro-style extras (theme gradient, name fonts/gradient/glow, frames, effects, badges, game stats on the card), custom
   emoji, friends + friends-only DMs.
+
+## 9. Helper bot "Hallpass" (added 2026-11-09, Sean: "a special bot that helps you with stuff that I can connect Claude to, with pre-answered questions")
+- A bot member of the server (profile `is_bot`, username `hallpass`, bot badge; Sean can rename it). It lives in a new
+  `help` 🤖 channel, answers DMs, and answers `@hallpass` anywhere.
+- **Pre-answered questions (free, instant):** an `faq` table (question, answer, keywords, position) that the owner edits in
+  the owner tools. Seeded with ~15 answers (logging in, saves on other devices, Bing Ball "waking up", controls for each game,
+  suggestions, chat rules, block/report, how to become a mod, school wifi blocks). In `help` and in the bot DM, quick-pick
+  buttons list the questions; typing a question first matches the FAQ in the hub (keyword score) and shows the answer at once
+  as a card only the asker sees, with "Ask Hallpass AI instead" when AI is on.
+- **Claude (when Sean connects it):** a Supabase Edge Function `hallpass` (never naps, unlike the Bing Ball server) answers
+  questions the FAQ didn't cover, posting a real reply as the bot. Triggered by a database webhook on new messages in `help`,
+  in a DM with the bot, or mentioning `@hallpass`. Uses the official Anthropic TypeScript SDK (`@anthropic-ai/sdk`),
+  model `claude-opus-5-5` (the default; `claude-haiku-5-5` is ~20x cheaper if Sean picks it), `output_config.effort: "low"`,
+  `max_tokens: 2000`, server-side refusal fallback (`betas: ["server-side-fallback-2026-07-01"]`, `fallbacks: "default"`),
+  prompt caching on a stable system prompt (rules + game info + the FAQ; no timestamps or per-request data in it; check
+  `usage.cache_read_input_tokens`). Context: the question plus the asker's last few messages in that thread (<= 6).
+  System prompt: friendly, short (under ~80 words), about Free Period, its games, accounts and chat; brief friendly redirect
+  for unrelated requests; never asks for personal info or passwords; owner-editable extra instructions.
+- **Connecting:** Sean makes an Anthropic Console account (separate from a Claude subscription; prepaid credits), creates an
+  API key and adds it in the Supabase dashboard (Edge Functions -> Secrets) as `ANTHROPIC_API_KEY`; Claude never sees it.
+  Without the key Hallpass is FAQ-only and says "AI answers aren't on yet". Owner tools: AI on/off switch, today's usage.
+- **Spend caps:** 10 AI questions per person per hour, 200 AI answers per day for the whole server (`bot_usage` table, checked
+  in the function before calling Claude), plus a monthly spend limit Sean sets in the Anthropic Console. Rough cost: Opus 5.5
+  about $0.01 per answer (so the daily cap tops out near $2), Haiku 5.5 about $0.0006.
+- Ships as Phase 3, after Phase 2.
