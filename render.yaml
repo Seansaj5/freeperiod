@@ -16,3 +16,20 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+
+  # horror.exe multiplayer: the server runs each round with the game's shared code (games/horror-exe/shared)
+  - type: web
+    name: freeperiod-horror
+    runtime: node
+    plan: free
+    rootDir: games/horror-exe
+    buildCommand: cd server && npm install --omit=dev
+    startCommand: node server/index.js
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - games/horror-exe/server/**
+        - games/horror-exe/shared/**
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

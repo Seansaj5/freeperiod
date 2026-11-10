@@ -17,6 +17,12 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   Test locally: `node games/close-call/server/index.js` (port 8787) and open
   `games/close-call/?server=ws://localhost:8787`.
 
+- **horror.exe** lives in `games/horror-exe/`: survivors vs EXE in a cheerful zone gone wrong. The round rules,
+  map and bots are in `games/horror-exe/shared/` and run in the browser for solo games and on the server
+  (`games/horror-exe/server/`, Render service `freeperiod-horror`) for online rooms.
+  Test locally: `node games/horror-exe/server/index.js` (port 8790) and open `games/horror-exe/?server=ws://localhost:8790`.
+  Rule tests: `node --test games/horror-exe/test/`. Bot-only balance check: `node games/horror-exe/test/sim.mjs 40`.
+
 Shared libraries for games go in `lib/` (Three.js r170 is there, plus the post-processing addons it needs for bloom in `lib/addons/`, mapped as `three/addons/`).
 
 ## Files

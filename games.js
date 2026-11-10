@@ -53,4 +53,18 @@ window.GAMES = [
     saveKey: 'closecall.v1',
     added: '2026-11-07',
   },
+  {
+    id: 'horror-exe',
+    title: 'horror.exe',
+    tagline: 'A cheerful zone gone wrong. Absorb the shards, revive your friends and escape before EXE catches you.',
+    url: 'games/horror-exe/',
+    thumb: 'assets/horror-exe.jpg',
+    hero: 'assets/horror-exe-hero.jpg',
+    preview: 'assets/horror-exe.webm',
+    tags: ['3D', 'Multiplayer', 'Horror'],
+    controls: 'WASD move · Shift sprint · Space jump · E power · EXE: click attack, Q sense · Esc pause',
+    accent: '#ff2a3a',
+    saveKey: 'horrorexe.v1',
+    added: '2026-11-09',
+  },
 ];
