@@ -48,25 +48,27 @@ export async function openProfile() {
   const p = (pr.value && pr.value.profile) || {};
   const lvl = p.level && typeof p.level === 'object' ? p.level : null;
   const levelNum = lvl ? lvl.level : p.level;
-  const xpNow = num(lvl && (lvl.xp ?? lvl.into)) ?? null;
-  const xpNext = num(lvl && (lvl.next ?? lvl.need ?? lvl.xpNext ?? lvl.toNext));
-  let bar = null;
-  if (xpNow != null && xpNext) {
-    const pct = Math.max(0, Math.min(100, (xpNow / xpNext) * 100));
-    bar = h('div', { class: 'fp-xp', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(xpNext), 'aria-valuenow': String(xpNow), 'aria-label': 'XP' },
+  const into = num(lvl && lvl.into), need = num(lvl && lvl.need), prog = num(lvl && lvl.progress);
+  const maxed = !!lvl && (lvl.next == null || need === 0);
+  let bar = null, xpLabel = null;
+  if (lvl) {
+    const pct = Math.max(0, Math.min(100, (maxed ? 1 : prog != null ? prog : need ? (into || 0) / need : 0) * 100));
+    xpLabel = maxed ? 'MAX' : need ? `${fmt(into || 0)} / ${fmt(need)} XP` : null;
+    bar = h('div', { class: 'fp-xp', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(pct)), 'aria-label': 'XP to next level' },
       h('i', { style: `width:${pct}%` }));
   }
-  const streak = p.streak && typeof p.streak === 'object' ? (p.streak.count ?? p.streak.days ?? p.streak.current ?? p.streak.n) : p.streak;
+  const streak = p.streak && typeof p.streak === 'object' ? p.streak.count : p.streak;
   const me = lb.status === 'fulfilled' && lb.value ? lb.value.me : null;
   const ranked = me ? [me.r != null ? `${fmt(me.r)} rating` : null, me.tier || null, me.pos ? `#${me.pos}` : null].filter(Boolean).join(' · ') : '';
   fill(
     h('dl', { class: 'fp-stats' },
       stat('Level', levelNum != null ? levelNum : null),
-      stat('XP', p.xp != null ? fmt(p.xp) : null),
+      stat('Total XP', p.xp != null ? fmt(p.xp) : null),
       stat('Coins', fmt(p.coins)),
       stat('Styles', Array.isArray(p.styles) ? p.styles.length : null),
       stat('Streak', streak != null && num(streak) != null ? `${streak} day${num(streak) === 1 ? '' : 's'}` : null),
       stat('Ranked 1v1', ranked || null)),
     bar,
+    xpLabel ? h('p', { class: 'fp-note', text: xpLabel }) : null,
     lb.status === 'rejected' ? h('p', { class: 'fp-note', text: 'Ranked info unavailable right now.' }) : null);
 }
