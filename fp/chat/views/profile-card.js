@@ -113,7 +113,8 @@ export function closeProfileCard() { if (open) open.close(); }
 
 /**
  * Opens the card next to `anchor` (a bottom sheet on phones). cx: { me(), myId(), profile(id), online(), isBlocked(id),
- * isStaff(), message(profile) -> Promise, block(profile, on) -> Promise, editProfile(), memberMenu(anchor, profile) -> bool }
+ * isStaff(), message(profile) -> Promise, block(profile, on) -> Promise, editProfile(), memberMenu(anchor, profile) -> bool,
+ * friendState(id) -> 'none' | 'friends' | 'out' | 'in' (asked me), friend(profile, 'add' | 'accept' | 'remove') -> Promise }
  */
 export function openProfileCard(profile, anchor, cx) {
   if (open && open.uid === profile.id && open.anchor === anchor) { open.close(); return null; }
@@ -126,6 +127,24 @@ export function openProfileCard(profile, anchor, cx) {
   let p = cx.profile(profile.id) || profile;
   let busy = false;
 
+  // Add friend / Request sent (tap to cancel) / Accept / Friends (tap twice to remove). Hidden when blocked or the page has no friends.
+  function friendBtn() {
+    if (!cx.friendState || cx.isBlocked(p.id) || p.is_bot || p.banned) return null;
+    const s = cx.friendState(p.id);
+    const label = { none: 'Add friend', out: 'Request sent', in: 'Accept request', friends: 'Friends' }[s];
+    const b = h('button', { type: 'button', class: 'cx-btn ghost cx-pc-friend ' + s, title: s === 'out' ? 'Tap to cancel the request' : s === 'friends' ? 'Tap twice to remove this friend' : label }, icon(s === 'friends' ? 'check' : 'userPlus'), label);
+    let armed = 0;
+    b.addEventListener('click', async () => {
+      if (busy) return;
+      if (s === 'friends' && !armed) { b.lastChild.textContent = 'Tap again to remove'; armed = setTimeout(() => { armed = 0; b.lastChild.textContent = label; }, 3500); return; }
+      clearTimeout(armed); armed = 0;
+      busy = true; errEl.textContent = '';
+      try { await cx.friend(p, s === 'none' ? 'add' : s === 'in' ? 'accept' : 'remove'); card.update(p); }
+      catch (e) { errEl.textContent = (e && e.shown) || 'Couldn’t do that'; }
+      finally { busy = false; }
+    });
+    return b;
+  }
   function actions() {
     const me = cx.me();
     const box = h('div', { class: 'cx-pc-actions' });
@@ -151,7 +170,7 @@ export function openProfileCard(profile, anchor, cx) {
       catch (e) { errEl.textContent = (e && e.shown) || 'Couldn’t do that'; }
       finally { busy = false; }
     });
-    box.append(msg, blk);
+    box.append(msg, friendBtn(), blk);
     if (cx.isStaff()) {
       const mod = h('button', { type: 'button', class: 'cx-iconbtn cx-pc-mod-btn', title: 'Moderate', 'aria-label': 'Moderate ' + nameOf(p), 'aria-haspopup': 'menu' }, icon('dots'));
       mod.addEventListener('click', () => { if (!cx.memberMenu(mod, p)) errEl.textContent = 'There’s nothing you can change for ' + nameOf(p) + '.'; });

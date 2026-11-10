@@ -1,7 +1,10 @@
-// Emoji picker popover (bottom sheet on phones): search, categories, recents. Built-in list only, no network.
+// Emoji picker popover (bottom sheet on phones): search, categories, recents and, where it makes sense (the message box), the
+// server's own emoji in a Server tab. Built-in list plus the already-loaded server list, no network.
 import { h } from '../../ui.js';
 import { EMOJI_CATEGORIES } from '../emoji-data.js';
 import { icon, finePointer } from './common.js';
+import { customEmoji, emojiSrc } from '../emoji.js';
+import { renderTokens } from '../format.js';
 
 const RECENT_KEY = 'fp.chat.recentEmoji';
 function recent() {
@@ -20,7 +23,7 @@ let open = null; // { el, anchor, close }
 
 export function closeEmojiPicker() { if (open) open.close(); }
 
-export function openEmojiPicker(anchor, { onPick, label = 'Pick an emoji' } = {}) {
+export function openEmojiPicker(anchor, { onPick, label = 'Pick an emoji', custom = false } = {}) {
   if (open && open.anchor === anchor) { open.close(); return null; }
   if (open) open.close();
   const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 560px)').matches;
@@ -42,6 +45,19 @@ export function openEmojiPicker(anchor, { onPick, label = 'Pick an emoji' } = {}
       onfocus: () => { prevE.textContent = e; prevN.textContent = ':' + n.split(' ')[0] + ':'; },
       onclick: () => { remember(e); if (onPick) onPick(e); close(); } });
   }
+  // A server emoji is a picture; renderTokens only draws it from our storage origin (else the :name: text).
+  const serverImg = (e) => renderTokens([{ t: 'emoji', name: e.name, src: emojiSrc(e.path) }], document);
+  function customBtn(e) {
+    return h('button', { type: 'button', class: 'cx-pk-e cx-pk-custom', title: ':' + e.name + ':', 'aria-label': e.name, dataset: { emoji: e.name },
+      onmouseenter: () => { prevE.replaceChildren(serverImg(e)); prevN.textContent = ':' + e.name + ':'; },
+      onfocus: () => { prevE.replaceChildren(serverImg(e)); prevN.textContent = ':' + e.name + ':'; },
+      onclick: () => { if (onPick) onPick(':' + e.name + ':'); close(); } }, serverImg(e));
+  }
+  function customSection(items, title = 'Server emoji') {
+    const sec = h('section', { class: 'cx-pk-sec', dataset: { cat: 'server' } }, h('h4', { text: title }), h('div', { class: 'cx-pk-grid' }, items.map(customBtn)));
+    sections.push(sec);
+    return sec;
+  }
   function section(id, title, items) {
     const sec = h('section', { class: 'cx-pk-sec', dataset: { cat: id } }, h('h4', { text: title }),
       h('div', { class: 'cx-pk-grid' }, items.map((it) => btn(it.e, it.n))));
@@ -52,12 +68,14 @@ export function openEmojiPicker(anchor, { onPick, label = 'Pick an emoji' } = {}
     sections.length = 0;
     const rec = recent().map((e) => ({ e, n: lookup(e) || 'emoji' }));
     const kids = [];
+    const mine = custom ? customEmoji() : [];
+    if (mine.length) kids.push(customSection(mine));
     if (rec.length) kids.push(section('recent', 'Recently used', rec));
     for (const c of EMOJI_CATEGORIES) kids.push(section(c.id, c.label, c.items));
     body.replaceChildren(...kids);
-    tabs.replaceChildren(...[rec.length ? { id: 'recent', icon: '🕘', label: 'Recently used' } : null, ...EMOJI_CATEGORIES].filter(Boolean).map((c) =>
-      h('button', { type: 'button', role: 'tab', class: 'cx-pk-tab', 'aria-label': c.label, title: c.label, text: c.icon, dataset: { cat: c.id },
-        onclick: () => { const s = sections.find((x) => x.dataset.cat === c.id); if (s) body.scrollTop = s.offsetTop - body.offsetTop - 4; } })));
+    tabs.replaceChildren(...[mine.length ? { id: 'server', icon: '', label: 'Server', first: mine[0] } : null, rec.length ? { id: 'recent', icon: '🕘', label: 'Recently used' } : null, ...EMOJI_CATEGORIES].filter(Boolean).map((c) =>
+      h('button', { type: 'button', role: 'tab', class: 'cx-pk-tab' + (c.first ? ' server' : ''), 'aria-label': c.label, title: c.label, dataset: { cat: c.id },
+        onclick: () => { const s = sections.find((x) => x.dataset.cat === c.id); if (s) body.scrollTop = s.offsetTop - body.offsetTop - 4; } }, c.first ? serverImg(c.first) : c.icon)));
     markTab();
   }
   function markTab() {
@@ -76,9 +94,11 @@ export function openEmojiPicker(anchor, { onPick, label = 'Pick an emoji' } = {}
       const n = it.n.toLowerCase();
       if (words.every((w) => n.split(' ').some((x) => x.startsWith(w)) || n.includes(w))) { seen.add(it.e); hits.push(it); }
     }
+    const mineHits = custom ? customEmoji().filter((e) => words.every((w) => e.name.includes(w))) : [];
     tabs.hidden = true;
     sections.length = 0;
-    body.replaceChildren(hits.length ? section('results', hits.length + ' found', hits) : h('p', { class: 'cx-pk-none', text: 'No emoji match "' + search.value.trim() + '"' }));
+    const found = hits.length + mineHits.length;
+    body.replaceChildren(...(found ? [mineHits.length ? customSection(mineHits, 'Server emoji') : null, hits.length ? section('results', hits.length + ' found', hits) : null].filter(Boolean) : [h('p', { class: 'cx-pk-none', text: 'No emoji match "' + search.value.trim() + '"' })]));
     body.scrollTop = 0;
   });
   search.addEventListener('keydown', (e) => {

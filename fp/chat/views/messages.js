@@ -3,6 +3,7 @@
 // Message bodies go through format.js (tokens -> DOM); nothing here uses innerHTML.
 import { h, openSheet, toast } from '../../ui.js';
 import { parseMessage, renderTokens, mentionsMe } from '../format.js';
+import { emojiMap } from '../emoji.js';
 import { loadMessages, react as sendReact, editMessage, deleteMessage, pin as pinMessage, retrySend, discardSend, chatError as dataError } from '../data.js';
 import { QUICK_REACTIONS, emojiName } from '../emoji-data.js';
 import { stopFrames, icon, avatar, nameEl, nameOf, roleMark, badgeMarks, hotOnHover, timeShort, fullStamp, dayKey, dayLabel, mediaSrc, finePointer } from './common.js';
@@ -296,7 +297,7 @@ export function mountMessages(el, ctx) {
     if (editing === m.id) return editBox(m);
     const body = h('div', { class: 'cx-body' });
     if (m.body) {
-      body.append(renderTokens(parseMessage(m.body, { users: ctx.usernames(), me: me().username || '' }), document));
+      body.append(renderTokens(parseMessage(m.body, { users: ctx.usernames(), me: me().username || '', emoji: emojiMap() }), document));
       const plain = m.body.trim();
       if (plain.length <= 24 && JUMBO.test(plain) && [...plain.replace(/\s/g, '')].length <= 12) body.classList.add('jumbo');
     }

@@ -124,6 +124,7 @@ export function mountComposer(el, { onSend, onTyping, onLogin } = {}) {
   file.addEventListener('change', () => { addFiles(file.files); file.value = ''; });
   emojiBtn.addEventListener('click', () => openEmojiPicker(emojiBtn, {
     label: 'Add an emoji to your message',
+    custom: true,
     onPick: (e) => {
       const s = ta.selectionStart ?? ta.value.length, en = ta.selectionEnd ?? ta.value.length;
       ta.value = ta.value.slice(0, s) + e + ta.value.slice(en);

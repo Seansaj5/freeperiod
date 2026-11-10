@@ -17,7 +17,7 @@ const errText = (e) => { try { return data.chatError(e) || 'Something went wrong
 const SWATCHES = ['#c6ff3d', '#3de0ff', '#ffb020', '#62ff8f', '#ffd84a', '#ff7a3d', '#9ee7ff', '#f3f6ff'];
 const THEMES = [['#16361f', '#0b1e33', 'Lime night'], ['#0b2b3d', '#071322', 'Deep sea'], ['#3a1408', '#120a0a', 'Ember'], ['#0f3a2c', '#06140f', 'Forest'],
   ['#3a2a06', '#140d03', 'Gold'], ['#12304a', '#0a1420', 'Ice'], ['#1d2433', '#0a0d14', 'Slate']];
-const TABS = [['profile', 'Profile'], ['style', 'Style'], ['frame', 'Frame'], ['effect', 'Effect'], ['blocked', 'Blocked']];
+const TABS = [['profile', 'Profile'], ['style', 'Style'], ['frame', 'Frame'], ['effect', 'Effect'], ['blocked', 'Privacy']];
 
 /** cx: { me(), blockedProfiles() -> Profile[], unblock(id) -> Promise, applyProfile(row) } */
 export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
@@ -25,6 +25,7 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
   if (!me) return null;
   const orig = Object.fromEntries(PROFILE_FIELDS.map((k) => [k, me[k] ?? null]));
   if (!orig.name_fill) orig.name_fill = 'solid';
+  if (!orig.dm_policy) orig.dm_policy = 'everyone';
   orig.name_glow = !!orig.name_glow;
   const draft = { ...orig };
   const files = { avatar: null, banner: null }; // { file, url } of the person's own picked file
@@ -257,7 +258,16 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
       return h('div', { class: 'cx-ed-brow', dataset: { uid: p.id } }, avatar(p, { size: 32 }), h('span', { class: 'cx-pp-text' }, nameEl(p, 'span', 'cx-name', { plain: true }), h('small', { text: '@' + (p.username || '') })), b);
     }));
   }
-  panes.blocked.append(h('p', { class: 'cx-hint', text: 'Unblocking takes effect right away.' }), blockedList);
+  const dmSeg = h('div', { class: 'cx-seg cx-ed-dmseg', role: 'radiogroup', 'aria-label': 'Who can DM you' });
+  const dmNote = h('p', { class: 'cx-hint' });
+  const drawDm = () => {
+    dmSeg.replaceChildren(...[['everyone', 'Everyone'], ['friends', 'Friends only']].map(([k, label]) => h('button', { type: 'button', role: 'radio', class: 'cx-seg-b' + (draft.dm_policy === k ? ' on' : ''),
+      'aria-checked': draft.dm_policy === k ? 'true' : 'false', dataset: { dm: k }, onclick: () => { set('dm_policy', k); drawDm(); } }, label)));
+    dmNote.textContent = draft.dm_policy === 'friends' ? 'Only your friends can start a DM or add you to a group. Hallpass can always message you back.' : 'Anyone can start a DM with you (people you block can’t).';
+  };
+  drawDm();
+  panes.blocked.append(h('div', { class: 'cx-ed-field' }, h('label', { class: 'cx-label', text: 'DMs from' }), dmSeg, dmNote, errSlot('dm_policy')),
+    h('h3', { class: 'cx-sheet-sub', text: 'Blocked people' }), h('p', { class: 'cx-hint', text: 'Unblocking takes effect right away.' }), blockedList);
 
   // ---------- tabs ----------
   function setTab(k) {
