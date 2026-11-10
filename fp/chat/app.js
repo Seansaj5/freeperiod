@@ -428,7 +428,7 @@ export function mountChatApp(root, { compact = false } = {}) {
   // ---------- read state ----------
   const readAt = new Map();
   function markRead(target) {
-    if (!target || document.hidden) return;
+    if (!target || document.hidden || paused) return;      // (a closed overlay reads nothing: its badge/pop-up must show)
     const key = tkey(target);
     const had = unread.get(key);
     if (had && (had.unread || had.mentions)) { unread.delete(key); drawSide(); }
@@ -882,6 +882,11 @@ export function mountChatApp(root, { compact = false } = {}) {
       goLive(); // Realtime joins again; its 'live' catches the view up (unsent messages go out too)
       if (mode === 'server' && cur) switchTyping({ channel: cur.id });
       else if (mode === 'dms' && curDM) switchTyping({ dm: curDM });
+      // The kid is looking at the open conversation again: it counts as read now (markRead skips it while paused).
+      if (!document.hidden && messages.atBottom()) {
+        if (mode === 'server' && cur) markRead({ channel: cur.id });
+        else if (mode === 'dms' && curDM) markRead({ dm: curDM });
+      }
     }
     drawConn();
   }
@@ -1037,7 +1042,7 @@ export function mountChatApp(root, { compact = false } = {}) {
   const offState = onChatState((s) => applyState(s));
   const onVis = () => {
     if (!document.hidden && st === 'ready' && mode === 'friends') loadFriends();
-    if (document.hidden || !messages.atBottom()) return;
+    if (document.hidden || paused || !messages.atBottom()) return;
     if (cur && mode === 'server') markRead({ channel: cur.id });
     else if (curDM && mode === 'dms') markRead({ dm: curDM });
   };
