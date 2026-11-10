@@ -27,13 +27,14 @@ export function clearUnseen() { const r = getRecord(); if (r && r.unseen) { r.un
 // ---------- facts ----------
 const facts = { chat: null, bb: null };
 let factsFor = null;
+let localReady = true;      // false while a signed-in page waits for the account's favorites / play time (pullMerge)
 function localFacts() {
   const m = getMeta(), s = saveFacts(), st = peekStreak();
   return {
     games: games(), play: m.play || {}, favs: m.favs || [], recent: m.recent || {}, times: Object.values(m.recent || {}),
     cc: s.cc, hx: s.hx, signedIn: !!session.getToken(),
     streak: st ? { days: st.days, best: st.best } : null,
-    bb: facts.bb, chat: facts.chat,
+    bb: facts.bb, chat: facts.chat, localReady,
   };
 }
 
@@ -45,18 +46,29 @@ function trophyToast(t, { summary = 0 } = {}) {
     h('span', { class: 'tr-medal', 'aria-hidden': 'true' }, icon(t ? t.icon : 'trophy')),
     h('span', { class: 'tr-toast-text' },
       h('small', { text: summary ? 'Trophies' : 'Trophy unlocked' }),
-      h('b', { text: summary ? `${summary} trophies unlocked` : t.title }),
+      h('b', { text: summary ? `${summary} ${summary === 1 ? 'trophy' : 'trophies'} unlocked` : t.title }),
       h('span', { text: summary ? 'See them all on your Trophies page.' : t.desc })));
   toastBox.append(el);
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 400); }, 5200);
 }
+// Facts arrive in steps, so unlocks are gathered for a moment and celebrated together: up to 3 toasts, then one line for
+// the rest and for trophies found already won (a new device, or a source seen for the first time).
+const pending = { fresh: [], quiet: [], timer: 0 };
 function celebrate(fresh, quiet, results) {
-  const byId = new Map(results.map((t) => [t.id, t]));
-  const items = fresh.map((id) => byId.get(id)).filter(Boolean);
-  items.slice(0, 3).forEach((t, i) => setTimeout(() => trophyToast(t), 600 + i * 900));
-  const rest = Math.max(0, items.length - 3) + quiet.length;      // the rest, and trophies found already won: one line
-  if (rest === 1 && !items.length) setTimeout(() => trophyToast(byId.get(quiet[0])), 600);
-  else if (rest > 0) setTimeout(() => trophyToast(null, { summary: rest }), 600 + Math.min(3, items.length) * 900);
+  pending.fresh.push(...fresh); pending.quiet.push(...quiet);
+  clearTimeout(pending.timer);
+  pending.timer = setTimeout(() => {
+    const byId = new Map(results.map((t) => [t.id, t]));
+    const items = [...new Set(pending.fresh)].map((id) => byId.get(id)).filter(Boolean);
+    const quietN = new Set(pending.quiet).size;
+    const one = quietN === 1 ? byId.get(pending.quiet[0]) : null;
+    pending.fresh = []; pending.quiet = [];
+    items.slice(0, 3).forEach((t, i) => setTimeout(() => trophyToast(t), i * 900));
+    const rest = Math.max(0, items.length - 3) + quietN;
+    const at = Math.min(3, items.length) * 900;
+    if (rest === 1 && !items.length && one) setTimeout(() => trophyToast(one), at);
+    else if (rest > 0) setTimeout(() => trophyToast(null, { summary: rest }), at);
+  }, 1200);
 }
 
 // ---------- evaluate + listeners ----------
@@ -65,7 +77,7 @@ let last = null;
 export function onTrophies(fn) { listeners.add(fn); if (last) fn(last); return () => listeners.delete(fn); }
 export function refresh({ celebrateNew = true } = {}) {
   const user = session.userKey();
-  if (factsFor !== user) { facts.bb = null; facts.chat = null; factsFor = user; }
+  if (factsFor !== user) { facts.bb = null; facts.chat = null; factsFor = user; localReady = !session.getToken(); }
   const f = localFacts();
   const before = getRecord(user);
   const results = evaluate(f, before && before.got);
@@ -103,17 +115,23 @@ function watchChat() {
   }).catch(() => {});
 }
 
+/** The signed-in account's favorites / play time are in (the home page calls this after its own pull). */
+export function metaSettled() { localReady = true; refresh(); }
+
 /** Starts trophies on a page: evaluates now, then again as the streak, career card, chat and sign-in arrive. */
 export function startTrophies({ sync = true } = {}) {
   refresh();
   // pages other than home: bring this account's favorites / play time down and ask for today's streak (both cheap and
   // once per page; the home page does its own)
   if (sync && session.getToken()) {
-    pullMerge().then(() => refresh(), () => {});
+    pullMerge().then(metaSettled, metaSettled);
     checkin().catch(() => {});
   }
   onStreak(() => refresh());
-  session.onChange(() => { refresh(); loadCareer(); });
+  session.onChange(() => {
+    refresh(); loadCareer();
+    if (sync && session.getToken()) pullMerge().then(metaSettled, metaSettled);
+  });
   addEventListener('storage', (e) => { if (e.key === 'fp.meta' || e.key === 'closecall.v1' || e.key === 'horrorexe.v1') refresh(); });
   loadCareer();
   watchChat();

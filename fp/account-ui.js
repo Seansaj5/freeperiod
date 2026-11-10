@@ -175,6 +175,7 @@ export function mountAccount(el, { live = !!(document.body && document.body.clas
   let pop = null;      // { el, scrim, close }
 
   function render() {
+    if (chat.kit) chat.kit.common.stopFrames(root);      // the old chip's animated frame lets go of its observer
     const user = session.getUser();
     if (!user) {
       root.replaceChildren(h('button', { type: 'button', class: 'fp-chip', onclick: () => openAuthSheet('login') }, 'Log in'));

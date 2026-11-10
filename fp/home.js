@@ -13,7 +13,7 @@ import { openAuthSheet } from './account-ui.js';
 import { mountShell } from './shell.js';
 import { mountTicker } from './ticker.js';
 import { mountWhatsNew } from './whatsnew-ui.js';
-import { startTrophies, mountTrophyTeaser, refresh as refreshTrophies } from './trophy-data.js';
+import { startTrophies, mountTrophyTeaser, refresh as refreshTrophies, metaSettled } from './trophy-data.js';
 import { mountSuggest } from './suggest.js';
 import { mountStreakCard, onStreak, peekStreak } from './streak.js';
 import { mountFriendsNow } from './chat/activity.js';
@@ -331,7 +331,7 @@ function syncAccount() {
   if (t === syncedToken) return;
   syncedToken = t;
   syncAll(window.GAMES || []).catch(() => {});
-  pullMerge().then(refreshMeta, () => {});
+  pullMerge().then(() => { refreshMeta(); metaSettled(); }, metaSettled); // trophies count this account's play time from here
 }
 session.onChange(() => {
   syncAccount();

@@ -92,9 +92,13 @@ export function evaluate(facts = {}, got = {}) {
   });
 }
 
-/** Which sources the facts cover (a source with only unknown facts is not counted). */
+/**
+ * Which sources the facts cover (a source with only unknown facts is not counted). `localReady: false` = this device's
+ * favorites / play time are not in yet (a signed-in page before the account's cloud copy came down): not counted either,
+ * so what arrives with it is not mistaken for something won just now.
+ */
 export function sourcesIn(facts = {}) {
-  const out = new Set(['local']);
+  const out = new Set(facts.localReady === false ? [] : ['local']);
   if (facts.signedIn != null) out.add('account');
   if (facts.streak) out.add('streak');
   if (facts.bb) out.add('bb');

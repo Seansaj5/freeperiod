@@ -106,8 +106,22 @@ test('mergeRecord: the first look at a source is quiet (one summary), later wins
   assert.deepEqual(e.record, d.record);
 });
 
+test('before the account\'s play time is in, what it unlocks is quiet (found, not just won)', () => {
+  const f0 = { games: GAMES, signedIn: true, localReady: false };
+  const a = mergeRecord(null, evaluate(f0), f0, 1);
+  assert.deepEqual(a.quiet, ['signed-in']);
+  assert.equal(a.record.src.local, undefined);
+  // the cloud copy arrives: play time from before is found, not celebrated one by one
+  const f1 = { ...f0, localReady: true, play: { 'bing-ball': 4000 } };
+  const b = mergeRecord(a.record, evaluate(f1, a.record.got), f1, 2);
+  assert.deepEqual(b.fresh, []);
+  assert.deepEqual(b.quiet.sort(), ['first-game', 'hour-1']);
+  assert.equal(b.record.src.local, 1);
+});
+
 test('sourcesIn and progressText', () => {
   assert.deepEqual([...sourcesIn({})], ['local']);
+  assert.deepEqual([...sourcesIn({ localReady: false })], []);
   assert.deepEqual([...sourcesIn({ signedIn: false, streak: { days: 1 }, bb: {}, chat: false })].sort(), ['account', 'bb', 'chat', 'local', 'streak']);
   const r = byId(evaluate({ games: GAMES, play: { 'bing-ball': 1500 }, streak: { days: 2, best: 2 }, cc: { best: 18400 } }));
   assert.equal(progressText(r['hour-1']), '25m / 1h');
