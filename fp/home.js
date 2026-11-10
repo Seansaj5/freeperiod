@@ -7,10 +7,16 @@ import { getMeta, toggleFav, pullMerge } from './meta.js';
 import { syncAll } from './saves.js';
 import { watchStatus, resolveGame } from './status.js';
 import { h, fmtTime } from './ui.js';
-import { mountAccount, openAuthSheet } from './account-ui.js';
+import { icon } from './icons.js';
+import { mountCarousel } from './carousel.js';
+import { TIERS, RANKED_MODES } from './tiers.js';
+import { openAuthSheet } from './account-ui.js';
+import { mountShell } from './shell.js';
+import { mountTicker } from './ticker.js';
+import { mountWhatsNew } from './whatsnew-ui.js';
+import { startTrophies, mountTrophyTeaser, refresh as refreshTrophies } from './trophy-data.js';
 import { mountSuggest } from './suggest.js';
-import { mountChatButton } from './chat/button.js';
-import { mountStreakCard } from './streak.js';
+import { mountStreakCard, onStreak, peekStreak } from './streak.js';
 import { mountFriendsNow } from './chat/activity.js';
 
 const GAMES = (window.GAMES || []).map(resolveGame);
@@ -20,34 +26,6 @@ const reduced = mq('(prefers-reduced-motion: reduce)');
 const noHover = mq('(hover: none)');
 const finePointer = mq('(hover: hover) and (pointer: fine)');
 const DAY = 864e5;
-
-// ---------- icons (SVG built with createElementNS) ----------
-const SVG_NS = 'http://www.w3.org/2000/svg';
-const ICONS = {
-  play: { box: '0 0 16 16', fill: true, d: ['M3 1.8v12.4a.8.8 0 0 0 1.2.7l10.4-6.2a.8.8 0 0 0 0-1.4L4.2 1.1A.8.8 0 0 0 3 1.8z'] },
-  star: { box: '0 0 24 24', d: ['M12 2.8l2.83 5.73 6.32.92-4.57 4.46 1.08 6.29L12 17.23l-5.66 2.97 1.08-6.29L2.85 9.45l6.32-.92z'] },
-  clock: { box: '0 0 24 24', d: ['M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z', 'M12 7.5V12l3 2'] },
-  flask: { box: '0 0 24 24', sw: 1.7, d: ['M9 3h6M10 3v6.5L4.6 18.4A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.4-2.6L14 9.5V3', 'M7.2 15.5h9.6'] },
-  trophy: { box: '0 0 24 24', d: ['M8 4h8v6a4 4 0 0 1-8 0z', 'M8 6H5.5a2.5 2.5 0 0 0 2.6 4.4', 'M16 6h2.5a2.5 2.5 0 0 1-2.6 4.4', 'M12 14v3.5', 'M8.5 20.5h7', 'M10 17.5h4v3h-4z'] },
-  arrow: { box: '0 0 24 24', d: ['M5 12h14', 'M13 6l6 6-6 6'] },
-};
-function icon(name, cls) {
-  const def = ICONS[name];
-  const s = document.createElementNS(SVG_NS, 'svg');
-  s.setAttribute('viewBox', def.box);
-  s.setAttribute('aria-hidden', 'true');
-  s.setAttribute('class', 'ic' + (cls ? ' ' + cls : ''));
-  if (def.fill) s.setAttribute('fill', 'currentColor');
-  else {
-    s.setAttribute('fill', 'none');
-    s.setAttribute('stroke', 'currentColor');
-    s.setAttribute('stroke-width', String(def.sw || 2));
-    s.setAttribute('stroke-linecap', 'round');
-    s.setAttribute('stroke-linejoin', 'round');
-  }
-  for (const d of def.d) { const p = document.createElementNS(SVG_NS, 'path'); p.setAttribute('d', d); s.append(p); }
-  return s;
-}
 
 // ---------- helpers ----------
 const playLink = (g) => 'play.html?g=' + encodeURIComponent(g.id);
@@ -101,8 +79,10 @@ function pill(g, cls) {
   paintPill(el, g);
   return el;
 }
+let ticker = null;
 function onStatus(g, st) {
   live.set(g.id, st);
+  if (ticker && st) ticker.setStatus(g.id, st);
   document.querySelectorAll('[data-live]').forEach((el) => { if (el.dataset.live === g.id) paintPill(el, g); });
   document.querySelectorAll('[data-wakehint]').forEach((el) => {
     if (el.dataset.wakehint === g.id) el.hidden = !!(st && st.state === 'online');
@@ -139,34 +119,50 @@ function paintMeta() {
 }
 function refreshMeta() {
   const was = tag;
+  refreshTrophies();
   paintMeta();
   renderRecent();
   renderChips(); // may drop the Favorites chip (and the filter) when the last favorite goes
   if (was === 'Favorites' || tag === 'Favorites') renderGrid();
 }
 
-// ---------- featured banner ----------
-function renderHero() {
-  const slot = $('hero');
-  const g = GAMES.find((x) => x.featured) || GAMES[0];
-  if (!g) { slot.hidden = true; return; }
+// ---------- featured banner: a carousel of every game, the featured one first ----------
+function heroSlide(g, first) {
   const hint = g.wakes ? h('p', { class: 'hint', dataset: { wakehint: g.id } }, 'First load can take up to a minute while the server wakes up.') : null;
-  slot.replaceChildren(h('div', { class: 'hero', style: '--accent:' + accentOf(g) },
-    h('div', { class: 'hero-media', 'aria-hidden': 'true' }, picture(g.hero || g.thumb, g.thumb, { class: 'hero-art', fetchpriority: 'high' })),
+  // pictures after the first wait until their slide is next (onShow), so a phone only downloads what it shows
+  const art = h('img', { alt: '', decoding: 'async', class: 'hero-art', fetchpriority: first ? 'high' : null });
+  art.dataset.src = g.hero || g.thumb;
+  art.addEventListener('error', () => {
+    if (g.thumb && art.getAttribute('src') !== g.thumb) art.src = g.thumb;
+    else art.classList.add('broken');
+  });
+  if (first) art.src = art.dataset.src;
+  const eyebrow = g.featured ? 'Featured' : isNew(g) ? 'New' : 'Spotlight';
+  return h('div', { class: 'hero', style: '--accent:' + accentOf(g), dataset: { game: g.id } },
+    h('div', { class: 'hero-media', 'aria-hidden': 'true' }, art),
     h('div', { class: 'hero-copy' },
       h('div', { class: 'hero-top' },
-        h('span', { class: 'eyebrow' }, 'Featured'),
+        h('span', { class: 'eyebrow' }, eyebrow),
         hasPill(g) ? h('span', { role: 'status' }, pill(g, 'lg')) : null,
         g.beta ? h('span', { class: 'badge beta' }, 'Beta') : null),
-      h('h1', { text: g.title }),
+      h('h2', { class: 'hero-title', text: g.title }),
       h('p', { class: 'hero-tagline', text: g.tagline || '' }),
       tagList(g),
       h('div', { class: 'hero-actions' },
         h('a', { class: 'btn-play', href: playLink(g) }, icon('play'), 'Play now'),
         favButton(g, 'big'),
         playedTag(g)),
-      hint)));
-  onStatus(g, live.get(g.id));
+      hint));
+}
+function renderHero() {
+  const slot = $('hero');
+  const list = [...GAMES].sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+  if (!list.length) { slot.hidden = true; return; }
+  const slides = list.map((g, i) => ({ el: heroSlide(g, i === 0), label: g.title }));
+  mountCarousel(slot, slides, {
+    onShow: (i) => { const img = slides[i].el.querySelector('.hero-art'); if (img && !img.getAttribute('src') && img.dataset.src) img.src = img.dataset.src; },
+  });
+  for (const g of list) onStatus(g, live.get(g.id));
 }
 
 // ---------- Jump back in ----------
@@ -313,12 +309,7 @@ function wirePreview(el, thumb, g) {
 }
 
 // ---------- ranked leaderboard (Bing Ball) ----------
-const MODES = ['1v1', '2v2', '3v3']; // RANKED_KEYS in Bing Ball's shared/modes.js
-// Tier keys from Bing Ball's shared/modes.js TIERS; colors picked for the hub (no pink/purple).
-const TIERS = {
-  rookie: ['Rookie', '#8b95a7'], contender: ['Contender', '#6fe0a0'], egoist: ['Egoist', '#3de0ff'], striker: ['Striker', '#5b9bff'],
-  ace: ['Ace', '#ffb020'], worldclass: ['World Class', '#ff7a3d'], newgen: ['New Gen', '#ffe066'],
-};
+const MODES = RANKED_MODES;
 const board = { mode: MODES[0], cache: new Map(), seq: 0, retry: null, slow: null };
 const bingBall = GAMES.find((g) => g.apiGame) || null;
 
@@ -451,8 +442,12 @@ function drawBoard(d) {
   $('board-foot').replaceChildren(line, play);
 }
 
-// ---------- search, keys, clock ----------
+// ---------- search, keys ----------
 searchBox.addEventListener('input', renderGrid);
+{ // another page's search box sends you here with ?q=
+  const q = new URLSearchParams(location.search).get('q');
+  if (q) { searchBox.value = q.slice(0, 60); requestAnimationFrame(() => document.querySelector('.games').scrollIntoView({ block: 'start' })); }
+}
 addEventListener('keydown', (e) => {
   const t = e.target, typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
   if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey && !document.querySelector('.fp-backdrop')) {
@@ -461,19 +456,6 @@ addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape' && t === searchBox) { searchBox.value = ''; renderGrid(); searchBox.blur(); }
 });
-
-function tick() {
-  const d = new Date();
-  $('time').textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const hr = d.getHours(), weekend = d.getDay() === 0 || d.getDay() === 6;
-  $('mood').textContent = weekend ? 'weekend mode'
-    : hr < 7 ? 'way too early' : hr < 15 ? 'free period' : hr < 18 ? 'after school' : hr < 23 ? 'game night' : 'go to sleep';
-}
-
-// Glass header gets a touch more solid once the page scrolls under it.
-const header = document.querySelector('.top');
-const onScroll = () => header && header.classList.toggle('scrolled', scrollY > 8);
-addEventListener('scroll', onScroll, { passive: true });
 
 // ---------- account: cloud saves + meta, once per sign-in (not on every render) ----------
 let syncedToken = null, boardToken = session.getToken();
@@ -494,21 +476,25 @@ session.onChange(() => {
 addEventListener('storage', (e) => { if (e.key === 'fp.meta') refreshMeta(); });
 
 // ---------- start ----------
-mountAccount($('account'));
-mountChatButton($('chat-btn')); // stays hidden (and loads nothing) until chat is set up
+mountShell({ search: 'home' }); // accent, account chip, Messages, clock, header, ambient background
 mountFriendsNow($('friends-now'), { games: GAMES }); // "Friends playing now": hidden unless a chat friend is playing
 mountSuggest($('suggest'));
 mountStreakCard($('streak'), { onLogin: () => openAuthSheet('login') }); // daily check-in + the streak card
+ticker = mountTicker($('ticker'), { games: GAMES });
+const streakDays = () => { const v = peekStreak(); ticker.setStreak(v ? v.days : 0); };
+onStreak(streakDays);
+session.onChange(streakDays);
+streakDays();
 renderHero();
 renderRecent();
+mountWhatsNew($('whatsnew'), { games: GAMES });
+mountTrophyTeaser($('trophy-teaser'));
+startTrophies(); // evaluates now, then as the streak, the career card and chat come in (toasts for new trophies)
 renderChips();
 renderGrid();
 mountBoard();
 loadBoard(board.mode);
 $('foot-count').textContent = `${GAMES.length} game${GAMES.length === 1 ? '' : 's'} and counting`;
-tick();
-setInterval(tick, 15000);
-onScroll();
 
 for (const g of GAMES) if (g.status) watchStatus(g, (st) => onStatus(g, st));
 // Free servers nap after ~15 idle minutes: poke the ones nothing else is checking, so they wake before Play.
