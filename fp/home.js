@@ -86,6 +86,8 @@ function statusView(g, st) {
   if (!st) return { k: 'check', text: 'Checking' };
   return { k: 'wake', text: 'Waking up' };
 }
+// Games with a server to watch, and solo games (no `status`: they just play, "Solo ready"), get a pill.
+const hasPill = (g) => !!(g.status || !g.wakes);
 function paintPill(el, g) {
   const v = statusView(g, live.get(g.id));
   for (const k of ['on', 'solo', 'check', 'wake']) el.classList.toggle('is-' + k, v.k === k);
@@ -151,7 +153,7 @@ function renderHero() {
     h('div', { class: 'hero-copy' },
       h('div', { class: 'hero-top' },
         h('span', { class: 'eyebrow' }, 'Featured'),
-        g.status ? h('span', { role: 'status' }, pill(g, 'lg')) : null,
+        hasPill(g) ? h('span', { role: 'status' }, pill(g, 'lg')) : null,
         g.beta ? h('span', { class: 'badge beta' }, 'Beta') : null),
       h('h1', { text: g.title }),
       h('p', { class: 'hero-tagline', text: g.tagline || '' }),
@@ -205,7 +207,7 @@ function card(g) {
       isNew(g) ? h('span', { class: 'badge new' }, 'New') : null,
       g.beta ? h('span', { class: 'badge beta' }, 'Beta') : null),
     favButton(g),
-    g.status ? pill(g) : null,
+    hasPill(g) ? pill(g) : null,
     h('span', { class: 'go', 'aria-hidden': 'true' }, icon('play')));
   const el = h('article', { class: 'card', style: '--accent:' + accentOf(g), dataset: { id: g.id } },
     h('i', { class: 'shine', 'aria-hidden': 'true' }),

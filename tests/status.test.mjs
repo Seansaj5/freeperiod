@@ -73,7 +73,7 @@ test('health without CORS (fails) but status answers -> online, no player count'
   stop();
 });
 
-test('a health URL that fails while the server answers (no CORS) is not asked again', async (t) => {
+test('a health URL that fails twice in a row while the server answers (no CORS) is not asked again', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   const asked = [];
   const s = await load({
@@ -83,7 +83,67 @@ test('a health URL that fails while the server answers (no CORS) is not asked ag
   await flush();
   t.mock.timers.tick(45000);
   await flush();
-  assert.deepEqual(asked.map(u => u.split('/').pop()), ['health', 'status', 'status']);
+  t.mock.timers.tick(45000);
+  await flush();
+  assert.deepEqual(asked.map(u => u.split('/').pop()), ['health', 'status', 'health', 'status', 'status']);
+  stop();
+});
+
+test('one failed health look followed by a good one keeps asking health', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const asked = [];
+  let looks = 0;
+  const s = await load({
+    fetch: async url => {
+      asked.push(url);
+      if (url.endsWith('/health')) { if (++looks === 1) throw new TypeError('cold start'); return json(200, { players: 3 }); }
+      return json(200, { version: '5.1.1', build: 63 });
+    },
+  });
+  const seen = [];
+  const stop = s.watchStatus(BB, st => seen.push(st));
+  await flush();
+  for (let i = 0; i < 3; i++) { t.mock.timers.tick(45000); await flush(); }
+  assert.equal(asked.filter(u => u.endsWith('/health')).length, 4);
+  assert.equal(seen.at(-1).players, 3);
+  stop();
+});
+
+test('a slow look of a server already online does not flip to waking', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  let slow = false;
+  const s = await load({
+    fetch: url => slow ? new Promise(r => setTimeout(() => r(json(200, { players: 1, version: '1', build: 2 })), 10000)) : Promise.resolve(json(200, { players: 1, version: '1', build: 2 })),
+  });
+  const seen = [];
+  const stop = s.watchStatus(BB, st => seen.push(st.state));
+  await flush();
+  assert.deepEqual(seen, ['online']);
+  slow = true;
+  t.mock.timers.tick(45000);
+  await flush();
+  t.mock.timers.tick(9000);
+  await flush();
+  t.mock.timers.tick(1500);
+  await flush();
+  assert.deepEqual(seen, ['online']);
+  stop();
+});
+
+test('waking turns online when a slow first look finally answers', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const s = await load({
+    fetch: () => new Promise(r => setTimeout(() => r(json(200, { version: '1', build: 2 })), 20000)),
+  });
+  const seen = [];
+  const stop = s.watchStatus(BB, st => seen.push(st.state));
+  await flush();
+  t.mock.timers.tick(6000);
+  await flush();
+  assert.deepEqual(seen, ['waking']);
+  t.mock.timers.tick(14000);
+  await flush();
+  assert.deepEqual(seen, ['waking', 'online']);
   stop();
 });
 

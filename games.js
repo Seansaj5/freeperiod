@@ -14,6 +14,7 @@
 //             don't need it: the status check wakes them)
 //   status    optional live status: { health, version } URLs. health = the server answers (and {players} if it is JSON),
 //             version = JSON {version, build}. Polled every 45 s while the page is visible.
+//             Without it a solo game's card says "Solo ready" (Close Call has none until its server is deployed).
 //   saveKey   optional localStorage key the game saves to: signed in, Free Period syncs it to the account (cloud save)
 //   beta      true shows a Beta badge (the game is playable but unfinished)
 //   apiGame   true for a game served by the Free Period API server (Bing Ball): its url and status URLs follow the
@@ -50,7 +51,6 @@ window.GAMES = [
     accent: '#ffb020',
     beta: true,
     saveKey: 'closecall.v1',
-    status: { health: 'https://freeperiod-closecall.onrender.com/health' },
     added: '2026-11-07',
   },
 ];

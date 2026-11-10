@@ -45,15 +45,17 @@ export function watchStatus(game, cb) {
   if (!urls.health && !urls.version) return () => {};
   const doc = globalThis.document;
   let stopped = false, busy = false, due = false, timer = null, fails = 0, last = '';
-  // A health URL that fails while the version URL answers is blocked (no CORS header): stop asking it, so the browser
-  // console does not get a CORS error every 45 s. Players simply stay unknown.
-  let healthBlocked = false;
+  // A health URL that fails on two looks in a row while the version URL answers is blocked (no CORS header): stop asking
+  // it, so the browser console does not get a CORS error every 45 s. Players simply stay unknown. One hiccup (a cold
+  // start) is not enough, and any look where health answers resets the count.
+  let healthBlocked = false, healthFails = 0, lastState = '';
 
   const hidden = () => !!(doc && doc.visibilityState === 'hidden');
   const emit = (st) => {
     const key = JSON.stringify(st);
     if (key === last) return;
     last = key;
+    lastState = st.state;
     try { cb(st); } catch { /* a bad listener never stops polling */ }
   };
   const later = (ms) => { clearTimeout(timer); timer = setTimeout(tick, ms); };
@@ -69,19 +71,23 @@ export function watchStatus(game, cb) {
     busy = true;
     due = false;
     let answered = false, limit = null;
-    const waking = setTimeout(() => { if (!answered && !stopped) emit({ state: 'waking' }); }, WAKING_MS);
+    // An online server stays online through a slow look; "waking" only shows when it was not online before.
+    const waking = lastState === 'online' ? null : setTimeout(() => { if (!answered && !stopped) emit({ state: 'waking' }); }, WAKING_MS);
     const res = await Promise.race([
       Promise.all([healthBlocked ? null : probe(urls.health), probe(urls.version)]),
       new Promise((r) => { limit = setTimeout(() => r(null), TIMEOUT_MS); }),
     ]);
     answered = true;
-    clearTimeout(waking);
+    if (waking) clearTimeout(waking);
     clearTimeout(limit);
     busy = false;
     if (stopped) return;
     const [health, version] = res || [null, null];
     if (health || version) {
-      if (!health && urls.health && urls.version) healthBlocked = true;
+      if (urls.health && urls.version && !healthBlocked) {
+        if (health) healthFails = 0;
+        else if (++healthFails >= 2) healthBlocked = true;
+      }
       fails = 0;
       emit(online(health, version));
       later(POLL_MS);
