@@ -35,6 +35,12 @@ async function run(rawGame) {
   let gameOrigin = '';
   try { gameOrigin = new URL(gameUrl, location.href).origin; } catch { /* leave empty: no hand-off */ }
 
+  // Chat overlay: only loaded once chat is set up (an empty config means nothing else is fetched).
+  let chatOverlay = { isOpen: false };
+  import('./chat/config.js')
+    .then(({ CHAT }) => (CHAT && CHAT.url && CHAT.key ? import('./chat/overlay.js') : null))
+    .then((m) => { if (m) chatOverlay = m.mountChatOverlay(document.querySelector('.bar')); })
+    .catch(() => { /* chat is optional */ });
   document.title = `${game.title} · Free Period`;
   $('title').textContent = game.title;
   $('controls').textContent = game.controls || '';
@@ -138,7 +144,7 @@ async function run(rawGame) {
       if (!playing) { playing = true; playTimer = setInterval(() => { if (document.visibilityState === 'visible') addPlay(game.id, 15); }, 15000); }
       clearInterval(timer);
       loader.classList.add('gone');
-      frame.focus();
+      if (!chatOverlay.isOpen) frame.focus();
     }, { once: true });
   }
   let playing = false, playTimer;
@@ -150,10 +156,10 @@ async function run(rawGame) {
   function fullscreen() {
     if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     else (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
-    frame && frame.focus();
+    frame && !chatOverlay.isOpen && frame.focus();
   }
   $('full').addEventListener('click', fullscreen);
-  document.querySelector('.bar').addEventListener('mouseup', () => setTimeout(() => frame && document.activeElement === document.body && frame.focus(), 0));
+  document.querySelector('.bar').addEventListener('mouseup', () => setTimeout(() => frame && document.activeElement === document.body && !chatOverlay.isOpen && frame.focus(), 0));
 
   // Show the loader straight away; the save sync (max 4 s) runs behind it.
   touchRecent(game.id);
