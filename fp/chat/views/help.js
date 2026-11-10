@@ -76,7 +76,8 @@ export function mountHelp(el, cx) {
       const mine = seq;
       // Opening #help (or the Hallpass DM) reloads the FAQ and the AI switch: a question typed before that answer is back
       // would otherwise be matched against the old copy (up to 30 s old: an edited answer, AI just switched on).
-      if (loading) { await loading; if (mine !== seq) return 'gone'; }
+      // (At most 4 s: a reload stuck on a bad connection must not hold the question back.)
+      if (loading) { await Promise.race([loading, new Promise((r) => setTimeout(r, 4000))]); if (mine !== seq) return 'gone'; }
       let fresh = { faq: cx.faq(), aiOn: cx.aiOn() };
       if (Date.now() - fetchedAt >= REFETCH_MS) {
         fetchedAt = Date.now(); // set first so a failed or slow fetch still counts as the one try in this window
