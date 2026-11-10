@@ -26,14 +26,20 @@ test('pure helpers', async () => {
   assert.equal(v.best, 4); assert.deepEqual(v.badges, ['streak-3', 'streak-7']); assert.equal(v.next.left, 3);
   assert.deepEqual(s.bestBadge(['streak-3', 'streak-14', 'streak-7']).days, 14);
   assert.equal(s.bestBadge([]), null);
+  // Monday to Sunday of this week. 2026-11-10 is a Tuesday: Mon lit (in a 4-day streak), Tue = today lit, Wed-Sun to come.
   const dots = s.weekDots(v);
   assert.equal(dots.length, 7);
-  assert.deepEqual(dots.map(d => d.lit), [false, false, false, true, true, true, true]);
-  assert.equal(dots[6].today, true); assert.equal(dots[6].dow, 2);      // 2026-11-10 is a Tuesday
-  assert.equal(dots[0].dow, 3);
-  // not checked in yet today: yesterday and before are lit, today's dot is empty
-  assert.deepEqual(s.weekDots({ ...v, doneToday: false }).map(d => d.lit), [false, false, true, true, true, true, false]);
-  assert.equal(s.weekDots({ days: 20, today: '2026-11-10', doneToday: true }).every(d => d.lit), true);
+  assert.deepEqual(dots.map(d => d.dow), [1, 2, 3, 4, 5, 6, 0], 'M T W T F S S');
+  assert.deepEqual(dots.map(d => d.lit), [true, true, false, false, false, false, false]);
+  assert.deepEqual(dots.map(d => d.today), [false, true, false, false, false, false, false]);
+  assert.deepEqual(dots.map(d => d.future), [false, false, true, true, true, true, true]);
+  // not checked in yet today: Monday lit, today's dot empty
+  assert.deepEqual(s.weekDots({ ...v, doneToday: false }).map(d => d.lit), [true, false, false, false, false, false, false]);
+  // Sunday with a long streak: the whole week lit; Monday with a 1-day streak: only Monday
+  assert.equal(s.weekDots({ days: 20, today: '2026-11-15', doneToday: true }).every(d => d.lit), true);
+  assert.deepEqual(s.weekDots({ days: 1, today: '2026-11-09', doneToday: true }).map(d => d.lit), [true, false, false, false, false, false, false]);
+  // a streak that started mid-week only lights from its first day
+  assert.deepEqual(s.weekDots({ days: 2, today: '2026-11-13', doneToday: true }).map(d => d.lit), [false, false, false, true, true, false, false]);
   const table = [3, 7, 14].map(days => ({ days }));
   assert.equal(s.progressPct(v, table), 25);      // 4 of the way from 3 to 7
   assert.equal(s.progressPct(s.cleanView({ days: 1, next: { days: 3 } }), table), 33);
