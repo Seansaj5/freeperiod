@@ -1217,3 +1217,11 @@ body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex;
 .cx-pin-text { flex: 1; min-width: 0; }
 .cx-pin-text b { font-size: 14.5px; }
 .cx-pin-text p { margin: 2px 0 0; color: var(--soft); overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* daily-streak badge pill + stats row on the profile card */
+.cx-pill.streak { padding: 0 10px; }
+.cx-pc-stat.streak { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr auto; align-items: center; column-gap: 8px; }
+.cx-pc-stat.streak .cx-pc-stat-ic { grid-row: 1 / 3; font-size: 18px; }
+.cx-pc-stat.streak .cx-pc-stat-game { grid-column: 2; }
+.cx-pc-stat.streak b { grid-column: 2; grid-row: 2; }
+.cx-pc-stat.streak small { grid-column: 3; grid-row: 1 / 3; }

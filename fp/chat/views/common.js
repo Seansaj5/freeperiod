@@ -182,6 +182,7 @@ export function badgePills(p) {
   return badgesFor(p || {}).map((id) => {
     const info = badgeInfo(id);
     if (!info) return null;
+    if (id.startsWith('streak:')) return h('span', { class: 'cx-pill streak', style: '--bc:' + info.color, title: 'Daily streak badge' }, h('span', { text: info.label }));
     const ic = id === 'owner' ? icon('crown') : id === 'mod' ? icon('shield') : id === 'early' ? icon('star') : icon('trophy');
     return h('span', { class: 'cx-pill ' + (id.startsWith('bb:') ? 'rank' : id), style: '--bc:' + info.color, title: id.startsWith('bb:') ? 'Bing Ball rank: ' + info.label : info.label }, ic, h('span', { text: info.label }));
   }).filter(Boolean);

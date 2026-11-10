@@ -3,6 +3,7 @@ import * as session from './session.js';
 import { h, openSheet, toast, errText } from './ui.js';
 import { openProfile } from './profile.js';
 import { openInbox } from './inbox.js';
+import { getStreak, onStreak } from './streak.js';
 
 export function openAuthSheet(startTab = 'login') {
   let tab = startTab;
@@ -47,6 +48,12 @@ export function openAuthSheet(startTab = 'login') {
   sheet.focus();
 }
 
+// 🔥 N on the chip once the streak is known (a streak of 0 shows nothing).
+function streakMark() {
+  const v = getStreak();
+  return v && v.days > 0 ? h('span', { class: 'fp-streak', title: v.days + '-day streak', 'aria-label': v.days + '-day streak', text: '\u{1F525}' + v.days }) : null;
+}
+
 export function mountAccount(el) {
   let menuOpen = false;
   const root = h('div', { class: 'fp-account' });
@@ -62,6 +69,7 @@ export function mountAccount(el) {
     const btn = h('button', { type: 'button', class: 'fp-chip on', 'aria-haspopup': 'menu', 'aria-expanded': menuOpen ? 'true' : 'false',
       onclick: () => { menuOpen = !menuOpen; render(); if (menuOpen) { const f = root.querySelector('[role=menuitem]'); if (f) f.focus(); } } },
       h('span', { class: 'fp-name', text: user.username }),
+      streakMark(),
       user.role && user.role !== 'player' ? h('span', { class: 'fp-badge ' + user.role, text: user.role }) : null);
     const items = [
       h('button', { type: 'button', role: 'menuitem', onclick: () => { closeMenu(); openProfile(); } }, 'Profile'),
@@ -80,5 +88,6 @@ export function mountAccount(el) {
   // composedPath, not contains(): the chip's own click re-renders it, so by the time this runs e.target is detached.
   document.addEventListener('click', (e) => { if (menuOpen && !e.composedPath().includes(root)) closeMenu(); });
   session.onChange(() => { menuOpen = false; render(); });
+  onStreak(render);
   render();
 }

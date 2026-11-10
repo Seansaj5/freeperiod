@@ -13,15 +13,20 @@ const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 
 function statsEl(p) {
   const g = p && p.game_stats;
-  if (!g || typeof g !== 'object' || !(g.bb || g.cc || g.hx)) return null;
+  if (!g || typeof g !== 'object' || !(g.bb || g.cc || g.hx || g.streak || g.bestStreak)) return null;
   const bb = g.bb || {}, cc = g.cc || {}, hx = g.hx || {};
   const tier = typeof bb.tier === 'string' && bb.tier && bb.tier.toLowerCase() !== 'rookie' ? badgeInfo('bb:' + bb.tier) : null;
   const tile = (cls, ic, game, big, small, color) => h('div', { class: 'cx-pc-stat ' + cls },
     h('span', { class: 'cx-pc-stat-ic', 'aria-hidden': 'true' }, icon(ic)),
     h('span', { class: 'cx-pc-stat-game', text: game }),
     h('b', { text: big, style: color ? '--tc:' + color : null }), h('small', { text: small }));
+  const sk = num(g.streak), skBest = Math.max(sk, num(g.bestStreak));
   return h('section', { class: 'cx-pc-sec' }, h('h4', { text: 'Game stats' }),
     h('div', { class: 'cx-pc-stats' },
+      skBest ? h('div', { class: 'cx-pc-stat streak' },
+        h('span', { class: 'cx-pc-stat-ic', 'aria-hidden': 'true', text: '\u{1F525}' }),
+        h('span', { class: 'cx-pc-stat-game', text: 'Daily streak' }),
+        h('b', { text: sk + (sk === 1 ? ' day' : ' days'), style: '--tc:#ff7a3d' }), h('small', { text: 'Best ' + skBest })) : null,
       tile('bb', 'trophy', 'Bing Ball', 'Level ' + num(bb.level), tier ? tier.label : 'Unranked', tier && tier.color),
       tile('cc', 'car', 'Close Call', fmtMoney(num(cc.cash)), plural(num(cc.cars), 'car', 'cars')),
       tile('hx', 'ghost', 'horror.exe', plural(num(hx.wins), 'win', 'wins'), plural(num(hx.escapes), 'escape', 'escapes'))));

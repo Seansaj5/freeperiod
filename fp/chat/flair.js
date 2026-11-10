@@ -107,7 +107,7 @@ export function paintName(el, profile) {
 
 const tierKey = (t) => (typeof t === 'string' ? t.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) : '');
 
-/** Badge ids in display order: 'owner', 'mod', 'early', 'bb:<tier key>'. */
+/** Badge ids in display order: 'owner', 'mod', 'early', 'bb:<tier key>', 'streak:<days>'. */
 export function badgesFor(profile) {
   const p = profile || {};
   const out = [];
@@ -118,7 +118,19 @@ export function badgesFor(profile) {
   if (Number.isFinite(joined) && joined < EARLY_MS) out.push('early');
   const tier = tierKey(p.game_stats && p.game_stats.bb && p.game_stats.bb.tier);
   if (tier && tier !== 'rookie') out.push('bb:' + tier); // Rookie is the unranked start, not a badge
+  const sd = streakDays(p.game_stats && p.game_stats.badges);
+  if (sd) out.push('streak:' + sd); // the best daily-streak badge earned (kept after a streak breaks)
   return out;
+}
+
+/** The highest streak milestone in game_stats.badges (['streak-3', 'streak-7']), or 0. The server writes them; anything odd is dropped. */
+export function streakDays(badges) {
+  let top = 0;
+  for (const b of Array.isArray(badges) ? badges : []) {
+    const m = typeof b === 'string' ? /^streak-(\d{1,5})$/.exec(b) : null;
+    if (m && Number(m[1]) > top) top = Number(m[1]);
+  }
+  return top;
 }
 
 // Bing Ball ranked tier keys (shared/modes.js TIERS) with the hub's colors (same as the home leaderboard, no pink/purple).
@@ -136,6 +148,10 @@ const BADGES = {
 export function badgeInfo(id) {
   if (typeof id !== 'string') return null;
   if (Object.prototype.hasOwnProperty.call(BADGES, id)) return { ...BADGES[id] };
+  if (id.startsWith('streak:')) {
+    const n = Math.floor(Number(id.slice(7)));
+    return n > 0 ? { label: '\u{1F525} ' + n + '-day streak', color: '#ff7a3d', streak: n } : null;
+  }
   if (!id.startsWith('bb:')) return null;
   const key = tierKey(id.slice(3));
   if (!key) return null;
