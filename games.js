@@ -35,4 +35,16 @@ window.GAMES = [
     wake: 'https://freeperiod-closecall.onrender.com/health',
     added: '2026-11-07',
   },
+  {
+    id: 'horror-exe',
+    title: 'horror.exe',
+    tagline: 'A cheerful zone gone wrong. Absorb the shards, revive your friends and escape before EXE catches you.',
+    url: 'games/horror-exe/',
+    thumb: 'assets/horror-exe.jpg',
+    tags: ['3D', 'Multiplayer', 'Horror'],
+    controls: 'WASD move · Shift sprint · Space jump · E power · EXE: click attack, Q sense · Esc pause',
+    accent: '#ff2a3a',
+    wake: 'https://freeperiod-horror.onrender.com/health',
+    added: '2026-11-09',
+  },
 ];
