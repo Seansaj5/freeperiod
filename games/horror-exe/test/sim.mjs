@@ -26,7 +26,7 @@ for (let k = 0; k < N; k++) {
   totalEsc += res.escaped.length; totalTime += R.time;
   for (const t of TASKS) if (R.done[t.id]) { taskCount[t.id]++; totalTasks++; }
   const v = R.exeEnt().variant; byVariant[v] = byVariant[v] || [0, 0]; byVariant[v][0]++; if (res.win === 'surv') byVariant[v][1]++;
-  console.log(`round ${k} ${v.padEnd(6)} win=${res.win.padEnd(4)} escaped=${res.escaped.length} tasks=${TASKS.filter((t) => R.done[t.id]).map((t) => t.id).join(',') || '-'} t=${R.time.toFixed(0)}s portals=${evs.portal || 0} disguise=${evs.disguise || 0} pop=${evs.pop || 0} hits=${evs.hit || 0} downs=${evs.down || 0}`);
+  console.log(`round ${k} ${v.padEnd(6)} win=${res.win.padEnd(4)} escaped=${res.escaped.length} tasks=${TASKS.filter((t) => R.done[t.id]).map((t) => t.id).join(',') || '-'} t=${R.time.toFixed(0)}s portals=${evs.portal || 0} disguise=${evs.disguise || 0} pop=${evs.pop || 0} hits=${evs.hit || 0} downs=${evs.down || 0} hide=${evs.hide || 0} qte=${evs.qte || 0} rip=${evs.rip || 0} ab2=${evs.ab2 || 0} decoyPop=${evs["decoy-pop"] || 0} out=${evs.out || 0}`);
 }
 console.log(`\nsurvivors won ${survWins}/${N}, avg escaped ${(totalEsc / N).toFixed(2)}, avg tasks ${(totalTasks / N).toFixed(1)}/5, avg length ${(totalTime / N).toFixed(0)}s, stuck reports ${stuckReports}`);
 console.log('tasks finished (rounds):', JSON.stringify(taskCount));

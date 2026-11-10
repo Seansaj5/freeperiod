@@ -90,6 +90,7 @@ export class World {
     this.buildToxic();
     this.buildNeon();
     this.buildEmber();
+    this.buildBuildings();
     this.buildPortals();
     this.buildGates();
     this.buildShards();
@@ -209,7 +210,7 @@ export class World {
       dirtA_N: C('#d17a2c'), dirtB_N: C('#9a5420'), dirtA_C: C('#9a521f'), dirtB_C: C('#5e2c10'),
       deadC: C('#6b5a34'), bloodC: C('#6a1414'), blackC: C('#1a0c0c'), pathN: C('#d8b07a'), pathC: C('#7a5232'),
       mudN: C('#3a5f7a'), mudC: C('#2a0c08'),
-      snowN: C('#f4f8ff'), snow2N: C('#d6e8f8'), snowC: C('#8a8592'), snow2C: C('#6a6070'), rockN: C('#8f97a6'), rockC: C('#4a4250'),
+      snowN: C('#c3cfdd'), snow2N: C('#a9b8cb'), snowC: C('#8a8592'), snow2C: C('#6a6070'), rockN: C('#8f97a6'), rockC: C('#4a4250'),
       concN: C('#9aa0a8'), conc2N: C('#7f868f'), concC: C('#4f4640'), conc2C: C('#3a322c'), hazN: C('#f2c21a'), hazC: C('#8a6a10'),
       neonN: C('#2a2a5e'), neon2N: C('#ff4fd8'), neon3N: C('#3ae6ff'), neonC: C('#14081e'), neon2C: C('#6a0a4a'), neon3C: C('#0a3a4a'),
       sandN: C('#ead6a8'), sand2N: C('#d9a066'), sandC: C('#4a3026'), sand2C: C('#2e1c16'), crackC: C('#ff3a10'),
@@ -317,7 +318,7 @@ export class World {
     // frozen lake: shiny ice with cracks
     const iceTex = tex(256, 256, (g, w, h) => { g.fillStyle = '#cfefff'; g.fillRect(0, 0, w, h); g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 2; for (let i = 0; i < 14; i++) { g.beginPath(); let x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (Math.random() - 0.5) * 60; y += (Math.random() - 0.5) * 60; g.lineTo(x, y); } g.stroke(); } }, [3, 3]);
     const ice = new THREE.MeshPhongMaterial({ color: 0xffffff, map: iceTex, specular: 0xffffff, shininess: 120, transparent: true, opacity: 0.92 });
-    this.swaps.push((w) => ice.color.setHex(w ? 0x8a8098 : 0xffffff));
+    this.swaps.push((w) => ice.color.setHex(w ? 0x8a8098 : 0xa9c4da));
     const im = new THREE.Mesh(new THREE.CircleGeometry(ICE.r, 40), ice); im.rotation.x = -Math.PI / 2; im.position.set(ICE.x, ICE.y + 0.03, ICE.z); im.receiveShadow = true; this.add(im);
   }
 
@@ -455,7 +456,7 @@ export class World {
     // snowy pines (Frostbite Peak): cones with white caps
     const pineParts = [];
     const cone = (r0, h, y, c) => { const g = new THREE.ConeGeometry(r0, h, 7).toNonIndexed(); g.translate(0, y, 0); const col = new Float32Array(g.attributes.position.count * 3); const cc = new THREE.Color(c); for (let i = 0; i < col.length; i += 3) { col[i] = cc.r; col[i + 1] = cc.g; col[i + 2] = cc.b; } g.setAttribute('color', new THREE.BufferAttribute(col, 3)); pineParts.push(g); };
-    cone(0.3, 1.2, 0.6, '#5a3a22'); cone(1.6, 2.6, 2.0, '#1f6a3a'); cone(1.25, 2.2, 3.3, '#257a42'); cone(0.9, 1.8, 4.5, '#2a8a4a'); cone(0.5, 0.8, 5.3, '#ffffff'); cone(1.0, 0.5, 3.15, '#f4f8ff');
+    cone(0.3, 1.2, 0.6, '#5a3a22'); cone(1.6, 2.6, 2.0, '#1f6a3a'); cone(1.25, 2.2, 3.3, '#257a42'); cone(0.9, 1.8, 4.5, '#2a8a4a'); cone(0.5, 0.8, 5.3, '#d2dbe6'); cone(1.0, 0.5, 3.15, '#c6d0dc');
     const pines = new THREE.InstancedMesh(mergeGeos(pineParts), lam(0xffffff, { vertexColors: true, flatShading: true }), Math.max(1, P.pines.length));
     P.pines.forEach((t, i) => { dummy.position.set(t.x, t.y - 0.1, t.z); dummy.rotation.set(0, t.ry, 0); dummy.scale.setScalar(t.h / 6); dummy.updateMatrix(); pines.setMatrixAt(i, dummy.matrix); });
     pines.castShadow = true; this.add(pines);
@@ -570,13 +571,13 @@ export class World {
 
   // ---------------------------------------------------------------- Frostbite Peak
   buildFrost() {
-    const iceMat = new THREE.MeshPhongMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0.88, shininess: 90, specular: 0xffffff });
-    this.swaps.push((w) => iceMat.color.setHex(w ? 0x6a6a88 : 0xbfe8ff));
+    const iceMat = new THREE.MeshPhongMaterial({ color: 0x8fb4cc, transparent: true, opacity: 0.88, shininess: 60, specular: 0x9fb8cc });
+    this.swaps.push((w) => iceMat.color.setHex(w ? 0x6a6a88 : 0x8fb4cc));
     for (const b of MAP.boxes) if (b.kind === 'icewall' || b.kind === 'iceroof') this.boxMesh(b, iceMat);
     // icicles at the cave mouth
     for (let x = CAVE.x0 + 1; x < CAVE.x1; x += 1.3) this.mesh(new THREE.ConeGeometry(0.18, 0.9 + Math.random() * 0.6, 5), iceMat, x, CAVE.y + 4.4, CAVE.z1 - 0.3).rotation.x = Math.PI;
     // snowmen: smiling here, staring there
-    const snow = lam(0xffffff), coal = lam(0x111111), carrot = lam(0xff7a1a);
+    const snow = lam(0xd8e0ea), coal = lam(0x111111), carrot = lam(0xff7a1a);
     for (const [x, z] of [[-30, -100], [10, -150], [70, -140], [-60, -150], [30, -108]]) {
       const y = terrainH(x, z), g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = Math.atan2(-x, -z);
       g.add(new THREE.Mesh(new THREE.SphereGeometry(0.9, 14, 10), snow).translateY(0.8));
@@ -705,6 +706,105 @@ export class World {
       const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xffa040, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); f.position.set(x, y + 1.6, z); f.scale.set(1.6, 2.2, 1); this.add(f); this.fires.push(f);
     }
     this.swaps.push((w) => { for (const f of this.fires) f.material.color.setHex(w ? 0xff2010 : 0xffa040); });
+  }
+
+  // ---------------------------------------------------------------- buildings you can go inside, and lockers
+  buildBuildings() {
+    const logs = tex(128, 128, (g, w, h) => { for (let y = 0; y < h; y += 16) { g.fillStyle = (y / 16) % 2 ? '#7a4a28' : '#8a5630'; g.fillRect(0, y, w, 16); g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(0, y + 14, w, 2); } }, [3, 1]);
+    const casinoWall = tex(128, 128, (g, w, h) => { g.fillStyle = '#3a1460'; g.fillRect(0, 0, w, h); g.fillStyle = '#ff4fd8'; g.fillRect(0, 20, w, 4); g.fillStyle = '#3ae6ff'; g.fillRect(0, 100, w, 4); for (let x = 8; x < w; x += 32) { g.fillStyle = '#ffe23a'; g.beginPath(); g.arc(x, 60, 4, 0, 7); g.fill(); } }, [2, 1]);
+    const style = {
+      house: { wall: lam(0xffffff, { map: planks('#c0905a', '#5a3a1e') }), roof: 0xd8462a, floor: planks('#8a5a34', '#3a200e') },
+      lodge: { wall: lam(0xffffff, { map: logs }), roof: 0xe8eef6, floor: planks('#6a4228', '#2a160a') },
+      control: { wall: lam(0xffffff, { map: metal('#7a8692', null) }), roof: null, floor: metal('#4a525c', null) },
+      casino: { wall: lam(0xffffff, { map: casinoWall }), roof: null, floor: tex(64, 64, (g) => { g.fillStyle = '#8a0a2a'; g.fillRect(0, 0, 64, 64); g.fillStyle = '#c8962a'; for (let i = 0; i < 64; i += 16) { g.fillRect(i, 0, 2, 64); g.fillRect(0, i, 64, 2); } }, [8, 8]) },
+      tomb: { wall: lam(0xffffff, { map: stone('#b8ac98') }), roof: null, floor: stone('#7a7060') },
+    };
+    for (const [k, st] of Object.entries(style)) this.swaps.push((w) => st.wall.color.setHex(w ? (k === 'lodge' ? 0x6a5a5a : 0x7a5a58) : 0xffffff));
+    for (const b of MAP.BUILDINGS) {
+      const st = style[b.style];
+      for (const o of MAP.boxes) {
+        if (o.kind === 'bwall:' + b.style && o.x0 >= b.x0 - 0.1 && o.x1 <= b.x1 + 0.1 && o.z0 >= b.z0 - 0.1 && o.z1 <= b.z1 + 0.1) this.boxMesh(o, st.wall);
+        if (o.kind === 'broof:' + b.style && Math.abs(o.x0 - (b.x0 - 0.3)) < 0.01 && Math.abs(o.z0 - (b.z0 - 0.3)) < 0.01) {
+          this.boxMesh(o, lam(st.roof || 0x3a3a44));
+          if (st.roof) { const r = this.mesh(new THREE.ConeGeometry(Math.hypot(b.x1 - b.x0, b.z1 - b.z0) * 0.56, 3.2, 4), lam(st.roof, { flatShading: true }), (b.x0 + b.x1) / 2, o.y1 + 1.6, (b.z0 + b.z1) / 2, Math.PI / 4); r.scale.set((b.x1 - b.x0) / Math.max(b.x1 - b.x0, b.z1 - b.z0), 1, (b.z1 - b.z0) / Math.max(b.x1 - b.x0, b.z1 - b.z0)); }
+        }
+      }
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(b.x1 - b.x0 - 0.2, b.z1 - b.z0 - 0.2), lam(0xffffff, { map: st.floor }));
+      floor.rotation.x = -Math.PI / 2; floor.position.set((b.x0 + b.x1) / 2, b.y + 0.03, (b.z0 + b.z1) / 2); floor.receiveShadow = true; this.add(floor);
+      // a ceiling lamp and a few windows
+      this.lamps.push(this.mesh(new THREE.SphereGeometry(0.25, 10, 8), basic(0xffe08a), (b.x0 + b.x1) / 2, b.y + b.h - 0.4, (b.z0 + b.z1) / 2));
+      for (const t of [0.3, 0.7]) {
+        const w1 = this.mesh(new THREE.PlaneGeometry(1.4, 1), basic(0xffd27a), lerp(b.x0, b.x1, t), b.y + 2.4, b.z0 - 0.02, Math.PI); w1.castShadow = false; this.windows.push(w1);
+      }
+    }
+    // furniture
+    const desk = lam(0x4a525c), screen = basic(0x3ae6ff), slotM = lam(0xd02a6a), coffin = lam(0xffffff, { map: stone('#8a8070') });
+    for (const o of MAP.boxes) {
+      if (o.kind === 'desk') { this.boxMesh(o, desk); for (let i = 0; i < 3; i++) { const m = this.mesh(new THREE.PlaneGeometry(0.9, 0.55), screen, o.x0 + 0.7 + i * 1.3, o.y1 + 0.45, o.z0 - 0.01, Math.PI); m.castShadow = false; } }
+      if (o.kind === 'minislot') { this.boxMesh(o, slotM); const m = this.mesh(new THREE.PlaneGeometry(0.8, 0.6), basic(0xffe23a), (o.x0 + o.x1) / 2, o.y1 - 0.7, o.z0 - 0.01, Math.PI); m.castShadow = false; this.neon.push(m); }
+      if (o.kind === 'coffin') this.boxMesh(o, coffin);
+    }
+    // lockers: metal (or wood / stone) cabinets with vents; doors shake while someone is inside
+    const vents = tex(64, 128, (g, w, h) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h); g.fillStyle = 'rgba(0,0,0,0.6)'; for (let y = 14; y < 44; y += 6) g.fillRect(14, y, 36, 3); g.fillRect(44, 64, 6, 14); g.strokeStyle = 'rgba(0,0,0,0.4)'; g.lineWidth = 2; g.strokeRect(3, 3, w - 6, h - 6); });
+    const tint = { house: 0x8a5a34, lodge: 0x7a4a28, control: 0x5a7a9a, casino: 0xc8962a, tomb: 0x9a9080, corridor: 0x6a6a7a, hall: 0x5a8a5a, cave: 0x8fb4cc };
+    this.lockers = MAP.LOCKERS.map((l) => {
+      const g = new THREE.Group(); g.position.set(l.x, l.y, l.z); g.rotation.y = l.ry;
+      const bodyM = lam(tint[l.building] || 0x6a6a7a);
+      const shell = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.5, 0.8), bodyM); shell.position.y = 1.25; g.add(shell);
+      const door = new THREE.Group(); door.position.set(-0.48, 0, 0.41); g.add(door);
+      const dm = new THREE.Mesh(new THREE.PlaneGeometry(0.94, 2.4), lam(tint[l.building] || 0x6a6a7a, { map: vents, side: THREE.DoubleSide })); dm.position.set(0.47, 1.25, 0); door.add(dm);
+      const eyes = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xff1a1a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })); eyes.scale.set(0.7, 0.25, 1); eyes.position.set(0, 2.15, 0.45); g.add(eyes);
+      g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      this.add(g);
+      return { g, door, eyes, open: 0, shake: 0, occupied: false };
+    });
+    // static fields (Glitch.exe) and blood footprints (Bloodhunt)
+    this.fieldPool = [];
+    this.prints = [];
+    const printTex = tex(32, 64, (g) => { g.fillStyle = '#ff2030'; g.beginPath(); g.ellipse(16, 22, 9, 14, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(16, 50, 7, 8, 0, 0, 7); g.fill(); });
+    for (let i = 0; i < 70; i++) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.6), basic(0xffffff, { map: printTex, transparent: true, depthWrite: false, fog: false }));
+      m.rotation.x = -Math.PI / 2; m.visible = false; this.scene.add(m); this.prints.push({ m, life: 0 });
+    }
+  }
+
+  /** occupied: Set of locker indexes with someone inside (only told to the people who may know). */
+  updateLockers(occupied, dt) {
+    this.lockers.forEach((l, i) => {
+      const occ = occupied.has(i);
+      l.open = Math.max(0, l.open - dt * 1.2);
+      l.door.rotation.y = -l.open * 1.9;
+      l.shake = occ ? Math.sin(this.time * 31 + i) * 0.006 : 0;
+      l.g.position.x = MAP.LOCKERS[i].x + l.shake;
+      l.eyes.material.opacity = Math.max(0, l.eyes.material.opacity - dt * 0.8);
+    });
+  }
+  ripLocker(i, found) { const l = this.lockers[i]; if (!l) return; l.open = 1; l.eyes.material.opacity = found ? 1 : 0.5; }
+  doorLocker(i) { const l = this.lockers[i]; if (l) l.open = Math.max(l.open, 0.35); }
+
+  /** Glitch.exe static fields: [[x, z, w, secondsLeft]], drawn in the world being viewed. */
+  updateFields(list, w, r) {
+    const live = (list || []).filter((f) => f[2] === w);
+    while (this.fieldPool.length < live.length) {
+      const g = new THREE.Group();
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 40), basic(0xff2a8a, { transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }));
+      disc.rotation.x = -Math.PI / 2; g.add(disc);
+      const wall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 3, 40, 1, true), basic(0x2affea, { transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+      wall.position.y = 1.5; g.add(wall);
+      this.scene.add(g); this.fieldPool.push({ g, disc, wall });
+    }
+    this.fieldPool.forEach((p, i) => {
+      const f = live[i];
+      p.g.visible = !!f;
+      if (!f) return;
+      p.g.position.set(f[0], terrainH(f[0], f[1]) + 0.08, f[1]); p.g.scale.set(r, 1, r);
+      p.wall.material.opacity = 0.1 + Math.random() * 0.15; p.disc.material.color.setHex(Math.random() < 0.5 ? 0xff2a8a : 0x2affea);
+    });
+  }
+
+  addFootprint(x, y, z, ry) {
+    const p = this.prints.find((q) => q.life <= 0) || this.prints[0];
+    p.life = 1; p.m.visible = true; p.m.position.set(x, y + 0.05, z); p.m.rotation.z = -ry; p.m.material.opacity = 1;
   }
 
   // ---------------------------------------------------------------- portals and gates
@@ -989,6 +1089,7 @@ export class World {
       if (s.ring.visible) { s.ring.geometry.dispose(); s.ring.geometry = new THREE.RingGeometry(0.95, 1.15, 32, 1, Math.PI / 2, Math.PI * 2 * s.prog); }
     }
     this.core.g.rotation.y += dt * 2;
+    for (const p of this.prints) if (p.life > 0) { p.life -= dt / 5; p.m.material.opacity = Math.max(0, p.life); if (p.life <= 0) p.m.visible = false; }
     if (c) {
       const dummy = World._d || (World._d = new THREE.Object3D());
       for (let i = 0; i < this.glitchData.length; i++) {

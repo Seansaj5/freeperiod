@@ -62,7 +62,7 @@ window.GAMES = [
     url: 'games/horror-exe/',
     thumb: 'assets/horror-exe.jpg',
     tags: ['3D', 'Multiplayer', 'Horror'],
-    controls: 'WASD move · Shift sprint · Space jump · E power · EXE: click attack, Q sense, F disguise · Esc pause',
+    controls: 'WASD move · Shift sprint · Space jump · E power · F hide · EXE: click attack, E/R powers, Q sense, F disguise · Esc pause',
     accent: '#ff2a3a',
     saveKey: 'horrorexe.v1',
     added: '2026-11-09',

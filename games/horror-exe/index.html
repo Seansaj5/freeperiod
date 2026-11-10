@@ -210,6 +210,30 @@
     #touch .tb { font-size: 8px; }
     #scare canvas { image-rendering: pixelated; }
     @media (pointer: coarse) { .keys { display: none; } }
+    .revinfo { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); text-align: center; margin-top: 2px; text-shadow: 0 1px 4px #000; }
+    .revinfo.bad { color: #ff6a7a; }
+    .lockerview { position: fixed; inset: 0; z-index: 4; pointer-events: none;
+      background: repeating-linear-gradient(180deg, rgba(8, 8, 12, 0.96) 0 22px, rgba(8, 8, 12, 0) 22px 34px), radial-gradient(ellipse at center, rgba(0,0,0,0) 30%, rgba(0,0,0,0.85) 75%);
+      -webkit-mask: linear-gradient(90deg, #000 0 22%, transparent 22% 78%, #000 78%), linear-gradient(180deg, #000 0 26%, transparent 26% 70%, #000 70%);
+      -webkit-mask-composite: source-over; mask-composite: add; }
+    .qte { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse, rgba(60, 0, 6, 0.7), rgba(5, 0, 2, 0.96)); }
+    .qte canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.32; filter: contrast(1.3) saturate(1.4); animation: qteFace 0.12s steps(2) infinite; }
+    @keyframes qteFace { 50% { transform: translate(6px, -3px) scale(1.02); opacity: 0.4; } }
+    .qte.fail { background: #b0000c; }
+    .qte-in { position: relative; text-align: center; }
+    .qte-title { font-family: 'Bungee', sans-serif; font-size: clamp(18px, 3vw, 30px); color: #ff3a4a; letter-spacing: 0.06em; text-shadow: 0 0 18px #000; }
+    .qte-ring { position: relative; width: 150px; height: 150px; margin: 18px auto 8px; }
+    .qte-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+    .qte-ring circle { fill: none; stroke-width: 7; }
+    .qte-ring .bg { stroke: rgba(255, 255, 255, 0.12); }
+    .qte-ring .fg { stroke: #ff2a3a; stroke-dasharray: 302; stroke-dashoffset: 0; stroke-linecap: round; filter: drop-shadow(0 0 8px #ff2a3a); }
+    .qte-ring b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: 'Bungee', sans-serif; font-size: 64px; color: #fff; text-shadow: 0 0 20px #ff2a3a; }
+    .qte-ring b.pop { animation: qtePop 0.18s ease-out; }
+    @keyframes qtePop { from { transform: scale(1.5); opacity: 0.2; } }
+    .qte-count { font-weight: 800; color: var(--muted); letter-spacing: 0.2em; }
+    .qte-text { font-family: 'Bungee', sans-serif; font-size: clamp(26px, 5vw, 56px); color: #fff; margin-top: 14px; }
+    .qte-help { color: var(--muted); font-size: 14px; margin-top: 10px; font-weight: 600; }
+    #touch .tb.big { width: 110px; height: 110px; font-size: 40px; z-index: 30; position: fixed; pointer-events: auto; }
     @media (max-height: 500px) {
       #title .tag, .keys { display: none; }
       .screen { padding-top: 3vh; padding-bottom: 3vh; }
@@ -248,7 +272,7 @@
     </div>
     <div class="online" id="online"><i></i><span>Checking the server…</span></div>
     <div class="status" id="status"></div>
-    <div class="keys"><kbd>WASD</kbd> move · <kbd>Mouse</kbd> look · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump · <kbd>E</kbd> ability<br />EXE: <kbd>Click</kbd> attack · <kbd>E</kbd> power · <kbd>Q</kbd> sense · <kbd>F</kbd> disguise · <kbd>Esc</kbd> pause</div>
+    <div class="keys"><kbd>WASD</kbd> move · <kbd>Mouse</kbd> look · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump · <kbd>E</kbd> ability · <kbd>F</kbd> hide in a locker<br />EXE: <kbd>Click</kbd> attack / rip a locker · <kbd>E</kbd> power · <kbd>R</kbd> second power · <kbd>Q</kbd> sense · <kbd>F</kbd> disguise</div>
   </section>
 
   <section id="soloPick" class="screen shade hidden">
@@ -309,11 +333,22 @@
     <div id="markers"></div>
     <div class="cross" id="cross"></div>
     <div class="prompt hidden" id="prompt"></div>
-    <div class="bottom" id="bottom"><div class="hearts" id="hearts"></div><div><div class="stam" id="stam"><i></i></div></div><div class="slots" id="slots"></div></div>
+    <div class="bottom" id="bottom"><div><div class="hearts" id="hearts"></div><div class="revinfo" id="revInfo">1 revive left</div></div><div><div class="stam" id="stam"><i></i></div></div><div class="slots" id="slots"></div></div>
     <div class="downed hidden" id="downed"><b>YOU'RE DOWN</b><span id="downT">20</span><div class="bar"><i id="revBar"></i></div><small>Crawl toward a teammate. Standing next to you revives you.</small></div>
     <div class="spect hidden" id="spect"></div>
   </div>
   <div class="intro hidden" id="intro"><div class="box" id="introBox"></div></div>
+  <div class="lockerview hidden" id="lockerView"></div>
+  <div class="qte hidden" id="qte">
+    <canvas id="qteFace"></canvas>
+    <div class="qte-in">
+      <div class="qte-title" id="qteTitle">EXE TORE OPEN YOUR LOCKER</div>
+      <div class="qte-ring"><svg viewBox="0 0 110 110"><circle cx="55" cy="55" r="48" class="bg"/><circle cx="55" cy="55" r="48" id="qteRing" class="fg"/></svg><b id="qteKey">Q</b></div>
+      <div class="qte-count" id="qteCount">1/6</div>
+      <div class="qte-text glitch" id="qteText" data-text="">LET ME IN</div>
+      <div class="qte-help">Press the key before the ring closes</div>
+    </div>
+  </div>
 
   <section id="results" class="screen hidden">
     <div class="panel">
@@ -357,6 +392,8 @@
     <button class="tb" id="tAtk" style="right:calc(5vw + 152px);bottom:9vh">HIT</button>
     <button class="tb" id="tSense" style="right:calc(5vw + 76px);bottom:calc(16vh + 76px)">SENSE</button>
     <button class="tb" id="tDis" style="right:calc(5vw + 152px);bottom:calc(9vh + 76px)">HIDE</button>
+    <button class="tb" id="tAb2" style="right:calc(5vw + 228px);bottom:9vh">R</button>
+    <div id="touchQE" class="hidden"><button class="tb big" id="tQ" style="left:12vw;bottom:14vh">Q</button><button class="tb big" id="tE" style="right:12vw;bottom:14vh">E</button></div>
   </div>
   <div id="scare"><canvas></canvas></div>
   <div id="whisper"></div>

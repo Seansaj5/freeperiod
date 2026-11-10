@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Round } from '../shared/round.js';
-import { ROUND, SURV, EXE, ST, F, CHARS, TASKS, TASK, PORTAL } from '../shared/rules.js';
+import { ROUND, SURV, EXE, ST, F, CHARS, TASKS, TASK, PORTAL, HIDE, VARIANTS } from '../shared/rules.js';
 import { stepMove, body } from '../shared/move.js';
-import { terrainH, supportAt, SPRINGS, M, PORTALS, BOOSTS, OBJ, EXITS, MAP } from '../shared/map.js';
+import { terrainH, supportAt, SPRINGS, M, PORTALS, BOOSTS, OBJ, EXITS, MAP, LOCKERS } from '../shared/map.js';
 
 const humans = [{ id: 1, name: 'Sean', char: 'rook', look: {} }, { id: 2, name: 'Friend', char: 'mira' }];
 const tick = (R, s) => { for (let i = 0; i < s * 30; i++) R.update(1 / 30); };
@@ -39,28 +39,27 @@ test('EXE is frozen in the intro and cannot attack', () => {
   assert.equal(R.phase, 'play');
 });
 
-test('two hits knock a survivor down, a teammate revives them, bleeding out puts them out', () => {
+test('three hits knock a survivor down; one revive each; going down again means taken', () => {
   const R = new Round({ seed: 5, players: [...humans, { id: 3, name: 'C', char: 'bolt' }], exeId: 2 });
   playing(R);
-  place(R, 1, 0, 3, 0, 0); place(R, 2, 0, 1, 0, 0);
-  assert.ok(R.action(2, { k: 'atk' }));
   const s = R.ents.get(1);
-  assert.equal(s.hp, 1);
-  assert.ok(R.flagsOf(s) & F.BOOST);
-  tick(R, SURV.invulnTime + 0.1);
-  place(R, 1, 0, 3, 0, 0); place(R, 2, 0, 1, 0, 0);
-  assert.ok(R.action(2, { k: 'atk' }));
-  assert.equal(s.st, ST.down);
+  const strike = () => { place(R, 1, 0, 3, 0, 0); place(R, 2, 0, 1, 0, 0); s.fx.invuln = 0; R.ents.get(2).cd.atk = 0; return R.action(2, { k: 'atk' }); };
+  assert.ok(strike()); assert.equal(s.hp, 2);
+  assert.ok(strike()); assert.equal(s.hp, 1);
+  assert.ok(strike()); assert.equal(s.st, ST.down);
   place(R, 2, 40, 40); place(R, 3, 0.8, 3, 0, 0);
   tick(R, SURV.reviveTime + 0.2);
-  assert.equal(s.st, ST.alive);
-  tick(R, 2.5);
+  assert.equal(s.st, ST.alive); assert.equal(s.revived, 1);
   place(R, 3, 40, -40);
-  place(R, 1, 0, 3, 0, 0); place(R, 2, 0, 1, 0, 0);
+  assert.ok(strike());
+  assert.equal(s.st, ST.out, 'no second revive');
+  // bleeding out still works for someone who has a revive left
+  const c = R.ents.get(3); c.hp = 1; c.fx.invuln = 0;
+  place(R, 3, 0, 3, 0, 0); place(R, 2, 0, 1, 0, 0); R.ents.get(2).cd.atk = 0;
   assert.ok(R.action(2, { k: 'atk' }));
-  assert.equal(s.st, ST.down);
+  assert.equal(c.st, ST.down);
   tick(R, SURV.downTime + 0.5);
-  assert.equal(s.st, ST.out);
+  assert.equal(c.st, ST.out);
 });
 
 test('Mira revives twice as fast', () => {
@@ -213,13 +212,85 @@ test('sense reveals sprinting survivors in the same world only', () => {
   assert.ok(!(R.flagsOf(R.ents.get(3)) & F.REVEAL));
 });
 
+test('lockers: hide from hits and Sense; not while EXE watches; stay too long = minigame, then taken', () => {
+  const R = new Round({ seed: 20, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X' }], exeId: 2 });
+  playing(R);
+  const L = LOCKERS[0], me = R.ents.get(1);
+  place(R, 2, L.fx + 5, L.fz + 0.5, -Math.PI / 2, 0); // EXE in the same room, looking
+  place(R, 1, L.fx, L.fz, 0, 0);
+  R.drain();
+  assert.equal(R.action(1, { k: 'hide' }), false, 'EXE is watching');
+  assert.ok(R.drain().some((e) => e.k === 'hide-denied'));
+  place(R, 2, 80, 80, 0, 0);
+  assert.ok(R.action(1, { k: 'hide' }));
+  assert.ok(R.flagsOf(me) & F.HIDDEN);
+  place(R, 2, me.x, me.z + 1.5, Math.PI, 0); R.ents.get(2).cd.sense = 0;
+  R.action(2, { k: 'sense' });
+  assert.ok(!(R.flagsOf(me) & F.REVEAL), 'Sense cannot find you');
+  assert.equal(R.victimFor(R.ents.get(2), 5), null, 'cannot be hit');
+  place(R, 2, 80, 80, 0, 0);
+  tick(R, HIDE.max + 0.1);
+  assert.ok(me.qte, 'stayed too long: minigame');
+  R.action(1, { k: 'qte', ok: false });
+  assert.equal(me.hp, SURV.hp - 1, 'failing costs a life');
+  assert.equal(me.hidden, 0, 'thrown out');
+  tick(R, HIDE.cooldown + SURV.invulnTime);
+  place(R, 1, L.fx, L.fz, 0, 0);
+  assert.ok(R.action(1, { k: 'hide' }));
+  tick(R, HIDE.max + 0.1);
+  assert.equal(me.st, ST.out, 'the second time it just takes you');
+});
+
+test('EXE rips lockers open: someone inside gets the minigame; an empty one leaves EXE stuck', () => {
+  const R = new Round({ seed: 21, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X' }], exeId: 2 });
+  playing(R);
+  const L = LOCKERS[3], me = R.ents.get(1);
+  place(R, 1, L.fx, L.fz, 0, 0);
+  assert.ok(R.action(1, { k: 'hide' }));
+  place(R, 2, L.fx, L.fz, L.ry + Math.PI, 0);
+  assert.ok(R.action(2, { k: 'atk' }));
+  assert.ok(me.qte, 'dragged into the minigame');
+  R.action(1, { k: 'qte', ok: true });
+  assert.equal(me.hp, SURV.hp, 'winning costs nothing');
+  assert.equal(me.hidden, 0);
+  const x = R.ents.get(2), L2 = LOCKERS[4];
+  place(R, 1, 80, -80); tick(R, 1.2);
+  place(R, 2, L2.fx, L2.fz, L2.ry + Math.PI, 0); x.cd.atk = 0;
+  R.action(2, { k: 'atk' });
+  assert.ok(R.flagsOf(x) & F.STUN, 'empty locker: stuck');
+});
+
+test('R moves: Bloodhunt speeds up and reveals, Static Field slows and blocks abilities, Decoy chases and bursts', () => {
+  const R = new Round({ seed: 22, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X', variant: 'exe' }], exeId: 2 });
+  playing(R);
+  place(R, 1, 30, 0, 0, 0); place(R, 2, 0, 0, 0, 0);
+  assert.ok(R.action(2, { k: 'ab2' }));
+  assert.ok(R.flagsOf(R.ents.get(2)) & F.HUNT);
+  assert.ok(R.flagsOf(R.ents.get(1)) & F.REVEAL);
+  const R2 = new Round({ seed: 23, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X', variant: 'glitch' }], exeId: 2 });
+  playing(R2);
+  place(R2, 2, 0, 0, 0, 0); place(R2, 1, 3, 0, 0, 0);
+  assert.ok(R2.action(2, { k: 'ab2' }));
+  assert.ok(R2.flagsOf(R2.ents.get(1)) & F.SLOWED);
+  assert.equal(R2.action(1, { k: 'abl' }), false, 'no abilities inside the field');
+  const R3 = new Round({ seed: 24, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X', variant: 'grin' }], exeId: 2 });
+  playing(R3);
+  place(R3, 2, 0, 0, 0, 0); place(R3, 1, 0, 12, 0, 0);
+  R3.drain();
+  assert.ok(R3.action(2, { k: 'ab2' }));
+  assert.equal(R3.decoys.length, 1);
+  tick(R3, 3);
+  assert.ok(R3.drain().some((e) => e.k === 'decoy-pop' && e.id === 1), 'decoy reached the survivor and burst');
+  assert.equal(R3.ents.get(1).hp, SURV.hp, 'harmless');
+});
+
 test('lava hurts survivors but never takes the last heart', () => {
   const R = new Round({ seed: 14, players: [{ id: 1, name: 'A', char: 'bolt' }], exeId: null });
   playing(R);
   const me = place(R, 1, -112, -42, 0, 0);
   tick(R, 0.1);
   assert.equal(me.hp, SURV.hp - 1);
-  tick(R, SURV.burnTime + SURV.invulnTime + 0.2);
+  for (let i = 0; i < 4; i++) { tick(R, SURV.burnTime + SURV.invulnTime + 0.2); place(R, 1, -112, -42, 0, 0); }
   assert.equal(me.hp, 1);
   assert.equal(me.st, ST.alive);
 });

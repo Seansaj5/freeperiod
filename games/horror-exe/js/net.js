@@ -109,7 +109,7 @@ export class NetSession {
     this.sentAt = now;
     this.send({ t: 'st', x: +s.x.toFixed(2), y: +s.y.toFixed(2), z: +s.z.toFixed(2), ry: +s.ry.toFixed(3), f: s.f });
   }
-  action(a) { this.send({ t: 'act', k: a.k }); return true; }
+  action(a) { this.send({ t: 'act', k: a.k, ok: a.ok === true }); return true; }
   pick(p) { this.send({ t: 'pick', ...p }); }
   start() { this.send({ t: 'start' }); }
   update() {}

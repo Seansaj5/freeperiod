@@ -122,7 +122,7 @@ wss.on('connection', (ws) => {
         if (room.state === 'game' && room.round) room.round.input(me.id, m);
         break;
       case 'act':
-        if (room.state === 'game' && room.round && ['atk', 'abl', 'sense', 'disguise'].includes(m.k)) room.round.action(me.id, { k: m.k });
+        if (room.state === 'game' && room.round && ['atk', 'abl', 'sense', 'disguise', 'ab2', 'hide', 'qte'].includes(m.k)) room.round.action(me.id, { k: m.k, ok: m.ok === true });
         break;
       case 'pick':
         if (m.name !== undefined) me.name = cleanName(m.name);

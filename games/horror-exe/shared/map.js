@@ -27,6 +27,30 @@ export const GOO = [{ x: 118, z: -42, r: 8 }, { x: 150, z: 12, r: 7 }, { x: 112,
 export const NEON = { y: 1.0 };
 export const TEMPLE = { x: -132, z: 0, half: 13, top: 4.5 };
 export const LAVA = [{ x: -112, z: -42, r: 8 }, { x: -152, z: 34, r: 7 }, { x: -106, z: 46, r: 6 }];
+// buildings you can walk into (each flattened onto its own floor), with lockers to hide in
+export const BUILDINGS = [
+  { id: 'house', style: 'house', x0: -42, x1: -26, z0: -68, z1: -56, y: 1.8, h: 4.4,
+    doors: [{ side: 's', at: -36, w: 2.6 }, { side: 'e', at: -59, w: 2.4 }],
+    inner: [{ z: -62, from: -42, to: -26, gap: -30, gw: 2.4 }],
+    lockers: [{ wall: 'n', at: -39 }, { wall: 'n', at: -29 }, { wall: 'w', at: -58.5 }] },
+  { id: 'lodge', style: 'lodge', x0: -84, x1: -68, z0: -162, z1: -150, y: 0.3, h: 4.4,
+    doors: [{ side: 'e', at: -156, w: 2.6 }, { side: 's', at: -76, w: 2.6 }],
+    lockers: [{ wall: 'n', at: -80 }, { wall: 'w', at: -154 }] },
+  { id: 'control', style: 'control', x0: 104, x1: 118, z0: -76, z1: -64, y: 1.0, h: 4.2,
+    doors: [{ side: 's', at: 111, w: 2.6 }, { side: 'w', at: -70, w: 2.4 }],
+    props: [{ x0: 109, x1: 113, z0: -72, z1: -70, h: 1.0, kind: 'desk' }],
+    lockers: [{ wall: 'e', at: -72 }, { wall: 'n', at: 107 }] },
+  { id: 'casino', style: 'casino', x0: 18, x1: 42, z0: 146, z1: 162, y: 1.0, h: 5,
+    doors: [{ side: 'n', at: 30, w: 3.2 }, { side: 'w', at: 156, w: 2.6 }],
+    props: [20.5, 25, 29.5, 34].map((x) => ({ x0: x - 0.6, x1: x + 0.6, z0: 160.3, z1: 161.4, h: 2.2, kind: 'minislot' })),
+    lockers: [{ wall: 'e', at: 158 }, { wall: 'e', at: 150 }] },
+  { id: 'tomb', style: 'tomb', x0: -156, x1: -140, z0: -32, z1: -20, y: 0.8, h: 4.6,
+    doors: [{ side: 's', at: -148, w: 2.6 }, { side: 'e', at: -26, w: 2.4 }],
+    props: [{ x0: -150, x1: -146, z0: -27.2, z1: -25.2, h: 1.2, kind: 'coffin' }],
+    lockers: [{ wall: 'n', at: -152 }, { wall: 'w', at: -24 }] },
+];
+const inBuilding = (x, z, m = 0) => BUILDINGS.some((b) => x > b.x0 - m && x < b.x1 + m && z > b.z0 - m && z < b.z1 + m);
+
 export const ZONES = [
   { id: 'hills', name: 'Dreamy Hills', x: 0, z: 0, color: '#5fbf3a' },
   { id: 'frost', name: 'Frostbite Peak', x: 0, z: -132, color: '#bfe6ff' },
@@ -84,6 +108,11 @@ export function terrainH(x, z) {
     if (k > 0) h = lerp(h, TEMPLE.top, k);
     if (x > TEMPLE.x + TEMPLE.half - 1 && x < TEMPLE.x + TEMPLE.half + 12 && tz < 3.5) h = Math.max(h, lerp(TEMPLE.top, 1.0, (x - (TEMPLE.x + TEMPLE.half - 1)) / 13)); }
   for (const l of LAVA) { const d = Math.hypot(x - l.x, z - l.z); if (d < l.r + 2) h = lerp(h, -1.6, 1 - smooth(l.r - 2, l.r + 1, d)); }
+  // ---- building floors
+  for (const b of BUILDINGS) {
+    const bx = Math.max(b.x0 - x, 0, x - b.x1), bz = Math.max(b.z0 - z, 0, z - b.z1);
+    if (bx < 6 && bz < 6) h = lerp(h, b.y, 1 - smooth(0.5, 5, Math.hypot(bx, bz)));
+  }
   // ---- the edge of the world
   const e = Math.max(Math.abs(x), Math.abs(z));
   if (e > EDGE) h += Math.min(26, Math.pow(e - EDGE, 1.5) * 0.9) + 5 * Math.sin(x * 0.13 + 1) * Math.cos(z * 0.11) * smooth(172, 182, e) + smooth(182, 220, e) * 8;
@@ -224,6 +253,50 @@ const PILLARS = [{ x: -150, z: -40 }, { x: -160, z: 6 }, { x: -122, z: 58 }];
   }
 }
 
+// ---------------------------------------------------------------- buildings and lockers
+const T_WALL = 0.6, DOOR_H = 3.4;
+export const LOCKERS = [];
+function addLocker(x, z, y, ry, building) {
+  const along = Math.abs(Math.sin(ry)) > 0.5; // facing +-x: the locker is long along z
+  box(x - (along ? 0.4 : 0.5), x + (along ? 0.4 : 0.5), y - 0.5, y + 2.5, z - (along ? 0.5 : 0.4), z + (along ? 0.5 : 0.4), 'locker');
+  LOCKERS.push({ i: LOCKERS.length, x, z, y, ry, building, fx: x + Math.sin(ry) * 1.15, fz: z + Math.cos(ry) * 1.15 });
+}
+for (const b of BUILDINGS) {
+  const y0 = b.y - 1.5, y1 = b.y + b.h, kind = 'bwall:' + b.style;
+  const sideWall = (side) => {
+    const horiz = side === 'n' || side === 's';
+    const lo = horiz ? b.x0 : b.z0, hi = horiz ? b.x1 : b.z1;
+    const doors = (b.doors || []).filter((d) => d.side === side).sort((p, q) => p.at - q.at);
+    let cur = lo;
+    const seg = (a0, a1, ya, yb) => {
+      if (a1 - a0 < 0.05) return;
+      if (horiz) { const z = side === 'n' ? b.z0 : b.z1 - T_WALL; box(a0, a1, ya, yb, z, z + T_WALL, kind); }
+      else { const x = side === 'w' ? b.x0 : b.x1 - T_WALL; box(x, x + T_WALL, ya, yb, a0, a1, kind); }
+    };
+    for (const d of doors) { seg(cur, d.at - d.w / 2, y0, y1); seg(d.at - d.w / 2, d.at + d.w / 2, b.y + DOOR_H, y1); cur = d.at + d.w / 2; }
+    seg(cur, hi, y0, y1);
+  };
+  for (const sd of ['n', 's', 'e', 'w']) sideWall(sd);
+  for (const iw of b.inner || []) {
+    box(iw.from, iw.gap - iw.gw / 2, y0, y1, iw.z - T_WALL / 2, iw.z + T_WALL / 2, kind);
+    box(iw.gap + iw.gw / 2, iw.to, y0, y1, iw.z - T_WALL / 2, iw.z + T_WALL / 2, kind);
+    box(iw.gap - iw.gw / 2, iw.gap + iw.gw / 2, b.y + DOOR_H, y1, iw.z - T_WALL / 2, iw.z + T_WALL / 2, kind);
+  }
+  box(b.x0 - 0.3, b.x1 + 0.3, y1, y1 + 0.5, b.z0 - 0.3, b.z1 + 0.3, 'broof:' + b.style);
+  for (const pr of b.props || []) box(pr.x0, pr.x1, b.y - 0.5, b.y + pr.h, pr.z0, pr.z1, pr.kind);
+  for (const l of b.lockers) {
+    const inset = T_WALL + 0.42;
+    if (l.wall === 'n') addLocker(l.at, b.z0 + inset, b.y, 0, b.id);
+    else if (l.wall === 's') addLocker(l.at, b.z1 - inset, b.y, Math.PI, b.id);
+    else if (l.wall === 'w') addLocker(b.x0 + inset, l.at, b.y, Math.PI / 2, b.id);
+    else addLocker(b.x1 - inset, l.at, b.y, -Math.PI / 2, b.id);
+  }
+}
+// a few more lockers in the corridor, the factory hall and the ice cave
+addLocker(-3, -42.2, T.y, 0, 'corridor'); addLocker(9, -42.2, T.y, 0, 'corridor');
+addLocker(134, -33.6, TOXIC.y, 0, 'hall'); addLocker(149, -33.6, TOXIC.y, 0, 'hall');
+addLocker(-74.2, -108, CAVE.y, Math.PI / 2, 'cave');
+
 // ---------------------------------------------------------------- loops between zones
 props.loops.push({ x: -84, z: -60, a: 0.8 }, { x: 84, z: -70, a: -0.7 }, { x: 60, z: 88, a: 0.2 });
 
@@ -275,6 +348,7 @@ function freeSpot(x, z, extra = 0) {
   if (Math.max(Math.abs(x), Math.abs(z)) > EDGE - 4) return false;
   const zn = zoneAt(x, z).id;
   if (zn === 'toxic' || zn === 'neon') return false; // man-made zones get their own props
+  if (inBuilding(x, z, 5)) return false;
   if (Math.hypot(x - ICE.x, z - ICE.z) < ICE.r + 4) return false;
   if (x > CAVE.x0 - 5 && x < CAVE.x1 + 5 && z > CAVE.z0 - 5 && z < CAVE.z1 + 8) return false;
   if (Math.abs(x - TEMPLE.x) < TEMPLE.half + 4 && Math.abs(z - TEMPLE.z) < TEMPLE.half + 4) return false;
@@ -316,12 +390,12 @@ scatter(46, 0, (x, z, y) => { const rad = 0.9 + r() * 1.4, h = 0.8 + r() * 1.8; 
 scatter(16, 0, (x, z, y) => { const h = 4 + r() * 2.5; cyl(x, z, 0.7, y - 1, y + h, 'totem'); props.totems.push({ x, z, y, h, ry: r() * 6.28 }); });
 for (let i = 0; i < 320; i++) {
   const x = (r() * 2 - 1) * 160, z = (r() * 2 - 1) * 160, y = terrainH(x, z), zn = zoneAt(x, z).id;
-  if (y < WATER_Y + 0.3 || Math.hypot(x, z) < 8 || Math.hypot(x - S.x, z - S.z) < 12 || zn === 'toxic' || zn === 'neon' || zn === 'frost') continue;
+  if (y < WATER_Y + 0.3 || Math.hypot(x, z) < 8 || Math.hypot(x - S.x, z - S.z) < 12 || zn === 'toxic' || zn === 'neon' || zn === 'frost' || inBuilding(x, z, 1)) continue;
   props.flowers.push({ x, z, y, h: 0.9 + r() * 0.8, ry: r() * 6.28, droop: r(), hue: r() });
 }
 for (let i = 0; i < 1800; i++) {
   const x = (r() * 2 - 1) * 166, z = (r() * 2 - 1) * 166, y = terrainH(x, z), zn = zoneAt(x, z).id;
-  if (y < WATER_Y + 0.2 || zn === 'toxic' || zn === 'neon' || zn === 'frost') continue;
+  if (y < WATER_Y + 0.2 || zn === 'toxic' || zn === 'neon' || zn === 'frost' || inBuilding(x, z, 0.5)) continue;
   props.tufts.push({ x, z, y, s: 0.6 + r() * 0.8, ry: r() * 6.28, dead: r() });
 }
 
@@ -480,7 +554,7 @@ const SHARD_SPOTS_RAW = [
   { x: -64, z: -12, via: [0, 1] }, { x: -55, z: -2, via: [1, 0] },
   { x: -22, z: 40, top: true, via: [2] }, { x: 28, z: -18, top: true, via: [3] }, { x: 52, z: 44, top: true, via: [4] },
   { x: 2, z: -40, entry: [{ x: -10, z: -40 }, { x: 16, z: -40 }] }, { x: 52, z: -50 }, { x: -40, z: 70 }, { x: 72, z: 66 }, { x: 14, z: -16 },
-  { x: -30, z: -60 }, { x: 70, z: -14 }, { x: 16, z: 66 }, { x: -74, z: 30 }, { x: 66, z: 44, top: true, entry: [{ x: 80, z: 44 }, { x: 24, z: 44 }] },
+  { x: -30, z: -60, entry: [{ x: -36, z: -53 }] }, { x: 70, z: -14 }, { x: 16, z: 66 }, { x: -74, z: 30 }, { x: 66, z: 44, top: true, entry: [{ x: 80, z: 44 }, { x: 24, z: 44 }] },
   { x: 26, z: 22 }, { x: -36, z: -40 }, { x: 36, z: -72 },
 ];
 export const SHARD_SPOTS = SHARD_SPOTS_RAW.map((s, i) => ({
@@ -503,4 +577,4 @@ export const OBJ = {
 for (const k of ['valves', 'panels', 'bells']) for (const o of OBJ[k]) o.y = (o.top ? supportAt(o.x, o.z, 100) : groundY(o.x, o.z)) + 1.1;
 OBJ.core.y = groundY(OBJ.core.x, OBJ.core.z); OBJ.engine.y = groundY(OBJ.engine.x, OBJ.engine.z);
 
-export const MAP = { boxes, cyls, props, SPRINGS, EXITS, SHARD_SPOTS, SPAWNS, PORTALS, BOOSTS, CONVEYORS, OBJ, ZONES };
+export const MAP = { boxes, cyls, props, SPRINGS, EXITS, SHARD_SPOTS, SPAWNS, PORTALS, BOOSTS, CONVEYORS, OBJ, ZONES, BUILDINGS, LOCKERS };

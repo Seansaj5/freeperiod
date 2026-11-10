@@ -304,38 +304,154 @@ export class Rig {
   }
 
   buildExe(variant) {
-    if (variant === 'glitch') {
-      const tex = noiseTex('glitch-noise', ['#0b0b10', '#0b0b10', '#1a1a24', '#ff2a6a', '#2affea', '#ffffff']);
-      tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
-      const body = this.mat(0xffffff, { map: tex, emissive: 0x220011 });
-      const dark = this.mat(0x14141c);
-      this.skeleton({ torsoMats: body, armTop: body, armBottom: dark, sleeve: 0.6, legTop: body, shoe: dark, headMat: body }, 1.35);
-      this.faceOn('glitch');
-      this.extra.glitchTex = tex;
-      this.root.scale.set(1.2, 1.24, 1.2);
-    } else if (variant === 'grin') {
-      const pale = this.mat(0xcfc9be), dark = this.mat(0x1a1416), red = this.mat(0x5a0a0a);
-      this.skeleton({ torsoMats: [pale, pale, pale, pale, pale, pale], armTop: pale, armBottom: pale, sleeve: 1, legTop: dark, shoe: dark, headMat: pale }, 1.65, 0.8);
-      this.faceOn('grinexe', 1.12);
-      this.root.scale.set(1.05, 1.36, 1.05);
-      for (const arm of [this.armL, this.armR]) for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.34, 5), pale); f.position.set(-0.12 + i * 0.08, -0.2, 0); f.rotation.x = Math.PI; arm.userData.hand.add(f); }
-      const rag = new THREE.Mesh(rbox(2 * U + 0.04, 0.5, U + 0.04, 0.04), red); rag.position.y = 0.2; this.hips.add(rag);
-    } else {
-      const skin = this.mat(0x151a2e), black = this.mat(0x07070b), claw = this.mat(0xe8e2d6), red = this.mat(0x6a0000);
-      this.skeleton({ torsoMats: [skin, skin, skin, skin, skin, skin], armTop: skin, armBottom: black, sleeve: 0.55, legTop: skin, shoe: red, headMat: skin }, 1.45);
-      this.faceOn('exe');
-      this.root.scale.set(1.22, 1.26, 1.22);
-      for (const arm of [this.armL, this.armR]) for (let i = 0; i < 3; i++) { const c = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.3, 5), claw); c.position.set(-0.13 + i * 0.13, -0.18, 0.06); c.rotation.x = Math.PI + 0.3; arm.userData.hand.add(c); }
-      // jagged horns and a torn scarf
-      const horn = (x, y, z, rx, rz, s) => { const h = new THREE.Mesh(new THREE.ConeGeometry(0.09 * s, 0.6 * s, 6), black); h.position.set(x, y, z); h.rotation.set(rx, 0, rz); this.head.add(h); };
-      horn(0.17, 0.66, -0.06, -0.5, -0.45, 1); horn(-0.17, 0.66, -0.06, -0.5, 0.45, 1); horn(0.09, 0.62, -0.2, -0.9, -0.2, 0.7); horn(-0.09, 0.62, -0.2, -0.9, 0.2, 0.7);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.08, 8, 18), red); ring.rotation.x = Math.PI / 2; ring.position.y = 2 * U + 0.02; this.hips.add(ring);
-      this.extra.tails = [0, 1].map((i) => { const g = new THREE.Group(); g.position.set(i ? -0.12 : 0.1, 2 * U, -0.22); const m = new THREE.Mesh(rbox(0.18, 0.05, 0.9, 0.02), red); m.position.z = -0.45; g.add(m); this.hips.add(g); return g; });
-    }
-    // glowing eyes that read through fog
-    const eyeGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: variant === 'glitch' ? 0xffffff : 0xff1010, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    eyeGlow.scale.set(0.62, 0.26, 1); eyeGlow.position.set(0, 0.36, 0.33); this.head.add(eyeGlow); this.extra.eyeGlow = eyeGlow;
+    this.puffs = []; this.puffT = 0;
+    if (variant === 'glitch') this.buildGlitch();
+    else if (variant === 'grin') this.buildGrin();
+    else this.buildClassic();
   }
+
+  /** EXE: tall and hunched, torn black coat, cracked porcelain mask, huge claws, red cracks, trailing smoke. */
+  buildClassic() {
+    const cracks = crackTex();
+    const skin = this.mat(0x15151c, { emissive: 0xff2010, emissiveMap: cracks, emissiveIntensity: 1.2 });
+    const coat = this.mat(0x0b0b10), lining = this.mat(0x5a0008, { side: THREE.DoubleSide }), mask = this.mat(0xe8e2d6), claw = this.mat(0xd8d0c0);
+    this.skeleton({ torsoMats: coat, armTop: coat, armBottom: skin, sleeve: 0.62, legTop: coat, shoe: this.mat(0x07070a), headMat: mask }, 1.5);
+    this.faceOn('exe');
+    this.root.scale.set(1.22, 1.3, 1.22);
+    // hood around the back of the mask, with a pointed tip
+    const hood = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.37, 0.72, 18, 1, true, Math.PI / 3 + 0.25, Math.PI * 2 - 2 * (Math.PI / 3 + 0.25)), this.mat(0x0b0b10, { side: THREE.DoubleSide }));
+    hood.position.y = 0.34; this.head.add(hood);
+    const top = new THREE.Mesh(new THREE.SphereGeometry(0.36, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), coat); top.position.set(0, 0.68, -0.04); top.scale.set(1, 0.5, 1.05); this.head.add(top);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 8), coat); tip.position.set(0, 0.72, -0.32); tip.rotation.x = -1.1; this.head.add(tip);
+    // high collar
+    const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.36, 0.3, 14, 1, true, Math.PI / 4, Math.PI * 1.5), coat); collar.position.y = 2 * U + 0.1; this.hips.add(collar);
+    // torn coat tails that stream behind
+    this.extra.tails = [];
+    for (const [x, z, len, back] of [[-0.24, -0.25, 1.25, 1], [0.24, -0.25, 1.15, 1], [0, -0.26, 1.35, 1], [-0.3, 0.24, 0.95, 0], [0.3, 0.24, 0.9, 0]]) {
+      const g = new THREE.Group(); g.position.set(x, 0.12, z);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.3, len, 0.04), back ? coat : lining); strip.position.y = -len / 2; g.add(strip);
+      for (let k = 0; k < 2; k++) { const rag = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.22, 3), coat); rag.position.set(-0.08 + k * 0.16, -len - 0.08, 0); rag.rotation.x = Math.PI; g.add(rag); }
+      g.userData.back = back; this.hips.add(g); this.extra.tails.push(g);
+    }
+    // big curved claws
+    for (const arm of [this.armL, this.armR]) for (let i = 0; i < 4; i++) {
+      const c = new THREE.Group(); c.position.set(-0.16 + i * 0.105, -0.12, 0.08); c.rotation.x = 0.35;
+      const a = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.32, 5), claw); a.position.y = -0.14; a.rotation.x = Math.PI; c.add(a);
+      const b = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.26, 5), claw); b.position.set(0, -0.36, 0.08); b.rotation.x = Math.PI - 0.6; c.add(b);
+      arm.userData.hand.add(c);
+    }
+    this.eyeGlow(0xff1010, 0.6, 0.24, 0.36);
+    this.smoke = { color: 'rgba(12,0,2,', size: 1.3, rise: 0.8 };
+  }
+
+  /** Glitch.exe: a broken-apart body floating in pieces, a CRT TV for a head, orbiting static cubes. */
+  buildGlitch() {
+    const tex = noiseTex('glitch-noise2', ['#0b0b10', '#0b0b10', '#141420', '#ff2a8a', '#2affea', '#ffffff', '#3a0a2a']);
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    const body = this.mat(0xffffff, { map: tex, emissive: 0x3a0a2a, emissiveIntensity: 1 });
+    const dark = this.mat(0x101018);
+    this.skeleton({ torsoMats: body, armTop: body, armBottom: dark, sleeve: 0.6, legTop: body, shoe: dark, headMat: dark }, 1.3);
+    this.root.scale.set(1.15, 1.24, 1.15);
+    this.extra.glitchTex = tex;
+    // pull the pieces apart so they float with gaps between them
+    this.armL.position.x += 0.26; this.armR.position.x -= 0.26; this.armL.position.y += 0.06; this.armR.position.y += 0.06;
+    this.legL.position.y -= 0.16; this.legR.position.y -= 0.16; this.legL.position.x += 0.06; this.legR.position.x -= 0.06;
+    this.torso.position.y += 0.1; this.neck.position.y += 0.22;
+    this.extra.parts = [this.torso, this.armL, this.armR, this.legL, this.legR, this.neck].map((o, i) => ({ o, base: o.position.clone(), ph: i * 1.7 }));
+    // the head: an old CRT TV with a flickering face
+    for (const c of this.head.children) c.visible = false;
+    const plastic = this.mat(0xb8ae94);
+    const tv = new THREE.Mesh(rbox(0.86, 0.7, 0.64, 0.08), plastic); tv.position.y = 0.34; this.head.add(tv);
+    const back = new THREE.Mesh(rbox(0.6, 0.5, 0.3, 0.06), plastic); back.position.set(0, 0.34, -0.42); this.head.add(back);
+    const screenCanvas = canvas(128, 96), screenTex = new THREE.CanvasTexture(screenCanvas);
+    screenTex.colorSpace = THREE.SRGBColorSpace; screenTex.magFilter = THREE.NearestFilter;
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.5), new THREE.MeshBasicMaterial({ map: screenTex })); screen.position.set(-0.04, 0.35, 0.325); this.head.add(screen);
+    for (let i = 0; i < 2; i++) { const k = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.04, 10), dark); k.rotation.x = Math.PI / 2; k.position.set(0.35, 0.44 - i * 0.14, 0.33); this.head.add(k); }
+    for (const sd of [-1, 1]) { const a = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.6, 5), dark); a.position.set(sd * 0.14, 0.92, -0.05); a.rotation.z = -sd * 0.5; this.head.add(a); }
+    this.extra.screen = { c: screenCanvas, g: screenCanvas.getContext('2d'), tex: screenTex, t: 0 };
+    drawTvFace(this.extra.screen.g, 0);
+    // static cubes orbiting the torso
+    const orbit = new THREE.Group(); orbit.position.y = U * 1.1; this.hips.add(orbit); this.extra.orbit = orbit;
+    for (let i = 0; i < 10; i++) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 0.13), new THREE.MeshBasicMaterial({ color: [0xff2a8a, 0x2affea, 0xffffff, 0x111111][i % 4] }));
+      const a = (i / 10) * Math.PI * 2; m.position.set(Math.cos(a) * 0.85, Math.sin(i * 1.3) * 0.5, Math.sin(a) * 0.85); orbit.add(m);
+    }
+    this.eyeGlow(0xffffff, 0.5, 0.3, 0.4);
+    this.smoke = { color: 'rgba(255,42,138,', size: 0.35, rise: -0.6, square: true };
+  }
+
+  /** Grin.exe: very tall and thin, long neck, long fingers, a stitched grin whose jaw drops open. */
+  buildGrin() {
+    const pale = this.mat(0xd8d2c8), rag = this.mat(0x3a3438), dark = this.mat(0x1a1416), legs = this.mat(0x5a5258);
+    this.skeleton({ torsoMats: [rag, rag, rag, rag, rag, rag], armTop: pale, armBottom: pale, sleeve: 0, legTop: legs, shoe: pale, headMat: pale }, 1.75, 0.72);
+    this.root.scale.set(0.95, 1.42, 0.95);
+    // a long neck
+    this.neck.position.y += 0.34;
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.11, 0.42, 10), pale); neck.position.y = 2 * U + 0.18; this.hips.add(neck);
+    // head: the top half has hollow eyes; the jaw is a separate piece that drops open
+    for (const c of this.head.children) c.visible = false;
+    const skull = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.31, 0.4, 20), pale); skull.position.y = 0.48; this.head.add(skull);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.3, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2), pale); cap.position.y = 0.68; cap.scale.y = 0.5; this.head.add(cap);
+    const eyesTex = canvasTex('grin-eyes', 160, 80, (g, w, h) => {
+      g.fillStyle = '#050505'; g.beginPath(); g.ellipse(w / 2 - 30, h / 2, 16, 20, 0, 0, 7); g.ellipse(w / 2 + 30, h / 2, 16, 20, 0, 0, 7); g.fill();
+      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(w / 2 - 28, h / 2 + 2, 2.5, 0, 7); g.arc(w / 2 + 32, h / 2 + 2, 2.5, 0, 7); g.fill();
+    });
+    const eyes = new THREE.Mesh(new THREE.CylinderGeometry(0.305, 0.305, 0.36, 16, 1, true, -Math.PI / 3, (2 * Math.PI) / 3), lam(0xffffff, { map: eyesTex, transparent: true, alphaTest: 0.05 })); eyes.position.y = 0.48; this.head.add(eyes);
+    const jaw = new THREE.Group(); jaw.position.set(0, 0.29, -0.22); this.head.add(jaw); this.extra.jaw = jaw;
+    const mouthTex = canvasTex('grin-mouth', 200, 80, (g, w, h) => {
+      g.fillStyle = '#d8d2c8'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#2a0204'; g.beginPath(); g.moveTo(8, 10); g.quadraticCurveTo(w / 2, 30, w - 8, 10); g.lineTo(w - 20, 18); g.quadraticCurveTo(w / 2, 60, 20, 18); g.closePath(); g.fill();
+      g.fillStyle = '#fbf6e8'; for (let i = 0; i < 15; i++) { const x = 16 + i * ((w - 32) / 14); g.fillRect(x - 3, 14 + Math.sin((i / 14) * Math.PI) * 10, 6, 8); }
+      g.strokeStyle = '#3a0a0a'; g.lineWidth = 2; for (const sx of [12, w - 12]) for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(sx - 6, 6 + k * 6); g.lineTo(sx + 6, 10 + k * 6); g.stroke(); }
+    });
+    const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.27, 0.24, 20), pale);
+    lower.position.set(0, -0.08, 0.22); jaw.add(lower);
+    const mouth = new THREE.Mesh(new THREE.CylinderGeometry(0.318, 0.278, 0.25, 16, 1, true, -Math.PI / 2.4, Math.PI / 1.2), lam(0xffffff, { map: mouthTex }));
+    mouth.position.copy(lower.position); jaw.add(mouth);
+    const inside = new THREE.Mesh(new THREE.CircleGeometry(0.27, 16), this.mat(0x2a0204)); inside.rotation.x = -Math.PI / 2; inside.position.set(0, 0.045, 0.22); jaw.add(inside);
+    // stringy hair down the back
+    for (let i = 0; i < 7; i++) { const h = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.7 + Math.random() * 0.4, 0.03), dark); h.position.set(-0.24 + i * 0.08, 0.36, -0.3 + Math.abs(i - 3) * 0.02); this.head.add(h); }
+    // long fingers
+    for (const arm of [this.armL, this.armR]) for (let i = 0; i < 5; i++) { const f = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.46, 5), pale); f.position.set(-0.13 + i * 0.065, -0.24, 0.02); f.rotation.x = Math.PI + 0.15; arm.userData.hand.add(f); }
+    const tatter = new THREE.Mesh(rbox(2 * U + 0.06, 0.4, U + 0.06, 0.03), this.mat(0x5a0a0a)); tatter.position.y = 0.16; this.hips.add(tatter);
+    this.extra.hunch = 0.32;
+    this.eyeGlow(0xffffff, 0.22, 0.1, 0.48);
+  }
+
+  eyeGlow(color, sx, sy, y) {
+    const g = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    g.scale.set(sx, sy, 1); g.position.set(0, y, 0.34); this.head.add(g); this.extra.eyeGlow = g;
+  }
+
+  /** Smoke / pixel puffs left behind (EXE and Glitch.exe). */
+  emitPuffs(dt, speed) {
+    if (!this.smoke || !this.root.parent) return;
+    this.puffT -= dt;
+    if (this.puffT <= 0 && this.opacity > 0.5) {
+      this.puffT = speed > 1 ? 0.06 : 0.22;
+      let p = this.puffs.find((q) => q.life <= 0);
+      if (!p && this.puffs.length < 26) {
+        p = { s: new THREE.Sprite(new THREE.SpriteMaterial({ map: this.smoke.square ? squareTex() : smokeTex(this.smoke.color), transparent: true, depthWrite: false })), life: 0 };
+        this.root.parent.add(p.s); this.puffs.push(p);
+      }
+      if (p) {
+        p.life = 1; p.max = this.smoke.square ? 0.8 : 1.4;
+        this.root.getWorldPosition(p.s.position);
+        p.s.position.x += (Math.random() - 0.5) * 0.8; p.s.position.z += (Math.random() - 0.5) * 0.8; p.s.position.y += 0.5 + Math.random() * 2.2;
+        p.vy = this.smoke.rise * (0.5 + Math.random());
+      }
+    }
+    for (const p of this.puffs) {
+      if (p.life <= 0) { p.s.visible = false; continue; }
+      p.life -= dt / p.max; p.s.visible = true;
+      p.s.position.y += p.vy * dt;
+      const k = this.smoke.size * (this.smoke.square ? 1 : 1.6 - p.life);
+      p.s.scale.set(k, k, 1); p.s.material.opacity = Math.max(0, p.life) * 0.8;
+      if (this.smoke.square) p.s.material.rotation = 0;
+    }
+  }
+
+  dispose() { for (const p of this.puffs || []) p.s.parent && p.s.parent.remove(p.s); this.puffs = []; }
 
   setOpacity(o) {
     if (Math.abs(o - this.opacity) < 0.01) return;
@@ -359,7 +475,7 @@ export class Rig {
     if (s.fly) { armLz = 1.25; armRz = -1.25; armL = 0; armR = 0; legL = 0.25; legR = 0.05; pitch = 0.22; }
     if (s.dash) { pitch = 0.45; armL = 1.2; armR = 1.2; legL = 0.9; legR = -0.6; }
     if (this.role === 'exe') {
-      pitch += 0.18; headX = -0.15;
+      pitch += this.extra.hunch ? 0.3 : 0.2; headX = this.extra.hunch ? -0.32 : -0.15;
       if (speed > 1) { armL = -legL * 0.4 + 0.5; armR = legL * 0.4 + 0.5; armLz = 0.2; armRz = -0.2; }
       this.twitchT -= dt;
       if (this.twitchT <= 0) { this.twitch = 0.18; this.twitchT = 1.5 + Math.random() * 3; this.twitchZ = (Math.random() - 0.5) * 1.1; }
@@ -382,17 +498,74 @@ export class Rig {
     this.body.rotation.x = damp(this.body.rotation.x, down * (Math.PI / 2 - 0.08), 10, dt);
     this.body.position.y = damp(this.body.position.y, down ? 0.26 : bodyY, 12, dt);
     this.body.position.z = damp(this.body.position.z, down ? -1.0 : 0, 10, dt);
-    if (this.extra.tails) for (const [i, t] of this.extra.tails.entries()) t.rotation.x = damp(t.rotation.x, -0.15 - Math.min(1, speed / 10) * 0.9 + Math.sin(this.t * 9 + i * 2) * 0.12 * Math.min(1, speed / 6), 10, dt);
+    if (this.extra.tails) for (const [i, t] of this.extra.tails.entries()) {
+      const sp = Math.min(1, speed / 10), flap = Math.sin(this.t * 9 + i * 2) * (0.08 + 0.14 * sp);
+      const target = t.userData.back === 0 ? 0.1 + sp * 0.5 + flap : t.userData.back === 1 ? -0.08 - sp * 1.0 + flap : -0.15 - sp * 0.9 + flap;
+      t.rotation.x = damp(t.rotation.x, target, 10, dt);
+    }
     if (this.extra.prop) { this.extra.prop.rotation.y += dt * (s.fly ? 45 : 2.5); this.extra.flame.visible = !!s.fly; if (s.fly) this.extra.flame.scale.y = 0.8 + Math.random() * 0.5; }
     if (this.extra.mallet) { const inHand = s.atk >= 0; if (inHand !== this.extra.malletIn) { this.extra.malletIn = inHand; inHand ? this.extra.malletHand() : this.extra.malletBack(); } }
     if (this.extra.glitchTex) {
-      if (Math.random() < 0.25) this.extra.glitchTex.offset.set(Math.random(), Math.random());
-      const j = Math.random() < 0.12 ? 0.18 : 0;
-      this.head.position.set((Math.random() - 0.5) * j, 0, (Math.random() - 0.5) * j);
-      this.armL.position.x = 1.5 * U + (Math.random() < 0.06 ? 0.2 : 0);
+      if (Math.random() < 0.3) this.extra.glitchTex.offset.set(Math.random(), Math.random());
+      for (const p of this.extra.parts) {
+        const j = Math.random() < 0.05 ? (Math.random() - 0.5) * 0.3 : 0;
+        p.o.position.set(p.base.x + j, p.base.y + Math.sin(this.t * 3 + p.ph) * 0.05, p.base.z);
+      }
+      this.extra.orbit.rotation.y += dt * (2 + speed * 0.3); this.extra.orbit.rotation.x = Math.sin(this.t) * 0.3;
+      const sc = this.extra.screen; sc.t -= dt;
+      if (sc.t <= 0) { sc.t = 0.07; drawTvFace(sc.g, this.t, s.atk >= 0 || s.lunge); sc.tex.needsUpdate = true; }
     }
+    if (this.extra.jaw) {
+      const open = s.atk >= 0 ? Math.sin(Math.min(1, s.atk) * Math.PI) * 0.9 + 0.2 : speed > 6 ? 0.25 + Math.sin(this.t * 8) * 0.08 : 0.04;
+      this.extra.jaw.rotation.x = damp(this.extra.jaw.rotation.x, open, 18, dt);
+    }
+    if (this.role === 'exe') this.emitPuffs(dt, speed);
     if (this.extra.eyeGlow) this.extra.eyeGlow.material.opacity = (0.75 + Math.sin(this.t * 6) * 0.2) * Math.max(0.25, this.opacity);
   }
+}
+
+function crackTex() {
+  return canvasTex('exe-cracks', 128, 128, (g, w, h) => {
+    g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#fff'; g.lineCap = 'round';
+    for (let i = 0; i < 9; i++) {
+      g.lineWidth = 1 + Math.random() * 2; g.beginPath(); let x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y);
+      for (let k = 0; k < 6; k++) { x += (Math.random() - 0.5) * 34; y += (Math.random() - 0.3) * 26; g.lineTo(x, y); }
+      g.stroke();
+    }
+  });
+}
+const smokeCache = new Map();
+function smokeTex(rgbaPrefix) {
+  if (smokeCache.has(rgbaPrefix)) return smokeCache.get(rgbaPrefix);
+  const c = canvas(64, 64), g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, rgbaPrefix + '0.9)'); r.addColorStop(0.6, rgbaPrefix + '0.4)'); r.addColorStop(1, rgbaPrefix + '0)');
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c); smokeCache.set(rgbaPrefix, t); return t;
+}
+let square = null;
+function squareTex() {
+  if (square) return square;
+  const c = canvas(16, 16), g = c.getContext('2d'); g.fillStyle = '#ff2a8a'; g.fillRect(2, 2, 12, 12); g.fillStyle = '#2affea'; g.fillRect(6, 6, 6, 6);
+  square = new THREE.CanvasTexture(c); square.magFilter = THREE.NearestFilter; return square;
+}
+/** Glitch.exe's TV face: static, scanlines, two square eyes and a jagged grin; angry when attacking. */
+function drawTvFace(g, t, angry) {
+  const w = 128, h = 96;
+  g.fillStyle = '#05060a'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 260; i++) { const v = Math.random() * 90; g.fillStyle = `rgb(${v},${v},${v + 10})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 1); }
+  const shake = Math.random() < 0.2 ? (Math.random() - 0.5) * 14 : 0;
+  g.save(); g.translate(shake, 0);
+  const eye = angry ? '#ff2a4a' : '#ffffff';
+  g.fillStyle = '#ff2a8a'; g.fillRect(30 + 2, 28, 18, 18); g.fillRect(80 + 2, 28, 18, 18);
+  g.fillStyle = eye; g.fillRect(30, 28, 18, 18); g.fillRect(80, 28, 18, 18);
+  g.fillStyle = '#05060a'; if (Math.sin(t * 3) > 0.9) { g.fillRect(28, 34, 22, 6); g.fillRect(78, 34, 22, 6); }
+  g.strokeStyle = eye; g.lineWidth = 3; g.beginPath(); g.moveTo(28, 66);
+  for (let i = 0; i <= 8; i++) g.lineTo(28 + i * 9, 66 + (i % 2 ? (angry ? 12 : 7) : 0));
+  g.stroke();
+  g.restore();
+  for (let y = 0; y < h; y += 3) { g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, y, w, 1); }
+  if (Math.random() < 0.3) { const y = Math.random() * h; g.drawImage(g.canvas, 0, y, w, 8, (Math.random() - 0.5) * 20, y, w, 8); }
 }
 
 let glow = null;
