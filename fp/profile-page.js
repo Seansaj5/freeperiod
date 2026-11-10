@@ -48,7 +48,7 @@ function card(p, chat, kit) {
   }
   const av = chat && kit ? h('div', { class: 'pf-av-chat' }, kit.common.avatar(chat, { size: 104, frame: 'auto' }))
     : h('div', { class: 'pf-av', 'aria-hidden': 'true', text: (p.name || '?').slice(0, 2).toUpperCase() });
-  const pills = h('div', { class: 'pf-pills' }, chat && kit ? kit.common.badgePills(chat) : []);
+  const pills = h('div', { class: 'pf-badges', role: 'group', 'aria-label': 'Badges' }, chat && kit ? kit.common.badgePills(chat) : []);
   const nameEl = chat && kit ? kit.common.nameEl(chat, 'h1', 'pf-name') : h('h1', { class: 'pf-name', text: name });
   const role = p.role && p.role !== 'player' ? h('span', { class: 'pf-role ' + p.role, text: p.role }) : null;
   const since = Date.parse(p.since || '') || num(p.since);
@@ -64,10 +64,9 @@ function card(p, chat, kit) {
     since ? h('span', { class: 'pf-chip' }, icon('calendar'), 'Since ' + new Date(since).toLocaleDateString([], { month: 'short', year: 'numeric' })) : null,
   ];
   el.append(banner,
-    h('div', { class: 'pf-top' }, av),
+    h('div', { class: 'pf-top' }, av, pills.childElementCount ? pills : null),
     h('div', { class: 'pf-body' },
       h('div', {}, nameEl, h('p', { class: 'pf-user' }, h('span', { text: '@' + p.name }), role, chat && chat.pronouns ? h('span', { text: '· ' + chat.pronouns }) : null)),
-      pills.childElementCount ? pills : null,
       chat && (chat.status_text || chat.status_emoji) ? h('p', { class: 'pf-status' }, chat.status_emoji ? h('span', { text: chat.status_emoji }) : null, h('span', { text: chat.status_text || '' })) : null,
       chat && chat.about ? h('p', { class: 'pf-about', text: chat.about }) : null,
       h('div', { class: 'pf-chips' }, chips),

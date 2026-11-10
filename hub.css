@@ -302,7 +302,10 @@ a.wn-row:hover { background: rgba(255, 255, 255, 0.04); }
   box-shadow: 0 0 0 6px #0c111b, 0 14px 30px -10px #000;
 }
 .pf-av .cx-av { box-shadow: 0 0 0 6px #0c111b; }
-.pf-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.pf-badges {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 124px); margin-bottom: 8px; padding: 3px; border-radius: 11px;
+  background: rgba(6, 9, 15, 0.8); border: 1px solid rgba(255, 255, 255, 0.09); box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.9);
+}
 .pf-body { padding: 14px 20px 22px; display: grid; gap: 12px; }
 .pf-name { margin: 0; font: 400 26px/1.1 'Bungee', 'Outfit', sans-serif; overflow-wrap: anywhere; }
 .pf-user { margin: 2px 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 14px; font-weight: 600; }

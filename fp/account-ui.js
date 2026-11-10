@@ -143,8 +143,9 @@ function cardHead(user) {
   const p = myChat(), k = chat.kit, st = streakNow();
   const av = p && k ? k.common.avatar(p, { size: 72, frame: 'auto', status: 'online', cls: 'fp-me-av' })
     : h('span', { class: 'fp-me-av plain', 'aria-hidden': 'true', text: user.username.slice(0, 2).toUpperCase() });
-  const pills = p && k ? k.common.badgePills(p) : [];
-  if (!(p && k) && st) { const b = bestBadge(st.badges); if (b) pills.push(h('span', { class: 'fp-me-pill', text: b.label })); }
+  // chat's badge row (Discord-style glyphs with tooltips, the same as the chat profile card); without chat, the streak badge
+  const badges = p && k ? k.common.badgePills(p) : [];
+  const best = !(p && k) && st ? bestBadge(st.badges) : null;
   const name = p && k ? k.common.nameEl(p, 'b', 'fp-me-name') : h('b', { class: 'fp-me-name', text: user.username });
   // the chat pills already say Owner / Mod; without chat the role badge says it
   const role = !(p && k) && user.role && user.role !== 'player' ? h('span', { class: 'fp-badge ' + user.role, text: user.role }) : null;
@@ -157,11 +158,11 @@ function cardHead(user) {
     banner(p, k),
     h('span', { class: 'fp-me-grab', 'aria-hidden': 'true' }),
     h('button', { type: 'button', class: 'fp-me-x', 'aria-label': 'Close', onclick: () => document.dispatchEvent(new CustomEvent('fp:me-close')) }, icon('x')),
-    h('div', { class: 'fp-me-top' }, av),
+    h('div', { class: 'fp-me-top' }, av, badges.length ? h('div', { class: 'fp-me-badges', role: 'group', 'aria-label': 'Badges' }, badges) : null),
     h('div', { class: 'fp-me-id' },
       h('div', { class: 'fp-me-names' }, name, role),
       h('span', { class: 'fp-me-user', text: '@' + user.username }),
-      pills.length ? h('div', { class: 'fp-me-pills' }, pills) : null,
+      best ? h('div', { class: 'fp-me-pills' }, h('span', { class: 'fp-me-pill', text: best.label })) : null,
       status,
       h('div', { class: 'fp-me-chips' },
         st ? h('span', { class: 'fp-me-chip streak' }, icon('flame'), `${st.days}-day streak`) : null,
@@ -199,7 +200,7 @@ export function mountAccount(el, { live = !!(document.body && document.body.clas
     if (!pop) return;
     const p = pop;
     pop = null;
-    if (chat.kit) chat.kit.common.stopFrames(p.el);
+    if (chat.kit) { chat.kit.common.stopFrames(p.el); chat.kit.common.hideBadgeTip(); }
     if (p.fx) { p.fx.stop(); p.fx = null; }
     p.el.remove(); p.scrim.remove();
     document.removeEventListener('keydown', onKey, true);
@@ -231,6 +232,7 @@ export function mountAccount(el, { live = !!(document.body && document.body.clas
     if (!pop) return;
     const path = e.composedPath();
     if (path.includes(pop.el) || path.includes(root) || document.querySelector('.fp-backdrop')) return;
+    if (path.some((n) => n && n.classList && n.classList.contains('cx-btip'))) return;
     closeCard({ focus: false });
   }
 
@@ -259,6 +261,7 @@ export function mountAccount(el, { live = !!(document.body && document.body.clas
     if (chat.kit) chat.kit.common.stopFrames(pop.el);
     const unread = countLabel(chat.unread);
     if (pop.fx) { pop.fx.stop(); pop.fx = null; }
+    if (chat.kit) chat.kit.common.hideBadgeTip();
     const head = cardHead(user);
     // the profile effect plays over the card while it is open (as on the chat profile card)
     if (p && p.effect && chat.kit) {
