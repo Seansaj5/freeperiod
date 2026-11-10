@@ -138,9 +138,14 @@ export function avatar(p, { size = 40, status = null, cls = '', frame = false, l
   };
   if (localSrc && localSrc.startsWith('blob:')) put(localSrc);
   else if (p && p.avatar_path) mediaSrc({ bucket: 'public-media', path: p.avatar_path }).then((src) => { if (src) put(src); });
-  if (frame && p && FRAMES.includes(p.frame)) mountFrame(el, p.frame, { size, motion: frame });
+  if (frame && p && FRAMES.includes(p.frame)) mountFrame(el, p.frame, { size, motion: frame }); // handle lives on the .fp-frame node (stopFrames)
   if (status) el.append(h('span', { class: 'cx-av-dot ' + status }));
   return el;
+}
+// Stop the frames inside `node` (call before dropping or replacing it) so no observer keeps the removed nodes.
+export function stopFrames(node) {
+  if (!node || !node.querySelectorAll) return;
+  for (const f of node.querySelectorAll('.fp-frame')) if (f._fpStop) f._fpStop();
 }
 // Frames in lists stay still until their row is hovered (like Discord's avatar decorations).
 export function hotOnHover(row) {
@@ -158,16 +163,15 @@ export function nameEl(p, tag = 'span', cls = 'cx-name', { plain = false } = {})
   return el;
 }
 
-// Small badges next to a name in messages: Early Member star and the Bing Ball rank tier (owner/mod: roleMark).
+// Small badge next to a name in messages: the Bing Ball rank tier (owner/mod: roleMark). The Early Member star is card-only (badgePills).
 export function badgeMarks(p) {
-  const ids = badgesFor(p || {}).filter((id) => id !== 'owner' && id !== 'mod');
+  const ids = badgesFor(p || {}).filter((id) => id.startsWith('bb:'));
   if (!ids.length) return null;
   const box = h('span', { class: 'cx-badges' });
   for (const id of ids) {
     const info = badgeInfo(id);
     if (!info) continue;
-    if (id === 'early') box.append(h('span', { class: 'cx-bdg early', title: 'Early Member', role: 'img', 'aria-label': 'Early Member', style: '--bc:' + info.color }, icon('star')));
-    else {
+    {
       const lv = p.game_stats && p.game_stats.bb && Number(p.game_stats.bb.level);
       const label = 'Bing Ball ' + info.label + (lv > 0 ? ' · Level ' + Math.floor(lv) : '');
       box.append(h('span', { class: 'cx-bdg rank', title: label, role: 'img', 'aria-label': label, style: '--bc:' + info.color, text: info.label }));

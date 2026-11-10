@@ -8,7 +8,7 @@ import { planUpload } from '../media.js';
 import { FONTS, FRAMES, EFFECTS, FONT_LABELS, FRAME_LABELS, EFFECT_LABELS, cardTheme, isHex, paintName, DEFAULT_NAME_COLOR, DEFAULT_NAME_COLOR2 } from '../flair.js';
 import { mountEffect } from '../effects.js';
 import { checkProfile, profileDiff, PROFILE_FIELDS, LIMITS } from '../perms.js';
-import { icon, avatar, nameEl, nameOf, roleMark, badgeMarks, finePointer } from './common.js';
+import { icon, avatar, nameEl, nameOf, roleMark, badgeMarks, stopFrames, finePointer } from './common.js';
 import { openEmojiPicker } from './emoji-picker.js';
 import { mountCard } from './profile-card.js';
 
@@ -58,6 +58,7 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
   function drawLine() {
     const p = view();
     const loc = files.avatar ? files.avatar.url : '';
+    stopFrames(chatLine);
     chatLine.replaceChildren(h('div', { class: 'cx-msg head cx-ed-msg' },
       h('div', { class: 'cx-gutter' }, avatar(p, { size: 40, frame: 'auto', localSrc: loc })),
       h('div', { class: 'cx-msg-main' }, h('div', { class: 'cx-meta' }, nameEl(p, 'span', 'cx-name'), roleMark(p), badgeMarks(p), h('time', { class: 'cx-time', text: 'Today' })),
@@ -91,7 +92,7 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
     input.value = draft[field] || '';
     const count = h('span', { class: 'cx-count' });
     const draw = () => { const n = [...input.value].length; count.textContent = n + ' / ' + max; count.classList.toggle('bad', n > max); };
-    input.addEventListener('input', () => { draw(); set(field, input.value.trim() ? input.value : null); });
+    input.addEventListener('input', () => { draw(); set(field, input.value.trim() || null); });
     draw();
     return h('div', { class: 'cx-ed-field' }, h('label', { class: 'cx-label' }, label, count), input, errSlot(field));
   }

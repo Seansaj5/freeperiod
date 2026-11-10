@@ -529,8 +529,8 @@ export function mountChatApp(root, { compact = false } = {}) {
     const have = new Set((dm.members || []).map((p) => p.id));
     if (have.size >= 10) { toast('Groups hold up to 10 people', 'err'); return; }
     openPeoplePicker('add', { myId: myId(), isBlocked: (id) => blocked.has(id), exclude: have, room: 10 - have.size, onDone: async (people) => {
-      for (const p of people) await data.addToGroup(dm.id, p.id);
-      await loadDMs();
+      try { for (const p of people) await data.addToGroup(dm.id, p.id); }
+      finally { await loadDMs(); } // a partial failure still shows who did get in
       toast(people.length === 1 ? nameOf(people[0]) + ' was added' : people.length + ' people were added');
     } });
   }

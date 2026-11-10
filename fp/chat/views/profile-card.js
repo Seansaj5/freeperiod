@@ -5,7 +5,7 @@ import { h } from '../../ui.js';
 import { cardTheme, isHex, badgeInfo } from '../flair.js';
 import { mountEffect } from '../effects.js';
 import { roleOfProfile, timedOut, isStaffRole } from '../perms.js';
-import { icon, avatar, nameEl, nameOf, badgePills, mediaSrc, timeoutLeft, finePointer } from './common.js';
+import { icon, avatar, stopFrames, nameEl, nameOf, badgePills, mediaSrc, timeoutLeft, finePointer } from './common.js';
 
 const fmtMoney = (n) => (n >= 1e6 ? '$' + (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M' : n >= 1e3 ? '$' + Math.round(n / 1e3) + 'K' : '$' + n);
 const num = (v) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n > 0 ? n : 0; };
@@ -58,6 +58,7 @@ export function mountCard(el, profile, opts = {}) {
     const key = (o.localAvatar || p.avatar_path || '') + '|' + (p.frame || '') + '|' + !!o.online + '|' + nameOf(p) + '|' + p.id;
     if (key === avKey) return;
     avKey = key;
+    stopFrames(avBox);
     avBox.replaceChildren(avatar(p, { size: 92, status: o.online == null ? null : o.online ? 'online' : 'offline', frame: 'auto', localSrc: o.localAvatar || '' }));
   }
   function drawEffect() {
@@ -102,7 +103,7 @@ export function mountCard(el, profile, opts = {}) {
   return {
     el,
     update(next, more) { p = next || p; if (more) o = { ...o, ...more }; draw(); },
-    stop() { if (fx) fx.stop(); fx = null; fxId = null; },
+    stop() { stopFrames(avBox); if (fx) fx.stop(); fx = null; fxId = null; },
   };
 }
 

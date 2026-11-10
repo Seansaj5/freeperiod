@@ -5,7 +5,7 @@ import { h, openSheet, toast } from '../../ui.js';
 import { parseMessage, renderTokens, mentionsMe } from '../format.js';
 import { loadMessages, react as sendReact, editMessage, deleteMessage, pin as pinMessage, retrySend, discardSend, chatError as dataError } from '../data.js';
 import { QUICK_REACTIONS, emojiName } from '../emoji-data.js';
-import { icon, avatar, nameEl, nameOf, roleMark, badgeMarks, hotOnHover, timeShort, fullStamp, dayKey, dayLabel, mediaSrc, finePointer } from './common.js';
+import { stopFrames, icon, avatar, nameEl, nameOf, roleMark, badgeMarks, hotOnHover, timeShort, fullStamp, dayKey, dayLabel, mediaSrc, finePointer } from './common.js';
 import { openEmojiPicker, closeEmojiPicker } from './emoji-picker.js';
 import { CAP, matchTemp, splitPending, capWindow } from '../feedlogic.js';
 
@@ -218,7 +218,7 @@ export function mountMessages(el, ctx) {
     }
     // Patch the list instead of replacing it: unchanged rows stay put (no re-announcing in the live log, less layout work).
     const keep = new Set(nodes);
-    for (const ch of [...list.children]) if (!keep.has(ch)) ch.remove();
+    for (const ch of [...list.children]) if (!keep.has(ch)) { stopFrames(ch); ch.remove(); }
     let at = list.firstChild;
     for (const n of nodes) { if (at === n) { at = at.nextSibling; continue; } list.insertBefore(n, at); }
   }
@@ -559,13 +559,13 @@ export function mountMessages(el, ctx) {
         else if (stick && ctx.onRead) ctx.onRead(s.target);
         return;
       }
-      list.replaceChildren(skeleton());
+      stopFrames(list); list.replaceChildren(skeleton());
       jump.hidden = true;
       let got;
       try { got = await loadMessages(target, { limit: PAGE }); }
       catch (e) {
         if (store !== s) return;
-        list.replaceChildren(h('div', { class: 'cx-feed-err' }, icon('alert'), h('strong', { text: 'Couldn’t load messages' }), h('span', { text: err(e) }),
+        stopFrames(list); list.replaceChildren(h('div', { class: 'cx-feed-err' }, icon('alert'), h('strong', { text: 'Couldn’t load messages' }), h('span', { text: err(e) }),
           h('button', { type: 'button', class: 'cx-btn ghost', onclick: () => api.open(target, channel, { unread }) }, icon('retry'), 'Try again')));
         return;
       }
@@ -598,8 +598,8 @@ export function mountMessages(el, ctx) {
       store = null;
       jump.hidden = true;
       el.classList.add('waiting');
-      if (kind === 'skeleton') { list.replaceChildren(skeleton()); return; }
-      list.replaceChildren(kind || h('div'));
+      if (kind === 'skeleton') { stopFrames(list); list.replaceChildren(skeleton()); return; }
+      stopFrames(list); list.replaceChildren(kind || h('div'));
     },
     // Live events.
     insert(m) {
@@ -699,7 +699,7 @@ export function mountMessages(el, ctx) {
         const { drop } = splitPending(arr, uid);
         for (const t of drop) { try { discardSend(t.tempId); } catch { /* nothing queued */ } dropTemp(t, 0); dropped++; }
       }
-      stores.clear(); store = null; editing = null; list.replaceChildren();
+      stores.clear(); store = null; editing = null; stopFrames(list); list.replaceChildren();
       return dropped;
     },
     destroy() {
@@ -708,7 +708,7 @@ export function mountMessages(el, ctx) {
       closeEmojiPicker();
       for (const arr of pendingByTarget.values()) for (const t of arr) { if (t.failed) { try { discardSend(t.tempId); } catch { /* ignore */ } } revokeLocal(t, 0); }
       pendingByTarget.clear(); stores.clear(); store = null; editing = null; touched = null;
-      list.replaceChildren();
+      stopFrames(list); list.replaceChildren();
     },
   };
   return api;

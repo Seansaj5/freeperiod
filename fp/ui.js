@@ -64,6 +64,7 @@ export function toast(text, kind = 'ok') {
     toastBox = h('div', { class: 'fp-toasts', role: 'status', 'aria-live': 'polite' });
     document.body.append(toastBox);
   }
+  for (const old of [...toastBox.children]) if (old.textContent === text) old.remove(); // one toast per message text: replace, don't stack
   const t = h('div', { class: 'fp-toast ' + kind, text });
   toastBox.append(t);
   setTimeout(() => t.remove(), kind === 'err' ? 6000 : 3000);

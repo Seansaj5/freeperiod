@@ -1,6 +1,7 @@
 // Profile flair rules (fp/chat/flair.js): the id lists, validFlair, nameStyle, badgesFor.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { roleOfProfile } from '../fp/chat/perms.js';
 import { FONTS, FRAMES, EFFECTS, validFlair, nameStyle, badgesFor, badgeInfo, cardTheme } from '../fp/chat/flair.js';
 
 const fields = (r) => r.errors.map((e) => e.field).sort();
@@ -100,11 +101,11 @@ test('nameStyle: glow adds a soft text shadow in the name color', () => {
 });
 
 test('badgesFor: order is owner, mod, early, Bing Ball tier', () => {
-  const all = { role: 'owner', is_mod: true, joined_at: '2026-11-10T12:00:00Z', game_stats: { bb: { level: 40, tier: 'egoist' } } };
+  const all = { id: 'u1', role: 'owner', is_mod: true, joined_at: '2026-11-10T12:00:00Z', game_stats: { bb: { level: 40, tier: 'egoist' } } };
   assert.deepEqual(badgesFor(all), ['owner', 'early', 'bb:egoist'], 'the owner is not also listed as a mod');
-  assert.deepEqual(badgesFor({ role: 'mod', joined_at: '2026-11-20T00:00:00Z', game_stats: { bb: { tier: 'ace' } } }),
+  assert.deepEqual(badgesFor({ id: 'u2', role: 'mod', joined_at: '2026-11-20T00:00:00Z', game_stats: { bb: { tier: 'ace' } } }),
     ['mod', 'early', 'bb:ace']);
-  assert.deepEqual(badgesFor({ role: 'member', is_mod: true, joined_at: '2027-01-02T00:00:00Z' }), ['mod']);
+  assert.deepEqual(badgesFor({ id: 'u3', role: 'member', is_mod: true, joined_at: '2027-01-02T00:00:00Z' }), ['mod']);
   assert.deepEqual(badgesFor({ role: 'member', joined_at: '2027-01-02T00:00:00Z', game_stats: { bb: { tier: 'WORLD CLASS' } } }),
     ['bb:worldclass'], 'tier names are normalized to keys');
   assert.deepEqual(badgesFor({ role: 'member' }), []);
@@ -115,6 +116,19 @@ test('badgesFor: order is owner, mod, early, Bing Ball tier', () => {
   assert.deepEqual(badgesFor({ role: 'member', game_stats: { bb: { tier: 'contender' } } }), ['bb:contender']);
   assert.deepEqual(badgesFor({ role: 'member', game_stats: null }), []);
   assert.deepEqual(badgesFor(null), []);
+});
+
+test('badgesFor: the Mod pill follows perms.js roleOfProfile (banned or demoted staff get none)', () => {
+  const mod = { id: 'u9', role: 'mod' };
+  assert.deepEqual(badgesFor(mod), ['mod']);
+  assert.deepEqual(badgesFor({ ...mod, banned: true }), [], 'a banned mod is a plain member');
+  assert.deepEqual(badgesFor({ id: 'u8', role: 'member', is_mod: true, banned: true }), []);
+  assert.deepEqual(badgesFor({ id: 'u7', role: 'mod', is_mod: false, mod_revoked: true }), [], 'a demoted Bing Ball admin / mod');
+  assert.deepEqual(badgesFor({ id: 'u6', role: 'member', is_mod: true, mod_revoked: true }), ['mod'], 'is_mod wins in roleOfProfile');
+  assert.deepEqual(badgesFor({ id: 'u5', role: 'owner', banned: true }), ['owner']);
+  for (const p of [mod, { ...mod, banned: true }, { ...mod, mod_revoked: true }, { id: 'x', is_mod: true }, { id: 'y', role: 'owner' }, { id: 'z' }]) {
+    assert.equal(badgesFor(p).includes('mod'), roleOfProfile(p) === 'mod', JSON.stringify(p));
+  }
 });
 
 test('badgesFor: Early Member means joined chat before midnight US Eastern on 2026-12-01 (05:00Z)', () => {

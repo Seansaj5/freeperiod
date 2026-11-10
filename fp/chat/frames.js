@@ -442,7 +442,10 @@ let io = null;
 function observer() {
   if (io || typeof IntersectionObserver === 'undefined') return io;
   io = new IntersectionObserver((entries) => {
-    for (const e of entries) e.target.classList.toggle('is-off', !e.isIntersecting);
+    for (const e of entries) {
+      if (!e.target.isConnected && e.target._fpStop) { e.target._fpStop(); continue; } // removed from the page: let go of it
+      e.target.classList.toggle('is-off', !e.isIntersecting);
+    }
   }, { rootMargin: '64px' });
   return io;
 }

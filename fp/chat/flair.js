@@ -2,6 +2,8 @@
 // Pure data + functions so it runs in node tests; paintName is the only helper that touches the DOM.
 // The drawings live in frames.js (avatar frames) and effects.js (profile card effects); their CSS is flair.css.
 
+import { roleOfProfile } from './perms.js'; // (perms.js imports this file back; both only call each other inside functions)
+
 // Global Constraints, verbatim. The database checks (0003_flair.sql) use the same lists.
 export const FONTS = Object.freeze(['bungee', 'outfit', 'press-start', 'orbitron', 'creepster', 'pacifico']);
 export const FRAMES = Object.freeze(['neon-ring', 'pulse', 'orbit', 'flame', 'frost', 'circuit', 'glitch', 'halo', 'thorns', 'sparkle',
@@ -109,8 +111,9 @@ const tierKey = (t) => (typeof t === 'string' ? t.toLowerCase().replace(/[^a-z0-
 export function badgesFor(profile) {
   const p = profile || {};
   const out = [];
-  if (p.role === 'owner') out.push('owner');
-  else if (p.role === 'mod' || p.is_mod === true) out.push('mod');
+  const role = roleOfProfile(p); // one source of truth: banned or demoted staff get no pill
+  if (role === 'owner') out.push('owner');
+  else if (role === 'mod') out.push('mod');
   const joined = typeof p.joined_at === 'string' ? Date.parse(p.joined_at) : NaN;
   if (Number.isFinite(joined) && joined < EARLY_MS) out.push('early');
   const tier = tierKey(p.game_stats && p.game_stats.bb && p.game_stats.bb.tier);

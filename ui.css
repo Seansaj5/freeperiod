@@ -180,3 +180,5 @@
   .fp-chip.on { padding: 0 11px 0 4px; }
   .fp-chip.on::before { width: 30px; height: 30px; }
 }
+/* keep toasts above a sheet's sticky footer (the chat profile editor) */
+body:has(.cx-ed-foot) .fp-toasts { bottom: 96px; }

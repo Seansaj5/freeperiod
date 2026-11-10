@@ -919,7 +919,8 @@ body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex;
 .cx-ed-preview { display: flex; flex-direction: column; gap: 8px; }
 .cx-ed-preview .cx-pc { border-radius: 20px; box-shadow: 0 30px 60px -30px #000, 0 0 0 1px rgba(255, 255, 255, 0.1); }
 .cx-ed-cap { margin: 0; font: 800 10.5px 'Outfit', sans-serif; letter-spacing: 0.16em; text-transform: uppercase; color: var(--cx-faint); }
-.cx-ed-line { border-radius: 16px; padding: 4px 0 10px; background: #0c111b; border: 1px solid var(--line); overflow: hidden; }
+/* flex: none: the narrow-screen preview has a max-height and its children must not shrink (clipped the line) */
+.cx-ed-line { flex: none; border-radius: 16px; padding: 4px 0 10px; background: #0c111b; border: 1px solid var(--line); overflow: hidden; }
 .cx-ed-msg { grid-template-columns: 62px minmax(0, 1fr); padding-right: 12px; }
 .cx-ed-msg .cx-name { cursor: default; }
 .cx-ed-expand { display: none; }
