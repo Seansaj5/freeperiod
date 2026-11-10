@@ -92,12 +92,39 @@ test('signed in, no supabase session: POST /api/chat/session (75000), waking, th
   assert.ok(seen.includes('waking') && seen.at(-1) === 'ready');
 });
 
-test('existing supabase session for the same email -> ready without network', async (t) => {
+test('existing supabase session for the same email -> ready without a new session; one /api/chat/refresh per page load', async (t) => {
   const session = { user: { id: 'u-1', email: emailOf('Saj'), app_metadata: { username: 'Saj' } } };
-  const { chat, log } = await setup(t, { session });
+  const { chat, log } = await setup(t, { session, route: () => res(200, { ok: true }) });
   assert.equal(await chat.ensureChatSession(), 'ready');
-  assert.equal(log.fetches.length, 0);
   assert.equal(chat.me().id, 'u-1');
+  await flush();
+  assert.equal(log.fetches.length, 1);
+  assert.match(log.fetches[0].url, /\/api\/chat\/refresh$/);
+  assert.equal(log.fetches[0].opts.method, 'POST');
+  assert.equal(log.fetches[0].opts.headers.Authorization, 'Bearer tok');
+  assert.equal(await chat.ensureChatSession(), 'ready'); // same page: no second refresh
+  await flush();
+  assert.equal(log.fetches.length, 1);
+  assert.equal(log.otps.length, 0);
+});
+
+test('refresh answering { ok: false } -> a full sign-in through /api/chat/session', async (t) => {
+  const session = { user: { id: 'u-1', email: emailOf('Saj'), app_metadata: { username: 'Saj' } } };
+  const { chat, log } = await setup(t, { session, route: (url) => (/refresh$/.test(url) ? res(200, { ok: false }) : res(200, { ok: true, tokenHash: 'th2' })) });
+  assert.equal(await chat.ensureChatSession(), 'ready');
+  for (let i = 0; i < 5; i++) await flush();
+  assert.deepEqual(log.fetches.map((f) => f.url.replace(/^.*\/api/, '/api')), ['/api/chat/refresh', '/api/chat/session']);
+  assert.deepEqual(log.otps, [{ token_hash: 'th2', type: 'email' }]);
+  assert.equal(chat.chatState(), 'ready');
+});
+
+test('refresh failing (503 / network) changes nothing', async (t) => {
+  const session = { user: { id: 'u-1', email: emailOf('Saj'), app_metadata: { username: 'Saj' } } };
+  const { chat, log } = await setup(t, { session, route: () => res(503, { ok: false, error: 'not set up' }) });
+  assert.equal(await chat.ensureChatSession(), 'ready');
+  for (let i = 0; i < 3; i++) await flush();
+  assert.equal(log.fetches.length, 1);
+  assert.equal(chat.chatState(), 'ready');
 });
 
 test('sign-outs are local to this device (scope local), never global', async (t) => {

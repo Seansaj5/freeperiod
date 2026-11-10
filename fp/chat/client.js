@@ -145,7 +145,20 @@ async function probeAsleep() {
   } catch { return false; } finally { if (timer) clearTimeout(timer); }
 }
 
-async function run(g, key) {
+// Once per page load, a reused session asks Bing Ball to re-sync the chat role and game stats (a fresh session already
+// did). { ok: false } (Bing Ball lost the chat account) means a full sign-in; 503 / network trouble is ignored.
+let refreshedFor = '';
+function refreshOnce(key) {
+  if (refreshedFor === key) return;
+  refreshedFor = key;
+  call('/api/chat/refresh', { body: {}, auth: true, timeout: 75000 }).catch((e) => {
+    if (!e || e.status !== 200 || hubKey() !== key || state !== 'ready') return; // only { ok: false } means "sign in again"
+    gen++; inflight = null; inflightFor = '';
+    ensureChatSession({ fresh: true });
+  });
+}
+
+async function run(g, key, fresh = false) {
   const stale = () => g !== gen || hubKey() !== key;
   const done = (st, msg = '') => { if (stale()) return state || baseState(); lastError = msg; setState(st); return st; };
   const fail = async (e) => {
@@ -164,7 +177,12 @@ async function run(g, key) {
     const { data } = await c.auth.getSession();
     if (stale()) return state || baseState();
     const s = data && data.session;
-    if (s && s.user && String(s.user.email || '').toLowerCase() === key) { setMe(s); return done('ready'); }
+    if (s && s.user && String(s.user.email || '').toLowerCase() === key && !fresh) {
+      setMe(s);
+      const st = done('ready');
+      if (st === 'ready') refreshOnce(key);
+      return st;
+    }
     if (s) { await signOutHere(c); if (stale()) return state || baseState(); }
   } catch (e) {
     if (isPaused(e)) return done('asleep');
@@ -195,16 +213,18 @@ async function run(g, key) {
     return done('error', "Chat can't be reached right now");
   }
   setMe(session);
+  refreshedFor = key; // a new session was just made with the current role and stats
   return done('ready');
 }
 
-export function ensureChatSession() {
+// opts.fresh: get a new session from Bing Ball even when this device has one for the right account.
+export function ensureChatSession({ fresh = false } = {}) {
   if (!configured()) { setState('off'); return Promise.resolve('off'); }
   const key = hubKey();
-  if (inflight && inflightFor === key) return inflight;
+  if (inflight && inflightFor === key && !fresh) return inflight;
   const g = ++gen;
   inflightFor = key;
-  const p = run(g, key).catch(() => { if (g === gen) { lastError = "Chat can't be reached right now"; setState('error'); } return 'error'; })
+  const p = run(g, key, fresh).catch(() => { if (g === gen) { lastError = "Chat can't be reached right now"; setState('error'); } return 'error'; })
     .finally(() => { if (inflight === p) { inflight = null; inflightFor = ''; } });
   inflight = p;
   return p;
@@ -214,5 +234,5 @@ export function ensureChatSession() {
 export function _inject({ config: cfg, createClient: cc } = {}) {
   if (cfg) config = cfg;
   if (cc) make = cc;
-  client = null; state = null; meUser = null; inflight = null; inflightFor = ''; lastError = ''; gen = 0; wired = false; lost = [];
+  client = null; state = null; meUser = null; inflight = null; inflightFor = ''; lastError = ''; gen = 0; wired = false; refreshedFor = ''; lost = [];
 }
