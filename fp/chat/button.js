@@ -46,7 +46,8 @@ export function mountChatButton(el) {
       try {
         const rows = await data.unreadCounts();
         let u = 0, m = 0;
-        for (const r of Array.isArray(rows) ? rows : []) { u += r.unread || 0; m += r.mentions || 0; }
+        // a DM counts like a mention (a number), as on the play-page Chat button and in chat itself
+        for (const r of Array.isArray(rows) ? rows : []) { u += r.unread || 0; m += String(r.target).startsWith('d:') ? (r.unread || 0) : (r.mentions || 0); }
         show(unread.badge({ unread: u, mentions: m }));
       } catch { /* keep the last count */ }
     }
