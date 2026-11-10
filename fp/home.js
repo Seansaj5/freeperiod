@@ -10,6 +10,7 @@ import { h, fmtTime } from './ui.js';
 import { mountAccount, openAuthSheet } from './account-ui.js';
 import { mountSuggest } from './suggest.js';
 import { mountChatButton } from './chat/button.js';
+import { mountStreakCard } from './streak.js';
 
 const GAMES = (window.GAMES || []).map(resolveGame);
 const $ = (id) => document.getElementById(id);
@@ -495,6 +496,7 @@ addEventListener('storage', (e) => { if (e.key === 'fp.meta') refreshMeta(); });
 mountAccount($('account'));
 mountChatButton($('chat-btn')); // stays hidden (and loads nothing) until chat is set up
 mountSuggest($('suggest'));
+mountStreakCard($('streak'), { onLogin: () => openAuthSheet('login') }); // daily check-in + the streak card
 renderHero();
 renderRecent();
 renderChips();

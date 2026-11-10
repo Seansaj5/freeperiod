@@ -4,6 +4,7 @@ import * as session from './session.js';
 import { call } from './api.js';
 import { getMeta } from './meta.js';
 import { h, openSheet, fmtTime, errText } from './ui.js';
+import { getStreak, bestBadge } from './streak.js';
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
 const fmt = (v) => { const n = num(v); return n == null ? null : n.toLocaleString(); };
@@ -36,6 +37,13 @@ export async function openProfile() {
   const sheet = openSheet({ title: user ? user.username : 'Profile' });
   const bb = h('section', { class: 'fp-sec' }, h('h3', { text: 'Bing Ball' }), h('p', { class: 'fp-note' }, 'Loading...'));
   sheet.body.append(bb);
+
+  const sv = session.getToken() ? getStreak() : null;
+  if (sv) {
+    const bb2 = bestBadge(sv.badges);
+    sheet.body.append(h('section', { class: 'fp-sec' }, h('h3', { text: 'Daily streak' }),
+      h('dl', { class: 'fp-stats' }, stat('Current', '\u{1F525} ' + sv.days + (sv.days === 1 ? ' day' : ' days')), stat('Best', sv.best + (sv.best === 1 ? ' day' : ' days')), stat('Badge', bb2 ? bb2.label : 'None yet'))));
+  }
 
   const cc = closeCall();
   sheet.body.append(h('section', { class: 'fp-sec' }, h('h3', { text: 'Close Call' }),
