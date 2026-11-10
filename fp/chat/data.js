@@ -167,6 +167,13 @@ export async function loadMessages(target, { before, limit = 50 } = {}) {
   return (rows || []).reverse().map(present);
 }
 
+// The pinned messages of a conversation, newest first (staff pin in channels, anyone in a DM; RLS decides who reads).
+export async function listPins(target, { limit = 50 } = {}) {
+  let q = sb().from('messages').select(MSG_SELECT).eq('pinned', true).eq('deleted', false);
+  q = target && target.dm ? q.eq('dm_id', target.dm) : q.eq('channel_id', target && target.channel);
+  return (check(await q.order('id', { ascending: false }).limit(Math.max(1, Math.min(100, limit | 0 || 50)))) || []).map(present);
+}
+
 // Sends. A job stays queued (Retry) until it is stored or discarded; its client_id never changes, so a retry of a send
 // whose answer was lost hits the unique (author_id, client_id) index (23505) and resolves with the stored row.
 let tempN = 0;

@@ -1,7 +1,7 @@
 // The chat app: rail, channel list / DM list, messages, composer, members, status banners, profile cards, the profile
 // editor and the owner / mod tools. Used by the Messages page (chat.html) and, with { compact: true }, by the play-page
 // overlay (one panel at a time, no title or history changes).
-import { h, toast } from '../ui.js';
+import { h, toast, openSheet } from '../ui.js';
 import * as session from '../session.js';
 import { chatState, onChatState, ensureChatSession, me as chatMe, chatError as sessionError } from './client.js';
 import * as data from './data.js';
@@ -244,9 +244,10 @@ export function mountChatApp(root, { compact = false } = {}) {
   const headLock = h('span', { class: 'cx-head-lock', title: 'Only Sean and mods post here', hidden: true }, icon('lock'));
   const headTopic = h('p', { class: 'cx-head-topic' });
   const addBtn = h('button', { type: 'button', class: 'cx-iconbtn cx-head-add', 'aria-label': 'Add people', title: 'Add people', hidden: true, onclick: () => addToGroup() }, icon('userPlus'));
+  const pinsBtn = h('button', { type: 'button', class: 'cx-iconbtn cx-head-pins', 'aria-label': 'Pinned messages', title: 'Pinned messages', hidden: true, onclick: () => openPins() }, icon('pin'));
   const membersBtn = h('button', { type: 'button', class: 'cx-iconbtn cx-members-btn', 'aria-label': 'Members', title: 'Members', 'aria-pressed': 'false',
     onclick: () => setMembers(!root.classList.contains('members-open')) }, icon('users'), h('span', { class: 'cx-members-n' }));
-  headEl.append(backBtn, h('div', { class: 'cx-head-title' }, headPic, headEmoji, headName, headLock), headTopic, h('span', { class: 'cx-head-gap' }), addBtn, membersBtn);
+  headEl.append(backBtn, h('div', { class: 'cx-head-title' }, headPic, headEmoji, headName, headLock), headTopic, h('span', { class: 'cx-head-gap' }), pinsBtn, addBtn, membersBtn);
   headPic.addEventListener('click', () => { const dm = curDMObj(); const one = dm && !dm.is_group && dmOthers(dm, myId())[0]; if (one) openCard(one, headPic); });
   function drawHead() {
     headPic.hidden = true; addBtn.hidden = true; headLock.hidden = true;
@@ -273,6 +274,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     } else if (cur) { headEmoji.textContent = cur.emoji || '#'; headName.textContent = cur.name; headLock.hidden = !cur.owner_only; headTopic.textContent = cur.topic || ''; }
     else { headEmoji.textContent = ''; headName.textContent = st === 'waking' ? 'Connecting…' : st === 'off' ? '' : 'Free Period'; headTopic.textContent = ''; }
     membersBtn.hidden = guest() || st !== 'ready' || mode === 'friends' || (mode === 'dms' && !curDM);
+    pinsBtn.hidden = !((st === 'ready' || st === 'guest') && ((mode === 'server' && cur) || (mode === 'dms' && curDM)));
     const dm = mode === 'dms' ? curDMObj() : null;
     drawHelp();
     membersBtn.lastChild.textContent = dm ? String((dm.members || []).length) : online.size ? String(online.size) : '';
@@ -282,6 +284,27 @@ export function mountChatApp(root, { compact = false } = {}) {
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver((es) => setLayout(es[0].contentRect.width)) : null;
   if (ro) ro.observe(root); else setLayout(root.clientWidth || innerWidth);
   setLayout(root.clientWidth || innerWidth);
+
+  // ---------- pinned messages: a list from the header (newest first), each with Jump ----------
+  async function openPins() {
+    const target = mode === 'dms' && curDM ? { dm: curDM } : mode === 'server' && cur ? { channel: cur.id } : null;
+    if (!target) return;
+    const where = target.dm ? dmTitle(curDMObj() || { members: [] }, myId()) : '#' + cur.name;
+    const sheet = openSheet({ title: 'Pinned in ' + where });
+    sheet.el.classList.add('cx-sheet', 'cx-pins');
+    const list = h('div', { class: 'cx-pins-list', role: 'list' }, h('p', { class: 'fp-note', text: 'Loading…' }));
+    sheet.body.append(list);
+    try {
+      const rows = await data.listPins(target);
+      list.replaceChildren(...(rows.length ? rows.map((m) => {
+        const a = live(byId.get(m.author_id) || m.author || { id: m.author_id, username: 'someone' });
+        const text = String(m.body || '').replace(/\s+/g, ' ').trim();
+        return h('div', { class: 'cx-pin', role: 'listitem', dataset: { mid: String(m.id) } }, avatar(a, { size: 30 }),
+          h('div', { class: 'cx-pin-text' }, h('b', { text: nameOf(a) }), h('p', { text: text ? (text.length > 240 ? text.slice(0, 240) + '…' : text) : '📷 Picture' })),
+          h('button', { type: 'button', class: 'fp-mini', onclick: () => { sheet.close(); messages.jumpTo(m.id); } }, 'Jump'));
+      }) : [h('p', { class: 'fp-note cx-pins-none', text: 'Nothing is pinned here yet. Sean and mods can pin a message from its ⋯ menu.' })]));
+    } catch (e) { list.replaceChildren(h('p', { class: 'fp-err', text: errText(e) })); }
+  }
 
   // ---------- banners ----------
   function drawBanner() {
