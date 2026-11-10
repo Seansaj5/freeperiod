@@ -855,7 +855,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     if (st === 'ready' && !presenceH && typeof data.presence === 'function') {
       try { presenceH = data.presence({ onSync: (x) => { online = new Set(idsOf(x)); drawMembers(); drawSide(); drawHead(); } }); } catch { presenceH = null; }
     }
-    if (rt !== 'live' && !notLiveSince) notLiveSince = Date.now();
+    if (rt !== 'live') notLiveSince = Date.now(); // a new join starts now (not when the page opened: waking can take a minute)
     armPolling();
   }
   function pauseLive() {
