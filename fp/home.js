@@ -209,7 +209,9 @@ function card(g) {
       g.beta ? h('span', { class: 'badge beta' }, 'Beta') : null),
     favButton(g),
     hasPill(g) ? pill(g) : null,
-    h('span', { class: 'go', 'aria-hidden': 'true' }, icon('play')));
+    h('span', { class: 'go', 'aria-hidden': 'true' }, icon('play')),
+    // The whole poster (and its green arrow) opens the game; the title link below is the keyboard/reader one.
+    h('a', { class: 'thumb-go', href: playLink(g), tabindex: '-1', 'aria-hidden': 'true' }));
   const el = h('article', { class: 'card', style: '--accent:' + accentOf(g), dataset: { id: g.id } },
     h('i', { class: 'shine', 'aria-hidden': 'true' }),
     thumb,

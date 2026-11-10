@@ -328,6 +328,7 @@ kbd { font: 600 12px 'Outfit', sans-serif; color: var(--muted); border: 1px soli
 }
 .card:hover .go, .card:focus-within .go { opacity: 1; transform: none; }
 .go .ic { width: 16px; height: 16px; margin-left: 2px; }
+.thumb-go { position: absolute; inset: 0; z-index: 2; }      /* above the poster, arrow and pill; under the favorite star (z 3) */
 
 .card-body { position: relative; padding: 17px 18px 19px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
 .card-body::before {
