@@ -82,6 +82,7 @@ export function chatError(e) {
     return 'You’re timed out for ' + min + ' min';
   }
   if (code === 'bad_file') return x.reason || (e && e.reason) || 'That picture can’t be used';
+  if (code === 'slow_down' && x.detail === 'daily') return 'You’ve hit today’s limit. Try again tomorrow.'; // 0008: the 24 h caps
   return ({
     slow_down: 'Slow down a little', banned: 'You’re banned from chat', everyone_owner_only: 'Only Sean can ping everyone',
     owner_only_channel: 'Only Sean and mods post here', dm_refused: 'They aren’t taking DMs from you', group_full: 'Groups hold up to 10 people',

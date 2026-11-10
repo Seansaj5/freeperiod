@@ -37,6 +37,12 @@ test('chatError: database refusals (P0001 message = code), muted minutes, checks
   assert.equal(chatError(pg('42501', 'permission denied for table messages')), 'You can’t do that');
   assert.equal(chatError(Object.assign(new ChatError('bad_file'), { reason: 'That GIF is too big (max 8 MB)' })), 'That GIF is too big (max 8 MB)');
   assert.equal(chatError(new ChatError('discarded')), 'Not sent');
+  // 0008's daily caps: the same slow_down code with details 'daily'
+  assert.equal(chatError(pg('P0001', 'slow_down', 'daily')), 'You’ve hit today’s limit. Try again tomorrow.');
+  assert.equal(chatError(new ChatError('slow_down', 'daily')), 'You’ve hit today’s limit. Try again tomorrow.');
+  assert.equal(toChatError(pg('P0001', 'slow_down', 'daily')).code, 'slow_down'); // still a refusal: the send stays failed with Retry
+  assert.equal(chatError(pg('P0001', 'slow_down', null)), 'Slow down a little');
+  assert.equal(chatError(pg('P0001', 'slow_down', 'other')), 'Slow down a little');
   for (const junk of [null, undefined, {}, { weird: true }, pg('XX000', 'boom'), 'text']) assert.equal(chatError(junk), 'Something went wrong');
 });
 
