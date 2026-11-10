@@ -4,6 +4,7 @@ import * as session from './session.js';
 import { syncGame, watch } from './saves.js';
 import { touchRecent, addPlay, flush as flushMeta } from './meta.js';
 import { resolveGame } from './status.js';
+import { dailyCheckin } from './streak.js';
 
 const $ = (id) => document.getElementById(id);
 const id = new URLSearchParams(location.search).get('g');
@@ -75,6 +76,7 @@ async function run(rawGame) {
   const settled = session.getToken()
     ? session.resume().catch(() => null).then(() => {})
     : Promise.resolve();
+  settled.then(() => dailyCheckin()).catch(() => {}); // once a day per device, quiet (never blocks or covers the game)
   let frame = null;
   let helloSeen = false;
   let tokenSent = false; // hub has sent fp:token to the current frame

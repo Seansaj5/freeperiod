@@ -71,3 +71,41 @@ test('chat flair: best streak badge from game_stats, cleaned', async () => {
   assert.equal(f.badgeInfo('streak:0'), null);
   assert.equal(f.streakDays('nope'), 0);
 });
+
+test('play-page check-in: once a day per device, per account, quiet', async () => {
+  let calls = 0;
+  const today = (await setup({ fetch: async () => json(200, {}) })).localDay();
+  const answer = (over = {}) => json(200, { ok: true, days: 5, best: 5, today, doneToday: true, gained: true, unlocked: [{ days: 3, flair: { label: 'Ember avatar frame' } }], badges: ['streak-3'], next: { days: 7, label: '7-day streak', left: 2 }, rewards: [], ...over });
+  const s = await setup({ fetch: async () => { calls++; return answer(); } });
+  assert.equal(await s.dailyCheckin(), true);          // nothing cached: asks the server
+  assert.equal(calls, 1);
+  const pend = JSON.parse(localStorage.getItem('fp.streak.pending'));
+  assert.equal(pend.user, 'sean'); assert.equal(pend.days, 5);     // quiet: remembered for the home page, no toast here
+  assert.equal(JSON.parse(localStorage.getItem('fp.streak')).view.today, today);
+  assert.equal(await s.dailyCheckin(), false);         // cached for today: no request
+  assert.equal(calls, 1);
+});
+
+test('play-page check-in asks again for a new day or another account', async () => {
+  let calls = 0;
+  const s = await setup({ fetch: async () => { calls++; return json(200, { ok: true, days: 2, best: 2, today: s2day(), doneToday: true, gained: false, unlocked: [], badges: [], next: null, rewards: [] }); } });
+  const s2day = () => s.localDay();
+  // cached answer from yesterday
+  localStorage.setItem('fp.streak', JSON.stringify({ user: 'sean', view: { days: 1, best: 1, today: '2020-01-01', doneToday: true, badges: [] } }));
+  assert.equal(await s.dailyCheckin(), true); assert.equal(calls, 1);
+  assert.equal(await s.dailyCheckin(), false); assert.equal(calls, 1);
+  // a cache that belongs to someone else does not count
+  localStorage.setItem('fp.streak', JSON.stringify({ user: 'other', view: { days: 9, best: 9, today: s.localDay(), doneToday: true, badges: [] } }));
+  assert.equal(await s.dailyCheckin(), true); assert.equal(calls, 2);
+  // gained === false: nothing pending
+  assert.equal(localStorage.getItem('fp.streak.pending'), null);
+});
+
+test('play-page check-in: logged out never calls; failure leaves no cache', async () => {
+  const t = await setup({ token: null, fetch: async () => { throw new Error('no'); } });
+  assert.equal(await t.dailyCheckin(), false);
+  const u = await setup({ fetch: async () => { throw new Error('down'); } });
+  assert.equal(await u.dailyCheckin(), true);
+  assert.equal(localStorage.getItem('fp.streak'), null);
+  assert.equal(await u.dailyCheckin(), true);          // still tries next time
+});

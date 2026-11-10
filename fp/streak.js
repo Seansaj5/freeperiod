@@ -8,6 +8,10 @@ import { h, toast } from './ui.js';
 
 const KEY = 'fp.streak';
 const DAY = 864e5;
+const PENDING = 'fp.streak.pending';      // a gain found on the play page: celebrated the next time the home page opens
+const NY = typeof Intl !== 'undefined' ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }) : null;
+/** This device's idea of today's New York day. Only used to SKIP a request; the server never reads it. */
+export const localDay = (ms = Date.now()) => (NY ? NY.format(new Date(ms)) : '');
 const RECHECK_MS = 30 * 60 * 1000;      // a tab left open past midnight asks again when it is looked at
 const fire = '\u{1F525}';
 
@@ -64,7 +68,7 @@ function cacheGet() {
 function cachePut(v) { const me = session.userKey(); if (me && v) store.setJson(KEY, { user: me, view: v }); }
 export function getStreak() { return session.getToken() ? view : null; }
 
-export async function checkin({ force = false } = {}) {
+export async function checkin({ force = false, quiet = false } = {}) {
   const token = session.getToken(), me = session.userKey();
   if (!token || !me || inflight) return null;
   if (!force && checkedFor === token && Date.now() - checkedAt < RECHECK_MS) return view;
@@ -79,7 +83,11 @@ export async function checkin({ force = false } = {}) {
     view = v; checkedFor = token; checkedAt = Date.now();
     cachePut(v);
     emit();
-    if (d.gained) celebrate(v, Array.isArray(d.unlocked) ? d.unlocked : [], was);
+    if (d.gained) {
+      const unlocked = Array.isArray(d.unlocked) ? d.unlocked : [];
+      if (quiet) store.setJson(PENDING, { user: me, days: v.days, unlocked: unlocked.map((u) => ({ days: u.days, flair: u.flair ? { label: String(u.flair.label || '') } : undefined })) });
+      else celebrate(v, unlocked, was);
+    }
     return v;
   } catch {
     return view;      // waking, offline: keep what we have; the next visit asks again
@@ -110,6 +118,27 @@ function burst() {
     const a = (i / 14) * Math.PI * 2 + Math.random() * 0.4, r = 46 + Math.random() * 48;
     return h('i', { style: `--dx:${Math.round(Math.cos(a) * r)}px;--dy:${Math.round(Math.sin(a) * r - 10)}px;--d:${Math.round(Math.random() * 120)}ms` });
   }));
+}
+
+/**
+ * The play page's check-in: at most one request per account per day per device (the cached answer's day is today's New York day).
+ * Quiet: no toast over the game; a gain is celebrated on the next home visit instead. @returns true when a request was made
+ */
+export async function dailyCheckin() {
+  if (!session.getToken() || !session.userKey()) return false;
+  const c = cacheGet();
+  if (c && c.today && c.today === localDay()) { view = c; return false; }
+  await checkin({ force: true, quiet: true });
+  return true;
+}
+/** Shows (once) a celebration that a play-page check-in found. */
+export function showPending() {
+  const raw = store.json(PENDING, null), me = session.userKey();
+  if (!raw) return false;
+  store.del(PENDING);
+  if (!me || raw.user !== me || !view) return false;
+  celebrate(view, Array.isArray(raw.unlocked) ? raw.unlocked : [], null);
+  return true;
 }
 
 // ---------- the home card ----------
@@ -156,5 +185,5 @@ export function mountStreakCard(el, { onLogin } = {}) {
   session.onChange(() => { if (!session.getToken()) view = null; render(); if (session.getToken()) checkin(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && session.getToken()) checkin(); });
   render();
-  if (session.getToken()) checkin();
+  if (session.getToken()) checkin().then(() => showPending());
 }

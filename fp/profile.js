@@ -89,7 +89,7 @@ export async function openProfile() {
       stat('Total XP', p.xp != null ? fmt(p.xp) : null),
       stat('Coins', fmt(p.coins)),
       stat('Styles', Array.isArray(p.styles) ? p.styles.length : null),
-      stat('Streak', streak != null && num(streak) != null ? `${streak} day${num(streak) === 1 ? '' : 's'}` : null),
+      stat('Bing Ball coin streak', streak != null && num(streak) != null ? `${streak} day${num(streak) === 1 ? '' : 's'}` : null),
       stat('Ranked 1v1', ranked || null)),
     bar,
     xpLabel ? h('p', { class: 'fp-note', text: xpLabel }) : null,
