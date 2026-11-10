@@ -27,6 +27,11 @@ export function apiBase() {
   return v || API_BASE;
 }
 
+// Where `auth: true` gets the session token: session.js registers its getter (it also keeps the token in memory
+// when storage is blocked); until then, fp.token.
+let tokenSource = () => store.get('fp.token');
+export function useToken(fn) { tokenSource = fn; }
+
 // A napping Render server takes about a minute to wake: log in, sign up and suggestions wait this long.
 export const WAKE_TIMEOUT = 75000;
 
@@ -35,7 +40,7 @@ export async function call(path, { body, auth, timeout = 20000, keepalive } = {}
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (auth) {
-    const token = typeof auth === 'string' ? auth : store.get('fp.token');
+    const token = typeof auth === 'string' ? auth : tokenSource();
     if (token) headers.Authorization = 'Bearer ' + token;
   }
   const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;

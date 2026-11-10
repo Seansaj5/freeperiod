@@ -1,8 +1,9 @@
 // Signed-in session. Only a 401 signs the user out; network trouble never does.
 import * as store from './store.js';
-import { call, WAKE_TIMEOUT } from './api.js';
+import { call, useToken, WAKE_TIMEOUT } from './api.js';
 
 let user = null;
+let memToken = null; // the token when storage is blocked: signed in for this page's lifetime at least
 const listeners = new Set();
 function emit() { for (const fn of [...listeners]) { try { fn(user); } catch { /* ignore */ } } }
 
@@ -11,19 +12,21 @@ export function getUser() {
   if (user) return user;
   return getToken() ? store.json('fp.user', null) : null;
 }
-export function getToken() { return store.get('fp.token'); }
+export function getToken() { return memToken || store.get('fp.token'); }
+useToken(getToken);
 // Who is signed in, lowercase ('' for a guest): the account that sync records and fp.meta belong to.
 export function userKey() { const u = getUser(); return u && typeof u.username === 'string' ? u.username.toLowerCase() : ''; }
 export function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
 function setSession(token, u) {
-  store.set('fp.token', token);
+  memToken = store.set('fp.token', token) ? null : token;
   user = u ? { username: u.username, role: u.role } : null;
   if (user) store.setJson('fp.user', user); else store.del('fp.user');
   emit();
 }
 function clear() {
   const had = getUser() !== null;
+  memToken = null;
   store.del('fp.token');
   store.del('fp.user');
   user = null;
@@ -52,11 +55,12 @@ export async function resume() {
   if (!token) return null;
   try {
     const d = await call('/api/me', { auth: token });
+    if (getToken() !== token) return getUser(); // logged out or in as someone else meanwhile: not this answer's business
     user = d.user ? { username: d.user.username, role: d.user.role } : null;
     if (user) store.setJson('fp.user', user); else store.del('fp.user');
     emit();
   } catch (e) {
-    if (e && e.status === 401) clear(); // dead token; anything else (waking, offline) keeps it
+    if (e && e.status === 401 && getToken() === token) clear(); // dead token; anything else (waking, offline) keeps it
   }
   return getUser();
 }
