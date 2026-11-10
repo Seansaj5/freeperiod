@@ -91,7 +91,7 @@ const GAMES = {
       { at: 6.75, key: 'Digit1' },
     ],
     poster: {
-      title: ['BING', '~BALL'], tag: '3D soccer · anime moves', accent: '#c6ff3d', accent2: '#3de0ff',
+      title: ['BING', '~BALL'], tag: '3D soccer · multiplayer', accent: '#c6ff3d', accent2: '#3de0ff',
     },
   },
 

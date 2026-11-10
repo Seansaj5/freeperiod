@@ -210,6 +210,22 @@
     #touch .tb { font-size: 8px; }
     #scare canvas { image-rendering: pixelated; }
     @media (pointer: coarse) { .keys { display: none; } }
+    .slot { width: 66px; height: 66px; }
+    .slot.locked { opacity: 0.45; }
+    .slot.on { box-shadow: 0 0 22px -2px #ffd23d; border-color: #ffd23d; }
+    .slot .meter { position: absolute; left: 6px; right: 6px; bottom: 5px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.15); overflow: hidden; }
+    .slot .meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ff8a1a, #ffd23d); }
+    .hearts { gap: 6px; }
+    .hrt { position: relative; width: 26px; height: 24px; display: inline-block; }
+    .hrt::before, .hrt b { position: absolute; inset: 0; content: ''; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath d='M12 21.5 1.8 11.3A6 6 0 0 1 12 3.2a6 6 0 0 1 10.2 8.1Z'/%3E%3C/svg%3E") center/contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath d='M12 21.5 1.8 11.3A6 6 0 0 1 12 3.2a6 6 0 0 1 10.2 8.1Z'/%3E%3C/svg%3E") center/contain no-repeat; }
+    .hrt::before { background: rgba(255, 255, 255, 0.18); }
+    .hrt b { background: linear-gradient(#ff5a6a, #c8102a); right: auto; -webkit-mask-size: 26px 24px; mask-size: 26px 24px; -webkit-mask-position: left center; mask-position: left center; }
+    .xp { text-align: center; font-weight: 700; margin: 2px 0 8px; }
+    .xp.up { color: #ffd23d; font-family: 'Bungee', sans-serif; letter-spacing: 0.04em; }
+    .xpbar { display: inline-block; width: 120px; height: 7px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; vertical-align: middle; }
+    .xpbar i { display: block; height: 100%; background: linear-gradient(90deg, #7ff0ff, #ffd23d); }
+    .card .lv { font-size: 12px; font-weight: 800; color: var(--muted); margin: 4px 0; }
+    .card .ab.lockd { opacity: 0.55; }
     .revinfo { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); text-align: center; margin-top: 2px; text-shadow: 0 1px 4px #000; }
     .revinfo.bad { color: #ff6a7a; }
     .lockerview { position: fixed; inset: 0; z-index: 4; pointer-events: none;
@@ -234,11 +250,13 @@
     .qte-text { font-family: 'Bungee', sans-serif; font-size: clamp(26px, 5vw, 56px); color: #fff; margin-top: 14px; }
     .qte-help { color: var(--muted); font-size: 14px; margin-top: 10px; font-weight: 600; }
     #touch .tb.big { width: 110px; height: 110px; font-size: 40px; z-index: 30; position: fixed; pointer-events: auto; }
+    /* short windows: the controls help would sit on top of the buttons (the round's intro lists the controls anyway) */
+    @media (max-height: 620px) { .keys { display: none; } }
     @media (max-height: 500px) {
       #title .tag, .keys { display: none; }
       .screen { padding-top: 3vh; padding-bottom: 3vh; }
       .stack { gap: 7px; } .btn { height: 40px; font-size: 9px; } .btn.small { height: 36px; } .field { height: 38px; }
-      .online { margin-top: 8px; } .status { margin-top: 6px; min-height: 0; }
+      .online { margin-top: 8px; } .statusrow { margin-top: 8px; } .status { margin-top: 6px; min-height: 0; }
     }
     @keyframes scare { 0% { opacity: 1; transform: scale(1.05) translate(6px, -4px); } 12% { transform: scale(1.12) translate(-8px, 5px); filter: invert(1); } 18% { filter: none; } 30% { opacity: 0; } 38% { opacity: 1; transform: scale(1.3) translate(4px, 0); } 60% { transform: scale(1.45) translate(-5px, 3px); filter: contrast(1.6) saturate(2); } 85% { opacity: 1; } 100% { opacity: 0; } }
     /* touch */
@@ -248,6 +266,75 @@
     #touch .tb { position: absolute; width: 66px; height: 66px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); background: rgba(20, 0, 4, 0.55); pointer-events: auto; font-family: var(--pix); font-size: 11px; display: flex; align-items: center; justify-content: center; text-align: center; }
     #touch .tb.on { background: rgba(255, 40, 50, 0.6); }
 
+
+    /* ---- boot screen: a fake console, the real loading bar, then a crash */
+    #boot { position: fixed; inset: 0; z-index: 60; background: #000; color: #d8d8d8; font-family: var(--pix); display: flex; align-items: center; justify-content: center; cursor: default; }
+    #boot::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.35) 0 1px, rgba(0, 0, 0, 0) 1px 3px), radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.7) 100%); }
+    #boot.gone { animation: bootGone 0.5s steps(5) forwards; }
+    @keyframes bootGone { 0% { background: #fff; } 30% { background: #fff; opacity: 1; } 100% { background: #000; opacity: 0; } }
+    #boot.gone > * { visibility: hidden; }
+    .boot-scr { width: min(640px, 92vw); }
+    #bootLog { margin: 0 0 18px; font: 11px/1.9 var(--pix); color: #cfcfcf; white-space: pre-wrap; min-height: 210px; text-shadow: 0 0 6px rgba(255, 255, 255, 0.25); }
+    #bootLog .bad { color: #ff2a3a; }
+    .boot-row { display: flex; align-items: center; gap: 12px; }
+    .boot-bar { flex: 1; height: 22px; border: 3px solid #4a0c14; background: #000; padding: 3px; box-shadow: 4px 4px 0 #1a0004; }
+    .boot-bar i { display: block; height: 100%; width: 0; background: repeating-linear-gradient(90deg, #ff2a3a 0 14px, #c8001a 14px 16px, transparent 16px 19px); }
+    #bootPct { font-size: 11px; width: 54px; text-align: right; color: #fff; }
+    .boot-step { margin-top: 12px; font-size: 9px; color: #8a6a70; letter-spacing: 0.1em; min-height: 12px; }
+    #bootFace { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; opacity: 0; pointer-events: none; z-index: 2; }
+    #bootFace.on { opacity: 1; }
+    .boot-err { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 1; }
+    .boot-err .panel { width: min(470px, 92vw); font-family: 'Outfit', sans-serif; }
+    .boot-err.shake .panel { transform: translate(6px, -3px) skewX(-4deg); filter: hue-rotate(-20deg) contrast(1.4); }
+    .err-body { display: flex; gap: 16px; align-items: flex-start; }
+    .err-body p { margin: 0; font-size: 15px; line-height: 1.5; color: #f4e9ea; }
+    .err-ico { flex: none; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font: 18px var(--pix); color: #fff; background: #c8001a; border: 3px solid #ff6a6a; box-shadow: 3px 3px 0 #000; }
+
+    /* ---- menus as old program windows */
+    .panel.win { position: relative; padding-top: 48px; background: repeating-linear-gradient(to bottom, rgba(255, 40, 50, 0.03) 0 1px, rgba(0, 0, 0, 0) 1px 3px), rgba(10, 2, 4, 0.95); }
+    .panel.win::before { content: attr(data-title); position: absolute; left: 0; right: 0; top: 0; height: 30px; line-height: 30px; padding: 0 44px 0 12px; font-family: var(--pix); font-size: 9px; letter-spacing: 0.06em; color: #ffd9dc; background: linear-gradient(90deg, #8a0010, #3a0006 70%, #1a0003); border-bottom: 3px solid #4a0c14; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .panel.win::after { content: '\2715'; position: absolute; right: 7px; top: 6px; width: 18px; height: 18px; line-height: 15px; text-align: center; font: 9px var(--pix); color: #fff; background: #c8001a; border: 2px solid #ff6a6a; box-shadow: 2px 2px 0 #000; }
+    .panel.win h2 { display: none; }
+    /* the owner (Free Period account) */
+    .own { color: #ffd23d !important; text-shadow: 0 0 8px rgba(255, 190, 40, 0.55); }
+    .owntag { font: 7px var(--pix); background: #c8001a; color: #fff; padding: 3px 5px 2px; border: 2px solid #ff6a6a; margin-left: 7px; vertical-align: 2px; letter-spacing: 0.04em; }
+    .tick { color: #6dff8a; font-weight: 800; }
+    .statusrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 16px; max-width: 460px; }
+    .statusrow .online { margin-top: 0; }
+    .acct { font-size: 13px; color: var(--muted); }
+    .acct a { color: #ffd23d; }
+    .acct kbd { font-size: 11px; }
+    .note { font-size: 12px; color: var(--muted); margin-top: 5px; }
+    .field:disabled { opacity: 0.7; }
+    .own-btn { border-color: #ffd23d !important; color: #ffd23d; }
+    #admin .panel { width: min(540px, 100%); max-height: 94vh; overflow-y: auto; scrollbar-width: thin; }
+    #admin .chips { margin-top: 2px; }
+    #admin .chips button.on { background: #ffd23d; color: #1a0a00; border-color: #fff2a8; }
+    .adm-who { margin: 0 0 10px; font-size: 14px; }
+    #lobbyAnn:empty, #admNote:empty, .note:empty { display: none; }
+    #annBar { position: absolute; left: 50%; top: 92px; transform: translateX(-50%); max-width: min(640px, 92vw); padding: 10px 16px; background: rgba(20, 8, 0, 0.88); border: 3px solid #ffd23d; box-shadow: 4px 4px 0 #000; color: #ffe9a0; font: 11px/1.6 var(--pix); text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 6; }
+    #annBar.on { opacity: 1; }
+    #annBar small { display: block; color: #ffb800; font-size: 7px; margin-bottom: 4px; }
+    .panel .lbl { font-family: var(--pix); font-weight: 400; font-size: 8px; letter-spacing: 0.08em; color: #ff8a95; }
+    .chips button { font-family: var(--pix); font-weight: 400; font-size: 8px; border-radius: 0; border-width: 2px; padding: 8px 10px; }
+    .chips button.on { background: #c8001a; color: #fff; border-color: #ff5a5a; }
+    .sw button { border-radius: 0; }
+    .tabs button.on { border-color: #ff6a6a; }
+    .range { height: 8px; }
+    #custom .panel { background: repeating-linear-gradient(to bottom, rgba(255, 40, 50, 0.03) 0 1px, rgba(0, 0, 0, 0) 1px 3px), rgba(10, 2, 4, 0.9); }
+    .btn:hover, .btn:focus-visible, .chips button:hover, .tabs button:hover, .card:hover, .sw button:hover { animation: jit 0.28s steps(2) infinite; }
+    .card:hover { border-color: #ff3a4a; }
+    @keyframes jit { 0%, 100% { text-shadow: -2px 0 #ff1a2a, 2px 0 rgba(255, 255, 255, 0.55); } 50% { text-shadow: 2px 0 #ff1a2a, -2px 0 rgba(255, 255, 255, 0.55); filter: brightness(1.25); } }
+
+    /* ---- spawning in, the intro card, taunts */
+    #spawnCv { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 8; pointer-events: none; image-rendering: pixelated; }
+    .intro.corner { align-items: flex-end; justify-content: flex-start; padding: 0 0 120px 16px; }
+    .intro.corner .box { transform-origin: left bottom; transform: scale(0.42); text-align: left; padding: 22px 30px; background: rgba(10, 0, 3, 0.9); border: 6px solid #4a0c14; box-shadow: 10px 10px 0 #000; animation: cornerIn 0.3s steps(3); max-width: 920px; }
+    @keyframes cornerIn { from { transform: scale(0.8); opacity: 0.3; } }
+    #taunt { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 29; pointer-events: none; font-family: var(--pix); font-size: clamp(22px, 5vw, 60px); color: #ff1a2a; text-shadow: 5px 5px 0 #000, -3px 0 0 rgba(255, 255, 255, 0.4); opacity: 0; white-space: nowrap; letter-spacing: 0.08em; }
+    #taunt.on { animation: taunt 1.15s steps(1) forwards; }
+    @keyframes taunt { 0% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); } 8% { transform: translate(-46%, -52%) scale(1); } 16% { opacity: 0.15; } 22% { opacity: 1; transform: translate(-54%, -49%); clip-path: inset(0 0 50% 0); } 30% { clip-path: none; transform: translate(-50%, -50%); } 72% { opacity: 1; } 78% { opacity: 0; } 84% { opacity: 0.8; transform: translate(-48%, -50%) skewX(-14deg); } 100% { opacity: 0; } }
+    @media (max-width: 700px) { .intro.corner { display: none; } #bootLog { font-size: 9px; min-height: 170px; } }
     @media (max-height: 500px) { .team { display: none; } .tasks { width: 180px; font-size: 11px; } .minimap { width: 120px; height: 120px; } .feed { top: 140px; } .intro p { font-size: 14px; } .intro h1 { font-size: 44px; } }
     @media (max-width: 700px) {
       .team { display: none; } .tasks { display: none; } .minimap { width: 110px; height: 110px; } .feed { top: 130px; max-width: 70vw; } .feed div { font-size: 12px; }
@@ -258,6 +345,45 @@
   <script type="importmap">{ "imports": { "three": "../../lib/three.module.min.js", "three/addons/": "../../lib/addons/" } }</script>
 </head>
 <body>
+  <div id="boot">
+    <div class="boot-scr">
+      <pre id="bootLog"></pre>
+      <div class="boot-row hidden" id="bootRow"><div class="boot-bar"><i id="bootFill"></i></div><span id="bootPct">0%</span></div>
+      <div class="boot-step" id="bootStep"></div>
+    </div>
+    <div class="boot-err hidden" id="bootErr">
+      <div class="panel win" data-title="DREAMY_HILLS.EXE">
+        <div class="err-body"><b class="err-ico">!</b><p><b>DREAMY_HILLS.EXE has stopped responding.</b><br />The system is checking for a solution to the problem&hellip;</p></div>
+        <div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn small" id="bootWait">Wait</button><button class="btn small primary" id="bootClose">Close program</button></div>
+      </div>
+    </div>
+    <canvas id="bootFace"></canvas>
+  </div>
+  <script>
+    // The boot screen runs before the game's code has even arrived: a fake console, and a loading bar that
+    // follows the real downloads, then the steps main.js reports through window.__boot. ?boot=0 skips it.
+    (function () {
+      var skip = /[?&]boot=0/.test(location.search), el = function (id) { return document.getElementById(id); };
+      var B = (window.__boot = { shown: 0, target: 0.03, step: 'POWER ON', linesDone: false, finished: false });
+      B.set = function (p, step) { B.target = Math.max(B.target, p); if (step) B.step = step; };
+      if (skip) { el('boot').style.display = 'none'; B.finished = true; window.__bootDone = true; return; }
+      var lines = ['FREE PERIOD SYSTEM BIOS  v1.994', '(C) 1994 FREE PERIOD', '', 'MEMORY TEST ......... 4096K OK', 'VIDEO ............... 16-BIT COLOR', 'SOUND ............... FM SYNTH OK', 'CARTRIDGE ........... DREAMY HILLS', '', 'LOADING DREAMY_HILLS.EXE'];
+      var log = el('bootLog'), i = 0;
+      var typer = setInterval(function () { if (i >= lines.length) { clearInterval(typer); B.linesDone = true; el('bootRow').classList.remove('hidden'); return; } log.textContent += lines[i++] + '\n'; }, 85);
+      var EXPECT = 27;
+      try { new PerformanceObserver(function () { var n = performance.getEntriesByType('resource').filter(function (e) { return /\.js(\?|$)/.test(e.name); }).length; B.set(Math.min(0.55, 0.03 + (0.52 * n) / EXPECT), n && B.target < 0.56 ? 'LOADING CODE ' + n + '/' + Math.max(n, EXPECT) : ''); }).observe({ type: 'resource', buffered: true }); } catch (e) {}
+      (function tick() {
+        if (B.finished) return;
+        if (B.shown < B.target) B.shown = Math.min(B.target, B.shown + (B.target - B.shown) * 0.12 + 0.003);
+        el('bootFill').style.width = (Math.floor(B.shown * 24) / 24) * 100 + '%';
+        el('bootPct').textContent = Math.floor(B.shown * 100) + '%';
+        el('bootStep').textContent = B.step;
+        requestAnimationFrame(tick);
+      })();
+    })();
+  </script>
+  <canvas id="spawnCv" class="hidden"></canvas>
+  <div id="taunt"></div>
   <canvas id="pix"></canvas>
   <div id="crt"></div>
   <section id="title" class="screen shade">
@@ -270,13 +396,13 @@
       <button class="btn" id="bCustom">Customize <small id="whoami"></small></button>
       <button class="btn small" id="bSettings">Settings</button>
     </div>
-    <div class="online" id="online"><i></i><span>Checking the server…</span></div>
+    <div class="statusrow"><div class="online" id="online"><i></i><span>Checking the server…</span></div><div class="acct" id="acct"></div></div>
     <div class="status" id="status"></div>
     <div class="keys"><kbd>WASD</kbd> move · <kbd>Mouse</kbd> look · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump · <kbd>E</kbd> ability · <kbd>F</kbd> hide in a locker<br />EXE: <kbd>Click</kbd> attack / rip a locker · <kbd>E</kbd> power · <kbd>R</kbd> second power · <kbd>Q</kbd> sense · <kbd>F</kbd> disguise</div>
   </section>
 
   <section id="soloPick" class="screen shade hidden">
-    <div class="panel">
+    <div class="panel win" data-title="PLAY_SOLO.EXE">
       <h2>Play solo</h2>
       <span class="lbl">Play as</span>
       <div class="cards" id="soloRoles"></div>
@@ -286,11 +412,11 @@
   </section>
 
   <section id="custom" class="screen hidden">
-    <div class="panel">
+    <div class="panel win" data-title="CUSTOMIZE.EXE">
       <div class="tabs"><button data-tab="char" class="on">Character</button><button data-tab="avatar">Avatar</button><button data-tab="exe">EXE</button></div>
       <div id="tab-char"><div class="cards" id="charCards"></div></div>
       <div id="tab-avatar" class="hidden">
-        <span class="lbl">Name</span><input class="field" id="name" maxlength="16" placeholder="Your name" autocomplete="off" spellcheck="false" />
+        <span class="lbl">Name</span><input class="field" id="name" maxlength="16" placeholder="Your name" autocomplete="off" spellcheck="false" /><div class="note" id="nameNote"></div>
         <span class="lbl">Skin</span><div class="sw" id="swSkin"></div>
         <span class="lbl">Shirt</span><div class="sw" id="swShirt"></div>
         <div class="chips" id="chStyle" style="margin-top:8px"></div>
@@ -310,14 +436,16 @@
   </section>
 
   <section id="lobby" class="screen shade hidden">
-    <div class="panel">
+    <div class="panel win" data-title="ROOM.EXE">
       <span class="lbl" style="margin-top:0" id="lobbyKind">Room code</span>
       <div class="code-big" id="lobbyCode">----</div>
       <div class="plist" id="lobbyList"></div>
       <div class="status" id="lobbyStatus"></div>
+      <div class="status" id="lobbyAnn"></div>
       <div class="row" style="margin-top:12px">
         <button class="btn small" id="lobbyLeave">Leave</button>
         <button class="btn small" id="lobbyCustom">Customize</button>
+        <button class="btn small own-btn hidden" id="lobbyAdmin">Admin</button>
         <button class="btn primary small center" id="lobbyStart" style="flex:1">Start</button>
       </div>
     </div>
@@ -330,6 +458,7 @@
     <canvas class="minimap hidden" id="minimap" width="180" height="180"></canvas>
     <div class="feed" id="feed"></div>
     <div class="banner" id="banner"></div>
+    <div id="annBar"></div>
     <div id="markers"></div>
     <div class="cross" id="cross"></div>
     <div class="prompt hidden" id="prompt"></div>
@@ -351,7 +480,7 @@
   </div>
 
   <section id="results" class="screen hidden">
-    <div class="panel">
+    <div class="panel win" data-title="RESULTS.LOG">
       <h1 class="res-title" id="resTitle"></h1>
       <p class="res-sub" id="resSub"></p>
       <table class="res-table" id="resTable"></table>
@@ -360,19 +489,36 @@
   </section>
 
   <section id="pause" class="screen hidden">
-    <div class="panel">
+    <div class="panel win" data-title="PAUSED.EXE">
       <h2>Paused</h2>
       <div class="stack" style="width:100%">
         <button class="btn primary" id="pResume">Resume</button>
         <button class="btn" id="pSettings">Settings</button>
         <button class="btn" id="pLeave">Leave match</button>
+        <button class="btn own-btn hidden" id="pAdmin">ADMIN.EXE <small>or press `</small></button>
       </div>
       <p class="status" id="pNote"></p>
     </div>
   </section>
 
+  <section id="admin" class="screen hidden">
+    <div class="panel win" data-title="ADMIN.EXE">
+      <h2>Admin</h2>
+      <p class="adm-who" id="admWho"></p>
+      <p class="status" id="admEmpty">Join a room or start a game to use these.</p>
+      <div class="chips" id="admRoomBtns"></div>
+      <div id="admExeWrap"><span class="lbl">EXE next round</span><div class="chips" id="admExe"></div></div>
+      <div id="admKickWrap"><span class="lbl">Kick from the room</span><div class="chips" id="admKick"></div></div>
+      <div id="admAnnWrap"><span class="lbl">Announce to everyone</span><div class="row"><input class="field" id="admAnn" maxlength="80" placeholder="Type a message" autocomplete="off" /><button class="btn small" id="admAnnGo">Send</button></div></div>
+      <div id="admPow"><span class="lbl">Powers</span><div class="chips" id="admPowers"></div></div>
+      <div id="admRnd"><span class="lbl">Teleport to</span><div class="chips" id="admTp"></div><span class="lbl">Round</span><div class="chips" id="admRound"></div></div>
+      <p class="status" id="admNote"></p>
+      <button class="btn primary center" id="admClose" style="width:100%;margin-top:10px">Close</button>
+    </div>
+  </section>
+
   <section id="settings" class="screen hidden">
-    <div class="panel">
+    <div class="panel win" data-title="SETTINGS.EXE">
       <h2>Settings</h2>
       <span class="lbl">Volume</span><input type="range" class="range" id="sVol" min="0" max="1" step="0.05" />
       <span class="lbl">Mouse sensitivity</span><input type="range" class="range" id="sSens" min="0.3" max="2.5" step="0.05" />
@@ -393,6 +539,9 @@
     <button class="tb" id="tSense" style="right:calc(5vw + 76px);bottom:calc(16vh + 76px)">SENSE</button>
     <button class="tb" id="tDis" style="right:calc(5vw + 152px);bottom:calc(9vh + 76px)">HIDE</button>
     <button class="tb" id="tAb2" style="right:calc(5vw + 228px);bottom:9vh">R</button>
+    <button class="tb" id="tG" style="right:calc(5vw + 228px);bottom:calc(9vh + 76px)">G</button>
+    <button class="tb own-btn hidden" id="tAdm" style="left:4vw;top:42vh">ADM</button>
+    <button class="tb" id="tV" style="right:calc(5vw + 152px);bottom:calc(16vh + 152px)">V</button>
     <div id="touchQE" class="hidden"><button class="tb big" id="tQ" style="left:12vw;bottom:14vh">Q</button><button class="tb big" id="tE" style="right:12vw;bottom:14vh">E</button></div>
   </div>
   <div id="scare"><canvas></canvas></div>

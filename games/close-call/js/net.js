@@ -70,6 +70,7 @@ export class Net {
         else { this.addPlayer(m.p); this.on.join && this.on.join(this.players.get(m.p.id)); }
         break;
       }
+      case 'me': this.on.me && this.on.me(m); break; // the server checked our account: the name we drive under
       case 'leave': {
         const p = this.players.get(m.id);
         this.players.delete(m.id);

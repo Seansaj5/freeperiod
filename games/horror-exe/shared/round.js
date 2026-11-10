@@ -1,8 +1,8 @@
 // One round of horror.exe: who is EXE, the two worlds and their portals, the five zone tasks, hits,
 // knockdowns, revives, disguises, the escape gates and the result.
 // The server runs this for online rooms; the browser runs the very same code for solo games.
-import { ROUND, SURV, EXE, CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, F, ST, PHASES, PORTAL, TASKS, TASK, HIDE, QTE, moveSpeed, tickStamina } from './rules.js';
-import { SHARD_SPOTS, EXITS, SPAWNS, PORTALS, OBJ, LOCKERS, HALF, supportAt, terrainH, clampXZ, surfaceAt, lineOfSight } from './map.js';
+import { ROUND, SURV, EXE, CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, F, ST, PHASES, PORTAL, TASKS, TASK, HIDE, QTE, AWAKEN, moveSpeed, tickStamina } from './rules.js';
+import { SHARD_SPOTS, EXITS, SPAWNS, PORTALS, OBJ, LOCKERS, ZONES, HALF, supportAt, terrainH, clampXZ, surfaceAt, lineOfSight, solidAt } from './map.js';
 import { stepMove, body } from './move.js';
 import { newBrain, thinkSurv, thinkExe } from './bots.js';
 import { rng, shuffle, turnTo, clamp } from './util.js';
@@ -41,6 +41,7 @@ export class Round {
     this.fields = []; // Glitch.exe static fields: { x, z, w, until }
     this.decoys = []; // Grin.exe decoys: { id, x, y, z, ry, w, until, body }
     this.nextDecoy = 1;
+    this.ghosts = []; // Bolt's afterimages: { id, owner, x, y, z, ry, w, until, body }
     this.exits = shuffle(EXITS.slice(), this.rand).slice(0, ROUND.EXITS).sort((a, b) => a.i - b.i).map((g) => ({ ...g, open: false, w: 1 }));
 
     let si = 0;
@@ -65,12 +66,19 @@ export class Round {
     const e = body(sp.x, y, sp.z, role === 'exe' ? EXE.radius : SURV.radius, role === 'exe' ? EXE.height : SURV.height, w);
     Object.assign(e, {
       id: p.id, name: String(p.name || 'Player').slice(0, 16), bot, role, ry: sp.ry,
+      // own: the game's owner (checked against the Free Period account); acct: signed in with an account
+      own: !bot && !!p.own, acct: !bot && !!p.acct, god: false, nocd: false,
       look: sanitizeLook(p.look), char: CHARS[p.char] ? p.char : 'bolt', variant: VARIANTS[p.variant] ? p.variant : 'exe',
       hp: SURV.hp, st: ST.alive, downT: 0, revP: 0, reviving: false, sprinting: false,
       sta: { stamina: SURV.stamina, exhausted: false, rest: 0 },
-      cd: { abl: 0, atk: 0, sense: 0, disguise: 0, portal: 0, ab2: 0, hide: 0 },
-      fx: { stun: 0, boost: 0, invuln: 0, fade: 0, reveal: 0, dash: 0, fly: 0, lunge: 0, recover: 0, atk: 0, pop: 0, burn: 0, hunt: 0 },
+      cd: { abl: 0, atk: 0, disguise: 0, portal: 0, ab2: 0, ab3: 0, ab4: 0, hide: 0 },
+      fx: { stun: 0, boost: 0, invuln: 0, fade: 0, reveal: 0, dash: 0, fly: 0, lunge: 0, recover: 0, atk: 0, pop: 0, burn: 0, hunt: 0,
+        spin: 0, awake: 0, invis: 0, iron: 0, invert: 0, turbo: 0, pinged: 0, slowx: 0 },
       disguise: 0, carrying: false, hidden: 0, hideT: 0, overstay: 0, qte: null, revived: 0,
+      // level 10 unlocks: survivors' Q ability, monsters' Awakening (bots get them half the time)
+      unlockQ: bot ? this.rand() < 0.5 : !!(p.unlock && p.unlock.q),
+      unlockAwaken: bot ? this.rand() < 0.5 : !!(p.unlock && p.unlock.awaken),
+      meter: 0, awakeUsed: false, spinHit: new Set(),
       lungeHit: new Set(), teleportOk: 0, lastIn: 0,
       stats: { shards: 0, revives: 0, hits: 0, downs: 0, tasks: 0 },
       brain: bot ? newBrain() : null,
@@ -91,7 +99,7 @@ export class Round {
       seed: this.seed,
       shards: this.shards.map((s) => [r2(s.x), r2(s.y), r2(s.z)]),
       exits: this.exits.map((g) => g.i),
-      ents: [...this.ents.values()].map((e) => ({ id: e.id, name: e.name, bot: e.bot, role: e.role, look: e.look, char: e.char, variant: e.variant })),
+      ents: [...this.ents.values()].map((e) => ({ id: e.id, name: e.name, bot: e.bot, role: e.role, look: e.look, char: e.char, variant: e.variant, own: e.own ? 1 : 0, acct: e.acct ? 1 : 0 })),
     };
   }
 
@@ -127,6 +135,14 @@ export class Round {
     if (e.qte) f |= F.QTE;
     if (x.hunt > t) f |= F.HUNT;
     if (e.role === 'surv' && this.inField(e)) f |= F.SLOWED;
+    if (x.spin > t) f |= F.SPIN;
+    if (x.awake > t) f |= F.AWAKE;
+    if (x.invis > t) f |= F.INVIS;
+    if (x.iron > t) f |= F.IRON;
+    if (x.invert > t) f |= F.INVERT;
+    if (x.turbo > t) f |= F.TURBO;
+    if (x.pinged > t) f |= F.PINGED;
+    if (x.slowx > t) f |= F.SLOWX;
     return f;
   }
 
@@ -145,14 +161,15 @@ export class Round {
     const p = [];
     for (const e of this.ents.values()) {
       p.push([e.id, r2(e.x), r2(e.y), r2(e.z), r2(e.ry), e.hp, e.st, this.flagsOf(e), e.st === ST.down ? Math.ceil(e.downT) : 0, Math.round(e.revP * 100),
-        Math.round(e.cd.abl * 10) / 10, e.w, e.disguise, e.hidden, Math.round(e.hideT * 10) / 10, e.revived]);
+        Math.round(e.cd.abl * 10) / 10, e.w, e.disguise, e.hidden, Math.round(e.hideT * 10) / 10, e.revived, Math.floor(e.meter)]);
     }
     const fl = this.fields.map((f) => [r2(f.x), r2(f.z), f.w, Math.round((f.until - this.time) * 10) / 10]);
     const dc = this.decoys.map((d) => [d.id, r2(d.x), r2(d.y), r2(d.z), r2(d.ry), d.w]);
+    const gh = this.ghosts.map((g) => [g.id, g.owner, r2(g.x), r2(g.y), r2(g.z), r2(g.ry), g.w]);
     return {
       ph: PHASES.indexOf(this.phase), tl: Math.max(0, Math.round(this.timeLeft() * 10) / 10),
       sh, sa, sp, vm, vp, pn, bm, td, co: [c.state, r2(c.x), r2(c.y), r2(c.z), c.by],
-      ex: this.exitsOpen ? 1 : 0, rt: Math.round(this.time * 100) / 100, p, fl, dc,
+      ex: this.exitsOpen ? 1 : 0, rt: Math.round(this.time * 100) / 100, p, fl, dc, gh,
     };
   }
 
@@ -166,7 +183,10 @@ export class Round {
     if (this.phase === 'intro' && this.phaseT >= ROUND.INTRO) this.setPhase('play');
     if (this.phase === 'play') { this.clock -= dt; if (this.clock <= 0) this.openExits('clock'); }
     if (this.phase === 'escape') { this.escapeT -= dt; if (this.escapeT <= 0) { this.finish(); return; } }
-    for (const e of this.ents.values()) if (e.bot) this.botStep(e, dt);
+    for (const e of this.ents.values()) {
+      if (e.bot) this.botStep(e, dt);
+      if (e.god) { e.fx.stun = 0; e.fx.slowx = 0; e.fx.invert = 0; e.fx.recover = 0; if (e.qte) this.resolveQte(e, true); }
+    }
     this.resolve(dt);
     this.checkEnd();
   }
@@ -213,88 +233,185 @@ export class Round {
     if (a.k === 'qte') { if (!e.qte) return false; this.resolveQte(e, !!a.ok); return true; }
     if (a.k === 'hide' && e.role === 'surv') return this.toggleHide(e);
     if (e.role === 'surv' && (e.hidden || e.qte)) return false;
-    if (e.role === 'exe') {
-      if (this.phase === 'intro' || e.fx.stun > t || e.fx.pop > t) return false;
-      const v = VARIANTS[e.variant];
-      if (a.k === 'disguise') {
-        if (e.disguise || e.w !== 0 || t < e.cd.disguise) return false;
-        const alive = this.survivors().filter((s) => s.st === ST.alive);
-        if (!alive.length) return false;
-        // copy someone who is not standing right here (ideally in the other world), so the double is less obvious
-        alive.sort((p, q) => (q.w !== e.w) - (p.w !== e.w) || Math.hypot(q.x - e.x, q.z - e.z) - Math.hypot(p.x - e.x, p.z - e.z));
-        const pickFrom = alive.slice(0, Math.max(1, Math.ceil(alive.length / 2)));
-        e.disguise = pickFrom[Math.floor(this.rand() * pickFrom.length)].id;
-        e.fx.fade = 0;
-        this.ev({ k: 'disguise', id });
-        return true;
+    const ok = e.role === 'exe' ? this.monsterAction(e, a) : this.survivorAction(e, a);
+    if (e.nocd) for (const k in e.cd) if (k !== 'portal') e.cd[k] = 0;
+    return ok;
+  }
+
+  monsterAction(e, a) {
+    const t = this.time, id = e.id;
+    if (this.phase === 'intro' || e.fx.stun > t || e.fx.pop > t) return false;
+    const v = VARIANTS[e.variant], aw = e.fx.awake > t, cdMul = aw ? v.awake.cdMul : 1, dmgMul = aw ? v.awake.dmgMul : 1;
+    if (a.k === 'awaken') {
+      if (!e.unlockAwaken || e.awakeUsed || e.meter < 100 || e.disguise) return false;
+      e.awakeUsed = true; e.meter = 0; e.fx.awake = t + AWAKEN.dur; e.fx.fade = 0;
+      if (e.variant === 'grin') for (const s of this.survivors()) if (s.st === ST.alive && s.w === e.w && !s.hidden && Math.hypot(s.x - e.x, s.z - e.z) < AWAKEN.screamRange) s.fx.stun = Math.max(s.fx.stun, t + AWAKEN.screamStun);
+      this.ev({ k: 'awaken', id, v: e.variant });
+      return true;
+    }
+    if (a.k === 'disguise') {
+      if (e.disguise || e.w !== 0 || t < e.cd.disguise || aw) return false;
+      const alive = this.survivors().filter((s) => s.st === ST.alive);
+      if (!alive.length) return false;
+      // copy someone who is not standing right here (ideally in the other world), so the double is less obvious
+      alive.sort((p, q) => (q.w !== e.w) - (p.w !== e.w) || Math.hypot(q.x - e.x, q.z - e.z) - Math.hypot(p.x - e.x, p.z - e.z));
+      const pickFrom = alive.slice(0, Math.max(1, Math.ceil(alive.length / 2)));
+      e.disguise = pickFrom[Math.floor(this.rand() * pickFrom.length)].id;
+      e.fx.fade = 0; e.fx.spin = 0;
+      this.ev({ k: 'disguise', id });
+      return true;
+    }
+    if (e.disguise) {
+      if (a.k !== 'atk') return false;
+      this.popOut(e, true);
+      return true;
+    }
+    if (e.fx.spin > t) return false; // rolling: nothing else until it ends
+    if (a.k === 'atk') {
+      if (t < e.cd.atk) return false;
+      e.cd.atk = t + v.atkCd * (aw ? 0.8 : 1); e.fx.atk = t + 0.35; e.fx.fade = 0;
+      const victim = this.victimFor(e, v.range + (e.bot ? 0 : EXE.lagGrace));
+      this.ev({ k: 'atk', id });
+      if (victim) { this.hit(e, victim, v.dmg * dmgMul); return true; }
+      // no one to hit: rip open a locker right in front
+      const lk = this.lockerInFront(e);
+      if (lk) {
+        const inside = this.survivors().find((s) => s.hidden === lk.i + 1 && s.w === e.w);
+        if (inside && !inside.qte) { this.startQte(inside, 'rip'); this.ev({ k: 'rip', id, i: lk.i, hit: inside.id }); }
+        else { e.fx.stun = Math.max(e.fx.stun, t + 0.9); this.ev({ k: 'rip', id, i: lk.i, hit: 0 }); }
       }
-      if (e.disguise) {
-        if (a.k !== 'atk') return false;
-        this.popOut(e, true);
-        return true;
+      return true;
+    }
+    const mv = v.moves[a.k];
+    if (!mv || t < e.cd[a.k]) return false;
+    e.cd[a.k] = t + mv.cd * cdMul;
+    const fx = Math.sin(e.ry), fz = Math.cos(e.ry);
+    const out = { k: 'abl', id, ab: mv.id };
+    const world = () => this.survivors().filter((s) => s.st === ST.alive && s.w === e.w && !s.hidden);
+    switch (mv.id) {
+      case 'dash': {
+        const dur = mv.dur * (aw ? 1.4 : 1);
+        e.fx.lunge = t + dur; e.lungeHit.clear();
+        if (e.bot) { e.vx = fx * mv.speed; e.vz = fz * mv.speed; e.lock = dur; }
+        break;
       }
-      if (a.k === 'atk') {
-        if (t < e.cd.atk) return false;
-        e.cd.atk = t + EXE.atkCd; e.fx.atk = t + 0.35; e.fx.fade = 0;
-        const victim = this.victimFor(e, EXE.atkRange + (e.bot ? 0 : EXE.lagGrace));
-        this.ev({ k: 'atk', id });
-        if (victim) { this.hit(e, victim); return true; }
-        // no one to hit: rip open a locker right in front
-        const lk = this.lockerInFront(e);
-        if (lk) {
-          const inside = this.survivors().find((s) => s.hidden === lk.i + 1 && s.w === e.w);
-          if (inside && !inside.qte) { this.startQte(inside, 'rip'); this.ev({ k: 'rip', id, i: lk.i, hit: inside.id }); }
-          else { e.fx.stun = Math.max(e.fx.stun, t + 0.9); this.ev({ k: 'rip', id, i: lk.i, hit: 0 }); }
-        }
-        return true;
+      case 'hunt':
+        e.fx.hunt = t + mv.dur;
+        for (const s of world()) s.fx.reveal = Math.max(s.fx.reveal, t + mv.dur);
+        break;
+      case 'echo': {
+        out.ids = [];
+        for (const s of world()) if (s.sprinting || Math.hypot(s.x - e.x, s.z - e.z) < mv.range * (aw ? 1.5 : 1)) { s.fx.reveal = Math.max(s.fx.reveal, t + mv.dur); out.ids.push(s.id); }
+        break;
       }
-      if (a.k === 'ab2') {
-        if (t < e.cd.ab2 || e.disguise) return false;
-        e.cd.ab2 = t + v.cd2;
-        if (v.ab2 === 'hunt') {
-          e.fx.hunt = t + v.dur2;
-          for (const s of this.survivors()) if (s.st === ST.alive && s.w === e.w && !s.hidden) s.fx.reveal = Math.max(s.fx.reveal, t + v.dur2);
-        } else if (v.ab2 === 'static') this.fields.push({ x: e.x, z: e.z, w: e.w, until: t + v.dur2 });
-        else if (v.ab2 === 'decoy') {
-          const d = { id: this.nextDecoy++, x: e.x + Math.sin(e.ry) * 1.5, y: e.y, z: e.z + Math.cos(e.ry) * 1.5, ry: e.ry, w: e.w, until: t + v.dur2 };
+      case 'spin': e.fx.spin = t + mv.dur; e.spinHit = new Set(); e.fx.lunge = 0; break;
+      case 'blink': {
+        e.teleportOk = t + 1;
+        out.x0 = r2(e.x); out.y0 = r2(e.y); out.z0 = r2(e.z);
+        if (e.bot) this.warpForward(e, mv.dist);
+        break;
+      }
+      case 'static': this.fields.push({ x: e.x, z: e.z, w: e.w, until: t + mv.dur, follow: aw ? e.id : 0 }); break;
+      case 'ping':
+        for (const s of world()) s.fx.reveal = Math.max(s.fx.reveal, t + mv.dur);
+        e.fx.pinged = t + mv.dur;
+        break;
+      case 'dice': out.rolls = []; for (let n = 0; n < (aw ? 2 : 1); n++) out.rolls.push(this.rollDice(e)); break;
+      case 'fade': e.fx.fade = t + mv.dur; break;
+      case 'decoy':
+        for (let n = 0; n < (aw ? 3 : 1); n++) {
+          const ang = e.ry + (n - (aw ? 1 : 0)) * 0.7;
+          const d = { id: this.nextDecoy++, x: e.x + Math.sin(ang) * 1.5, y: e.y, z: e.z + Math.cos(ang) * 1.5, ry: ang, w: e.w, until: t + mv.dur };
           d.body = body(d.x, d.y, d.z, EXE.radius, EXE.height, e.w);
           this.decoys.push(d);
         }
-        this.ev({ k: 'ab2', id, ab: v.ab2, x: r2(e.x), z: r2(e.z) });
-        return true;
+        break;
+      case 'scent': {
+        const prey = world().filter((s) => !(s.fx.invis > t)).sort((p, q) => p.hp - q.hp)[0];
+        if (prey) { prey.fx.reveal = Math.max(prey.fx.reveal, t + mv.dur * (aw ? 1.5 : 1)); out.target = prey.id; }
+        break;
       }
-      if (a.k === 'abl') {
-        if (t < e.cd.abl) return false;
-        e.cd.abl = t + v.cd;
-        if (v.ability === 'lunge') {
-          e.fx.lunge = t + v.dur; e.lungeHit.clear();
-          if (e.bot) { e.vx = Math.sin(e.ry) * v.lungeSpeed; e.vz = Math.cos(e.ry) * v.lungeSpeed; e.lock = v.dur; }
-        } else if (v.ability === 'blink') {
-          e.teleportOk = t + 1;
-          this.ev({ k: 'blink', id, x0: r2(e.x), y0: r2(e.y), z0: r2(e.z) });
-          if (e.bot) {
-            const p = clampXZ({ x: e.x + Math.sin(e.ry) * v.dist, z: e.z + Math.cos(e.ry) * v.dist });
-            e.x = p.x; e.z = p.z; e.y = supportAt(p.x, p.z, terrainH(p.x, p.z) + 0.5, false, e.w); e.vy = 0;
-          }
-        } else if (v.ability === 'fade') e.fx.fade = t + v.dur;
-        this.ev({ k: 'abl', id, ab: v.ability });
-        return true;
-      }
-      if (a.k === 'sense') {
-        if (t < e.cd.sense) return false;
-        e.cd.sense = t + EXE.senseCd;
-        const ids = [];
-        for (const s of this.survivors()) {
-          if (s.st !== ST.alive || s.w !== e.w || s.hidden) continue;
-          if (s.sprinting || Math.hypot(s.x - e.x, s.z - e.z) < EXE.senseRange) { s.fx.reveal = t + EXE.revealTime; ids.push(s.id); }
+      case 'reach': {
+        let prey = null, bd = mv.range * (aw ? 1.3 : 1);
+        for (const s of world()) {
+          const dx = s.x - e.x, dz = s.z - e.z, d = Math.hypot(dx, dz);
+          if (d > bd || d < 1 || Math.abs(s.y - e.y) > 3 || (fx * dx + fz * dz) / d < 0.5) continue;
+          if (!lineOfSight(e.x, e.y + 2, e.z, s.x, s.y + 1.2, s.z, e.w)) continue;
+          bd = d; prey = s;
         }
-        this.ev({ k: 'sense', id, ids });
-        return true;
+        if (!prey) { e.cd.ab4 = t + mv.missCd; out.hit = 0; break; }
+        out.hit = prey.id;
+        this.warp(prey, e.x + fx * 1.8, e.z + fz * 1.8, 'yank');
+        prey.fx.stun = Math.max(prey.fx.stun, t + 0.8);
+        prey.fx.invuln = 0;
+        this.hit(e, prey, mv.dmg * dmgMul);
+        break;
       }
-      return false;
     }
-    if (a.k !== 'abl' || t < e.cd.abl || this.inField(e)) return false;
-    const c = CHARS[e.char];
+    this.ev(out);
+    return true;
+  }
+
+  survivorAction(e, a) {
+    const t = this.time, id = e.id, c = CHARS[e.char];
+    if (this.inField(e)) return false;
+    if (a.k === 'ab2' || a.k === 'ab3') {
+      const ab = a.k === 'ab2' ? c.r : c.q;
+      if ((a.k === 'ab3' && !e.unlockQ) || t < e.cd[a.k]) return false;
+      e.cd[a.k] = t + ab.cd;
+      const out = { k: 'sab', id, ab: ab.id };
+      const x = this.exeEnt();
+      const exeNear = (range, front) => {
+        if (!x || x.st !== ST.alive || x.w !== e.w) return null;
+        const dx = x.x - e.x, dz = x.z - e.z, d = Math.hypot(dx, dz);
+        if (d > range || Math.abs(x.y - e.y) > 3) return null;
+        if (front && d > 1 && (Math.sin(e.ry) * dx + Math.cos(e.ry) * dz) / d < front) return null;
+        return x;
+      };
+      switch (ab.id) {
+        case 'wind': e.sta.stamina = SURV.stamina; e.sta.exhausted = false; e.fx.boost = Math.max(e.fx.boost, t + ab.dur); break;
+        case 'after': {
+          e.fx.invis = t + ab.dur;
+          const g = { id: this.nextDecoy++, owner: id, x: e.x, y: e.y, z: e.z, ry: e.ry, w: e.w, until: t + ab.dur };
+          g.body = body(g.x, g.y, g.z, SURV.radius, SURV.height, e.w);
+          this.ghosts.push(g);
+          break;
+        }
+        case 'wrench': {
+          const hitX = exeNear(ab.range, 0.85);
+          if (hitX && lineOfSight(e.x, e.y + 1.6, e.z, hitX.x, hitX.y + 1.8, hitX.z, e.w)) {
+            hitX.fx.slowx = Math.max(hitX.fx.slowx, t + ab.dur); out.hit = hitX.id; out.tx = r2(hitX.x); out.ty = r2(hitX.y + 2); out.tz = r2(hitX.z);
+            if (hitX.disguise) { this.popOut(hitX, false); this.ev({ k: 'unmask', id: hitX.id, by: id }); }
+          } else { e.cd.ab2 = t + ab.missCd; out.hit = 0; out.tx = r2(e.x + Math.sin(e.ry) * ab.range); out.ty = r2(e.y + 1.5); out.tz = r2(e.z + Math.cos(e.ry) * ab.range); }
+          break;
+        }
+        case 'turbo': e.fx.turbo = t + ab.dur; break;
+        case 'pound': {
+          const hitX = exeNear(ab.range, 0);
+          this.popDecoys(e, ab.range);
+          if (hitX) { this.shove(hitX, e, ab.knock); hitX.fx.slowx = Math.max(hitX.fx.slowx, t + ab.dur); out.hit = hitX.id; }
+          else { e.cd.ab2 = t + ab.missCd; out.hit = 0; }
+          break;
+        }
+        case 'iron': e.fx.iron = t + ab.dur; e.fx.invuln = Math.max(e.fx.invuln, t + ab.dur); break;
+        case 'heal': {
+          const mates = this.survivors().filter((s) => s.st === ST.alive && s.w === e.w && s.hp < SURV.hp && Math.hypot(s.x - e.x, s.z - e.z) < ab.range).sort((p, q) => p.hp - q.hp);
+          const who = mates[0];
+          if (!who) { e.cd.ab2 = 0; return false; }
+          who.hp = Math.min(SURV.hp, who.hp + ab.amount); out.target = who.id; out.hp = who.hp;
+          break;
+        }
+        case 'spin': {
+          const hitX = exeNear(ab.range, 0);
+          this.popDecoys(e, ab.range);
+          if (hitX) { this.shove(hitX, e, ab.knock); hitX.fx.stun = Math.max(hitX.fx.stun, t + ab.dur); out.hit = hitX.id; } else out.hit = 0;
+          break;
+        }
+      }
+      this.ev(out);
+      return true;
+    }
+    if (a.k !== 'abl' || t < e.cd.abl) return false;
     if (c.ability === 'dash') {
       e.cd.abl = t + c.cd; e.fx.dash = t + c.dur; e.fx.invuln = Math.max(e.fx.invuln, t + c.dur + 0.1);
       if (e.bot) { e.vx = Math.sin(e.ry) * c.dashSpeed; e.vz = Math.cos(e.ry) * c.dashSpeed; e.vy = Math.max(e.vy, 0); e.lock = c.dur; }
@@ -315,17 +432,60 @@ export class Round {
       if (d < c.range + (e.bot ? 0 : 1) && Math.abs(x.y - e.y) < 3 && front) {
         hit = true;
         if (x.disguise) { this.popOut(x, false); this.ev({ k: 'unmask', id: x.id, by: id }); }
-        x.fx.stun = Math.max(x.fx.stun, t + c.dur); x.fx.lunge = 0; x.fx.pop = 0;
-        if (c.ability === 'bonk') {
-          const nx = d > 0.01 ? dx / d : Math.sin(e.ry), nz = d > 0.01 ? dz / d : Math.cos(e.ry);
-          this.ev({ k: 'knock', id: x.id, by: id, dx: r2(nx * c.knock), dz: r2(nz * c.knock) });
-          if (x.bot) { x.vx = nx * c.knock; x.vz = nz * c.knock; x.vy = 6; x.ground = false; x.lock = 0.4; }
-        }
+        x.fx.stun = Math.max(x.fx.stun, t + c.dur); x.fx.lunge = 0; x.fx.pop = 0; x.fx.spin = 0;
+        if (c.ability === 'bonk') this.shove(x, e, c.knock);
       }
     }
     e.cd.abl = t + (hit ? c.cd : c.missCd);
     this.ev({ k: 'abl', id, ab: c.ability, hit, target: hit ? x.id : 0 });
     return true;
+  }
+
+  /** Throws someone away from `from` (knockback). People move themselves, so they get an event. */
+  shove(o, from, power) {
+    const dx = o.x - from.x, dz = o.z - from.z, d = Math.hypot(dx, dz) || 1;
+    const nx = d > 0.01 ? dx / d : Math.sin(from.ry), nz = d > 0.01 ? dz / d : Math.cos(from.ry);
+    if (o.disguise) { this.popOut(o, false); this.ev({ k: 'unmask', id: o.id, by: from.id }); }
+    o.fx.spin = 0;
+    this.ev({ k: 'knock', id: o.id, by: from.id, dx: r2(nx * power), dz: r2(nz * power) });
+    if (o.bot) { o.vx = nx * power; o.vz = nz * power; o.vy = 6; o.ground = false; o.lock = 0.4; }
+  }
+
+  popDecoys(e, range) {
+    for (const d of this.decoys) if (d.w === e.w && Math.hypot(d.x - e.x, d.z - e.z) < range + 1) { d.until = 0; this.ev({ k: 'decoy-pop', id: 0, x: r2(d.x), y: r2(d.y), z: r2(d.z) }); }
+  }
+
+  /** Teleports someone (bots move here; people get a 'warp' event and move themselves). */
+  warp(o, x, z, why = 'warp') {
+    const p = clampXZ({ x, z });
+    let y = supportAt(p.x, p.z, terrainH(p.x, p.z) + 0.5, false, o.w);
+    if (solidAt(p.x, p.z, y, o.r, o.h, o.w)) { p.x = o.x; p.z = o.z; y = o.y; }
+    o.x = p.x; o.z = p.z; o.y = y; o.vx = o.vy = o.vz = 0; o.teleportOk = this.time + 1;
+    this.ev({ k: 'warp', id: o.id, x: r2(o.x), y: r2(o.y), z: r2(o.z), why });
+  }
+
+  warpForward(e, dist) {
+    for (let d = dist; d > 2; d -= 1) {
+      const p = clampXZ({ x: e.x + Math.sin(e.ry) * d, z: e.z + Math.cos(e.ry) * d });
+      const y = supportAt(p.x, p.z, terrainH(p.x, p.z) + 0.5, false, e.w);
+      if (!solidAt(p.x, p.z, y, e.r, e.h, e.w)) { e.x = p.x; e.z = p.z; e.y = y; e.vy = 0; return; }
+    }
+  }
+
+  /** Glitch.exe's dice: warp behind someone, swap places with someone, flip controls nearby, or a static storm. */
+  rollDice(e) {
+    const t = this.time, roll = Math.floor(this.rand() * 4);
+    const mates = this.survivors().filter((s) => s.st === ST.alive && s.w === e.w && !s.hidden);
+    if ((roll === 0 || roll === 3) && mates.length) {
+      const s = mates[Math.floor(this.rand() * mates.length)];
+      if (roll === 0) { this.warp(e, s.x - Math.sin(s.ry) * 3, s.z - Math.cos(s.ry) * 3); e.ry = s.ry; return 'warp'; }
+      const ex = e.x, ez = e.z;
+      this.warp(e, s.x, s.z); this.warp(s, ex, ez);
+      return 'swap';
+    }
+    if (roll === 1) { for (const s of mates) if (Math.hypot(s.x - e.x, s.z - e.z) < 22) s.fx.invert = t + 3.5; return 'invert'; }
+    for (let k = 0; k < 3; k++) { const ang = this.rand() * Math.PI * 2; this.fields.push({ x: e.x + Math.cos(ang) * 7, z: e.z + Math.sin(ang) * 7, w: e.w, until: t + 5 }); }
+    return 'storm';
   }
 
   /** EXE drops its disguise. scream: the scary pop-out (a short freeze while it transforms). */
@@ -337,7 +497,7 @@ export class Round {
   }
 
   inField(e) {
-    for (const f of this.fields) if (f.w === e.w && Math.hypot(e.x - f.x, e.z - f.z) < VARIANTS.glitch.radius) return true;
+    for (const f of this.fields) if (f.w === e.w && Math.hypot(e.x - f.x, e.z - f.z) < VARIANTS.glitch.moves.ab2.radius) return true;
     return false;
   }
 
@@ -400,14 +560,8 @@ export class Round {
     else this.takeLife(e);
   }
 
-  /** Loses one life no matter what (failed minigame). */
-  takeLife(e) {
-    if (e.st !== ST.alive) return;
-    e.hp--;
-    if (e.carrying) this.dropCore(e);
-    if (e.hp > 0) { e.fx.boost = this.time + SURV.boostTime; e.fx.invuln = this.time + SURV.invulnTime; this.ev({ k: 'hit', id: e.id, by: 0, hp: e.hp }); }
-    else this.knockDown(e, null);
-  }
+  /** Failed minigame: a heart of damage no matter what. */
+  takeLife(e) { this.hit(null, e, SURV.qteDmg, true); }
 
   /** Down, or taken right away when this survivor has already used their one revive. */
   knockDown(s, x) {
@@ -432,20 +586,25 @@ export class Round {
     return best;
   }
 
-  /** One point of damage. x is the attacker (EXE) or null (lava). */
-  hit(x, s) {
+  /** Damage (health points). x is the monster, or null (lava, minigame). */
+  hit(x, s, dmg, ignoreSafety = false) {
     const t = this.time;
-    if (s.st !== ST.alive || s.fx.invuln > t || s.fx.dash > t || s.hidden || s.qte) return false;
-    s.hp--;
-    if (x) { x.stats.hits++; x.fx.recover = t + EXE.recoverTime; x.fx.lunge = 0; }
+    if (s.st !== ST.alive || s.hidden || s.qte || s.god) return false;
+    if (!ignoreSafety && (s.fx.invuln > t || s.fx.dash > t)) return false;
+    dmg = Math.max(1, Math.round(dmg ?? (x ? VARIANTS[x.variant].dmg : SURV.heart)));
+    s.hp -= dmg;
+    if (x) { x.stats.hits++; x.fx.recover = t + VARIANTS[x.variant].recover; x.fx.lunge = 0; this.addMeter(x, AWAKEN.perHit); }
     if (s.carrying) this.dropCore(s);
     if (s.hp > 0) {
-      s.fx.boost = t + SURV.boostTime; s.fx.invuln = t + SURV.invulnTime;
-      this.ev({ k: 'hit', id: s.id, by: x ? x.id : 0, hp: s.hp });
-    } else this.knockDown(s, x);
+      s.fx.boost = Math.max(s.fx.boost, t + SURV.boostPer100 * dmg / 100);
+      s.fx.invuln = t + SURV.invulnBase + SURV.invulnPer100 * dmg / 100;
+      this.ev({ k: 'hit', id: s.id, by: x ? x.id : 0, hp: s.hp, dmg });
+    } else { s.hp = 0; this.knockDown(s, x); if (x) this.addMeter(x, AWAKEN.perDown); }
     if (s.bot && x) { const n = Math.hypot(s.x - x.x, s.z - x.z) || 1; s.vx = ((s.x - x.x) / n) * 9; s.vz = ((s.z - x.z) / n) * 9; s.vy = 5; s.ground = false; s.lock = 0.25; }
     return true;
   }
+
+  addMeter(x, n) { if (x.unlockAwaken && !x.awakeUsed && !(x.fx.awake > this.time)) x.meter = Math.min(100, x.meter + n); }
 
   dropCore(s) {
     const c = this.core;
@@ -475,10 +634,26 @@ export class Round {
       s.hideT += dt;
       if (s.hideT >= HIDE.max) {
         if (s.overstay === 0) { s.overstay = 1; this.startQte(s, 'overstay'); }
+        else if (s.god) this.eject(s);
         else { this.eject(s); s.st = ST.out; this.ev({ k: 'out', id: s.id, why: 'dragged' }); }
       }
     }
+    if (x && x.unlockAwaken && !x.awakeUsed && (this.phase === 'play' || this.phase === 'escape')) x.meter = Math.min(100, x.meter + dt * AWAKEN.passive);
+    if (x && x.fx.awake > t && x.variant === 'exe') for (const s of surv) if (s.st === ST.alive && s.w === x.w && !s.hidden && s.sprinting && Math.hypot(s.x - x.x, s.z - x.z) < 40) s.fx.reveal = Math.max(s.fx.reveal, t + 0.4);
+    if (x && x.fx.spin > t) {
+      const mul = x.fx.awake > t ? VARIANTS[x.variant].awake.dmgMul : 1;
+      for (const s of surv) {
+        if (s.st !== ST.alive || s.w !== x.w || s.hidden || x.spinHit.has(s.id)) continue;
+        if (Math.hypot(s.x - x.x, s.z - x.z) < 2.1 && Math.abs(s.y - x.y) < 3) { x.spinHit.add(s.id); this.hit(x, s, VARIANTS.exe.moves.ab4.dmg * mul); this.shove(s, x, 13); }
+      }
+    }
+    for (const f of this.fields) if (f.follow) { const o = this.ents.get(f.follow); if (o) { f.x = o.x; f.z = o.z; f.w = o.w; } }
     this.fields = this.fields.filter((f) => f.until > t);
+    for (const g of this.ghosts) {
+      stepMove(g.body, { dx: Math.sin(g.ry), dz: Math.cos(g.ry), speed: 10, jump: false, jumpV: 0 }, dt);
+      g.x = g.body.x; g.y = g.body.y; g.z = g.body.z;
+    }
+    this.ghosts = this.ghosts.filter((g) => g.until > t);
     for (const d of this.decoys) {
       // a decoy runs straight at the nearest survivor in its world and bursts on contact
       let tgt = null, bd = 80;
@@ -486,7 +661,7 @@ export class Round {
       const b = d.body;
       let dx = 0, dz = 0;
       if (tgt) { const a = Math.atan2(tgt.x - b.x, tgt.z - b.z); dx = Math.sin(a); dz = Math.cos(a); d.ry = a; }
-      stepMove(b, { dx, dz, speed: VARIANTS.grin.decoySpeed, jump: false, jumpV: 0 }, dt);
+      stepMove(b, { dx, dz, speed: VARIANTS.grin.moves.ab2.speed, jump: false, jumpV: 0 }, dt);
       d.x = b.x; d.y = b.y; d.z = b.z;
       if (tgt && bd < 1.6) { d.until = 0; this.ev({ k: 'decoy-pop', id: tgt.id, x: r2(d.x), y: r2(d.y), z: r2(d.z) }); if (tgt.bot) tgt.fx.stun = Math.max(tgt.fx.stun, t + 0.4); }
       else if (d.until <= t) this.ev({ k: 'decoy-pop', id: 0, x: r2(d.x), y: r2(d.y), z: r2(d.z) });
@@ -512,7 +687,7 @@ export class Round {
       if (e.bot) e.surface = surfaceAt(e.x, e.z, e.y);
       if (e.surface !== 'lava' || e.fx.burn > t || e.hidden) continue;
       e.fx.burn = t + SURV.burnTime;
-      if (e.role === 'surv' && e.hp > 1 && e.fx.invuln <= t) this.hit(null, e);
+      if (e.role === 'surv' && e.hp > SURV.lavaDmg && e.fx.invuln <= t) this.hit(null, e, SURV.lavaDmg);
       this.ev({ k: 'burn', id: e.id });
       if (e.bot) { e.vy = 13; e.ground = false; e.lock = 0.15; }
     }
@@ -520,7 +695,7 @@ export class Round {
     if (x && x.fx.lunge > t) {
       for (const s of surv) {
         if (s.st !== ST.alive || s.w !== x.w || s.hidden || x.lungeHit.has(s.id)) continue;
-        if (Math.hypot(s.x - x.x, s.z - x.z) < 2.6 + (x.bot ? 0 : 0.8) && Math.abs(s.y - x.y) < 3) { x.lungeHit.add(s.id); this.hit(x, s); }
+        if (Math.hypot(s.x - x.x, s.z - x.z) < 2.6 + (x.bot ? 0 : 0.8) && Math.abs(s.y - x.y) < 3) { x.lungeHit.add(s.id); this.hit(x, s, VARIANTS.exe.moves.abl.dmg * (x.fx.awake > t ? VARIANTS[x.variant].awake.dmgMul : 1)); }
       }
     }
     // Dreamy Hills: shards (normal world) - stand next to one to absorb it
@@ -529,19 +704,21 @@ export class Round {
       const next = this.shards.find((q) => !q.lit && !q.taken);
       if (next) { next.lit = true; this.ev({ k: 'lit', i: next.i }); }
     }
+    const turbos = surv.filter((p) => p.fx.turbo > t && p.st === ST.alive);
     const near = (o, range, dy, w) => {
-      let n = 0, who = null;
+      let n = 0, who = null, turbo = false;
       for (const s of surv) {
         if (s.st !== ST.alive || s.w !== w || s.hidden || Math.hypot(s.x - o.x, s.z - o.z) > range || Math.abs(s.y + 1.1 - o.y) > dy) continue;
         n++; if (!who || s.id === o.by) who = s;
+        if (turbos.some((p) => p.w === s.w && Math.hypot(p.x - s.x, p.z - s.z) < CHARS.pip.q.range)) turbo = true;
       }
-      return { n, who };
+      return { n, who, turbo };
     };
     for (const sh of this.shards) {
       if (sh.taken || !sh.lit) continue;
-      const { n, who } = near(sh, SURV.pickupRange, 2.6, 0);
+      const { n, who, turbo } = near(sh, SURV.pickupRange, 2.6, 0);
       if (n) {
-        sh.prog += (dt / SURV.shardTime) * (1 + (n - 1) * 0.5); sh.by = who.id;
+        sh.prog += (dt / SURV.shardTime) * (1 + (n - 1) * 0.5) * (turbo ? 2 : 1); sh.by = who.id;
         if (sh.prog >= 1) {
           sh.taken = who.id; sh.prog = 1; who.stats.shards++; who.stats.tasks++;
           this.relight.push(t + ROUND.RELIGHT);
@@ -554,9 +731,9 @@ export class Round {
     // Toxic Works: valves (normal world) - stay at a valve to turn it
     for (const v of this.valves) {
       if (v.done) continue;
-      const { n, who } = near(v, TASK.valveRange, 2.6, 0);
+      const { n, who, turbo } = near(v, TASK.valveRange, 2.6, 0);
       if (n) {
-        v.prog += (dt / TASK.valveTime) * (1 + (n - 1) * 0.5); v.by = who.id;
+        v.prog += (dt / TASK.valveTime) * (1 + (n - 1) * 0.5) * (turbo ? 2 : 1); v.by = who.id;
         if (v.prog >= 1) {
           v.done = who.id; who.stats.tasks++;
           this.ev({ k: 'task', t: 'valves', i: v.i, by: who.id, n: this.valves.filter((q) => q.done).length });
@@ -625,7 +802,7 @@ export class Round {
       if (rate > 0) {
         s.revP += (dt / SURV.reviveTime) * rate;
         if (s.revP >= 1) {
-          s.st = ST.alive; s.hp = 1; s.revP = 0; s.revived++; s.fx.invuln = t + 2; s.sta.stamina = Math.max(s.sta.stamina, 50); s.sta.exhausted = false;
+          s.st = ST.alive; s.hp = SURV.heart; s.revP = 0; s.revived++; s.fx.invuln = t + 2; s.sta.stamina = Math.max(s.sta.stamina, 50); s.sta.exhausted = false;
           by.stats.revives++;
           this.ev({ k: 'revive', id: s.id, by: by.id });
         }
@@ -664,6 +841,60 @@ export class Round {
     };
     this.setPhase('over');
     this.ev({ k: 'over', ...this.result });
+  }
+
+  /**
+   * The owner's admin tools (the server only lets the verified owner call this; solo trusts the browser).
+   * c: { c: 'god' | 'nocd', on } | { c: 'meter' } | { c: 'tp', id } | { c: 'tp', zone } | { c: 'tasks' } | { c: 'time', d } | { c: 'world' } | { c: 'end' }
+   */
+  admin(id, c) {
+    const e = this.ents.get(id);
+    if (!e || !c || this.phase === 'over') return false;
+    const t = this.time;
+    switch (c.c) {
+      case 'god': e.god = !!c.on; if (e.god && e.st === ST.down) { e.st = ST.alive; e.hp = SURV.hp; e.revP = 0; } break;
+      case 'nocd': e.nocd = !!c.on; if (e.nocd) for (const k in e.cd) if (k !== 'portal') e.cd[k] = 0; break;
+      case 'meter': e.unlockAwaken = true; e.awakeUsed = false; e.meter = 100; break;
+      case 'tp': {
+        if (e.st !== ST.alive) return false;
+        if (e.hidden) this.eject(e);
+        let x, z, w = e.w;
+        if (c.zone !== undefined) { const zn = ZONES[c.zone | 0]; if (!zn) return false; x = zn.x + 4; z = zn.z + 4; }
+        else { const o = this.ents.get(c.id); if (!o || o === e || o.st === ST.out || o.st === ST.esc) return false; x = o.x - Math.sin(o.ry) * 2.5; z = o.z - Math.cos(o.ry) * 2.5; w = o.w; }
+        if (w !== e.w) { if (e.disguise) this.popOut(e, false); if (e.carrying) this.dropCore(e); e.w = w; e.cd.portal = t + PORTAL.cooldown; }
+        this.warp(e, x, z, 'admin');
+        break;
+      }
+      case 'world':
+        if (e.st !== ST.alive) return false;
+        if (e.hidden) this.eject(e);
+        if (e.disguise) this.popOut(e, false);
+        if (e.carrying) this.dropCore(e);
+        e.w = e.w ? 0 : 1; e.cd.portal = t + PORTAL.cooldown;
+        this.warp(e, e.x, e.z, 'admin');
+        break;
+      case 'tasks':
+        if (this.phase === 'intro') this.setPhase('play');
+        for (const s of this.shards) { s.taken = 1; s.prog = 0; }
+        for (const v of this.valves) { v.done = 1; v.prog = 0; }
+        for (const v of this.panels) v.done = 1;
+        for (const v of this.bells) v.done = 1;
+        if (this.core.state === CORE_STATE.carried) { const b = this.ents.get(this.core.by); if (b) b.carrying = false; }
+        this.core.state = CORE_STATE.done; this.core.by = 0;
+        for (const tk of TASKS) this.taskDone(tk.id, e);
+        break;
+      case 'time': {
+        const d = Math.max(-600, Math.min(600, Number(c.d) || 0));
+        if (this.phase === 'intro') { if (d > 0) this.phaseT = ROUND.INTRO; }
+        else if (this.phase === 'play') { this.clock = Math.max(5, this.clock + d); }
+        else if (this.phase === 'escape') this.escapeT = Math.max(5, this.escapeT + d);
+        break;
+      }
+      case 'end': this.finish(); break;
+      default: return false;
+    }
+    this.ev({ k: 'admin', id, c: c.c, on: c.on === undefined ? undefined : !!c.on });
+    return true;
   }
 
   /** Someone left: a bot takes over their character so the round carries on. */

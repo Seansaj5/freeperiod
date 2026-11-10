@@ -6,19 +6,22 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { World } from './world.js';
-import { Rig, nameTag, glowTex } from './rig.js';
+import { Rig, nameTag, ownerTag, glowTex, tickRigFx, glitchFacesReady } from './rig.js';
+import { account, refreshAccount, isOwnerAcct } from './account.js';
 import { Fx, GlitchShader, RetroShader } from './fx.js';
 import { Title } from './title.js';
+import { finishBoot } from './boot.js';
 import { Sound } from './audio.js';
 import { LocalSession, NetSession } from './net.js';
 import { SERVER_URL } from './config.js';
-import { CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, SURV, EXE, F, ST, PHASES, ROUND, TASKS, TASK, PORTAL, HIDE, QTE, moveSpeed, tickStamina } from '../shared/rules.js';
+import { CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, SURV, EXE, F, ST, PHASES, ROUND, TASKS, TASK, PORTAL, HIDE, QTE, AWAKEN, LEVEL, levelOf, moveSpeed, tickStamina } from '../shared/rules.js';
 import { stepMove, body } from '../shared/move.js';
 import { rayDist, terrainH, supportAt, solidAt, clampXZ, EXITS, V, S as HOLLOW, PORTALS, OBJ, ZONES, zoneAt, HALF, LAVA, GOO, ICE, L as LAKE, LOCKERS } from '../shared/map.js';
 import { defaultLook, randomLook, sanitizeLook, SKINS, COLORS, SHIRT_STYLES, PATTERNS, FACES, HATS, LABELS } from '../shared/looks.js';
 import { clamp, damp, wrap, turnTo } from '../shared/util.js';
 
 const $ = (id) => document.getElementById(id);
+window.__boot && window.__boot.set(0.6, 'STARTING ENGINE');
 const params = new URLSearchParams(location.search);
 const serverUrl = params.get('server') || SERVER_URL;
 const httpUrl = serverUrl.replace(/^ws/, 'http');
@@ -36,10 +39,19 @@ if (!VARIANTS[save.variant]) save.variant = 'exe';
 const weak = (navigator.hardwareConcurrency || 4) <= 4 || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent);
 save.settings = Object.assign({ vol: 0.7, sens: 1, quality: weak ? 'low' : 'high', invert: false, retro: true }, stored.settings || {});
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* private mode */ } };
-const myName = () => save.name.trim() || 'Player';
+save.xp = Object.assign(Object.fromEntries([...CHAR_IDS, ...VARIANT_IDS].map((k) => [k, 0])), save.xp || {});
+const UNLOCK_ALL = params.get('unlock') === '1';
+const lvOf = (k) => levelOf(save.xp[k] || 0);
+// your Free Period account (same as Bing Ball): your name comes from it, and the owner has everything unlocked
+let acct = account();
+const isOwner = () => isOwnerAcct(acct);
+const unlocked = (k) => UNLOCK_ALL || isOwner() || lvOf(k).lv >= LEVEL.max;
+const myUnlock = () => ({ q: unlocked(save.char), awaken: unlocked(save.variant) });
+const myName = () => (acct.user ? acct.user.username.replace(/[^\w .\-]/g, '').slice(0, 16) : save.name.trim()) || 'Player';
 
 // ------------------------------------------------------------------ renderer
 const hi = save.settings.quality === 'high';
+Rig.lowFx = !hi;
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 // The 16-bit look renders the 3D world at about 400 lines and blows it up with crisp pixels
 // (it's also much faster). prScale drops if the frame rate does.
@@ -54,6 +66,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.prepend(renderer.domElement);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 1200);
 const world = new World(renderer, save.settings.quality);
+window.__boot && window.__boot.set(0.74, 'BUILDING ZONES');
 const scene = world.scene;
 scene.add(camera);
 const lantern = new THREE.PointLight(0xffc8a0, hi ? 7 : 10, 24, 1.4);
@@ -101,8 +114,8 @@ function adaptResolution(dt) {
 
 // ------------------------------------------------------------------ input
 const touch = matchMedia('(pointer: coarse)').matches || params.has('touch');
-const input = { keys: new Set(), dx: 0, dy: 0, jump: false, abl: false, atk: false, sense: false, disguise: false, ab2: false, sprintToggle: false, stick: { x: 0, y: 0 } };
-const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyE', 'KeyQ', 'KeyF', 'KeyR']);
+const input = { keys: new Set(), dx: 0, dy: 0, jump: false, abl: false, atk: false, q: false, f: false, g: false, v: false, ab2: false, sprintToggle: false, stick: { x: 0, y: 0 } };
+const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyE', 'KeyQ', 'KeyF', 'KeyR', 'KeyG', 'KeyV']);
 addEventListener('keydown', (e) => {
   if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
   if (GAME_KEYS.has(e.code)) e.preventDefault();
@@ -111,10 +124,13 @@ addEventListener('keydown', (e) => {
   input.keys.add(e.code);
   if (e.code === 'Space') input.jump = true;
   if (e.code === 'KeyE') input.abl = true;
-  if (e.code === 'KeyQ') input.sense = true;
-  if (e.code === 'KeyF') input.disguise = true;
+  if (e.code === 'KeyQ') input.q = true;
+  if (e.code === 'KeyF') input.f = true;
   if (e.code === 'KeyR') input.ab2 = true;
+  if (e.code === 'KeyG') input.g = true;
+  if (e.code === 'KeyV') input.v = true;
   if (e.code === 'Escape' && match && !touch && !document.pointerLockElement) togglePause();
+  if (e.code === 'Backquote') { if (curScreen === 'admin') closeAdmin(); else openAdmin(); }
 });
 addEventListener('keyup', (e) => input.keys.delete(e.code));
 addEventListener('blur', () => input.keys.clear());
@@ -126,8 +142,11 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0) { input.atk = true; if (match.spectating) match.nextSpectate(); }
 });
 addEventListener('mousemove', (e) => { if (document.pointerLockElement === canvas) { input.dx += e.movementX; input.dy += e.movementY; } });
-document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && match && !match.done && !paused && !touch) togglePause(true); });
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && match && !match.done && !paused && !touch && curScreen !== 'admin') togglePause(true); });
 const held = (...codes) => codes.some((c) => input.keys.has(c));
+/** ADMIN.EXE switches (owner only). God mode and no cooldowns are also switched on in the round itself. */
+const adm = { god: false, speed: false, fly: false, nocd: false };
+let admExe = null;
 
 // touch: left stick moves, dragging anywhere else looks
 if (touch) {
@@ -151,9 +170,12 @@ if (touch) {
   btn('tJump', () => { input.jump = true; input.keys.add('Space'); setTimeout(() => input.keys.delete('Space'), 450); });
   btn('tAbl', () => { input.abl = true; });
   btn('tAtk', () => { input.atk = true; });
-  btn('tSense', () => { input.sense = true; });
-  btn('tDis', () => { input.disguise = true; });
+  btn('tSense', () => { input.q = true; });
+  btn('tDis', () => { input.f = true; });
   btn('tAb2', () => { input.ab2 = true; });
+  btn('tG', () => { input.g = true; });
+  btn('tV', () => { input.v = true; });
+  btn('tAdm', () => openAdmin());
   btn('tQ', () => match && match.mini && match.mini.press('Q'));
   btn('tE', () => match && match.mini && match.mini.press('E'));
   btn('tSprint', () => { input.sprintToggle = !input.sprintToggle; $('tSprint').classList.toggle('on', input.sprintToggle); });
@@ -177,9 +199,9 @@ function feed(html) {
   while (f.children.length > 5) f.lastChild.remove();
   setTimeout(() => d.remove(), 6500);
 }
-const tagOf = (v) => `<b style="color:${v.role === 'exe' ? '#ff4a5a' : CHARS[v.char].accent}">${esc(v.role === 'exe' ? VARIANTS[v.variant].name : v.name)}</b>`;
+const tagOf = (v) => (v.role === 'exe' ? `<b style="color:#ff4a5a">${esc(VARIANTS[v.variant].name)}</b>` : v.own ? `<b class="own">👑 ${esc(v.name)}</b>` : `<b style="color:${CHARS[v.char].accent}">${esc(v.name)}</b>`);
 
-function drawScareFaceInto(c) { import('./rig.js').then((m) => m.drawScareFace(c.getContext('2d'), c.width, c.height)); }
+function drawScareFaceInto(c, variant) { import('./rig.js').then((m) => m.drawScareFace(c.getContext('2d'), c.width, c.height, variant)); }
 
 // ------------------------------------------------------------------ minimap backgrounds (one per world)
 const miniCache = [null, null];
@@ -217,12 +239,14 @@ class Match {
     this.role = this.myInfo ? this.myInfo.role : 'spec';
     this.kind = this.myInfo ? (this.role === 'exe' ? this.myInfo.variant : this.myInfo.char) : null;
     for (const e of this.info.ents) this.addView(e);
+    this.exeVariant = (this.info.ents.find((e) => e.role === 'exe') || {}).variant || 'exe';
     world.setShards(this.info.shards); world.setExits(this.info.exits, false);
     this.ready = false; this.done = false; this.over = null;
     this.yaw = 0; this.pitch = -0.22; this.ry = 0;
     this.sta = { stamina: SURV.stamina, exhausted: false, rest: 0 };
-    this.cd = { abl: 0, atk: 0, sense: 0, disguise: 0, ab2: 0 };
-    this.until = { fly: 0, dash: 0, lunge: 0, fade: 0, atk: 0, pop: 0, hunt: 0 };
+    this.cd = { abl: 0, atk: 0, disguise: 0, ab2: 0, ab3: 0, ab4: 0 };
+    this.until = { fly: 0, dash: 0, lunge: 0, fade: 0, atk: 0, pop: 0, hunt: 0, spin: 0, awake: 0, invis: 0, reach: 0 };
+    this.unlock = myUnlock(); this.ghostRigs = new Map(); this.throws = [];
     this.viewW = -1; this.disRigs = new Map(); this.miniT = 0; this.decoyRigs = new Map(); this.flickT = 0; this.printT = 0; this.warnT = 0; this.mini = null; this.hiddenAt = 0;
     this.phase = 'intro'; this.lastPh = -1; this.lastSt = ST.alive;
     this.specId = null; this.spectating = this.spectator;
@@ -233,16 +257,31 @@ class Match {
     $('feed').innerHTML = ''; $('markers').innerHTML = '';
     $('minimap').classList.remove('hidden'); $('tasks').classList.remove('hidden');
     this.buildSlots();
-    this.showIntro();
+    this.startSpawn();
     this.tryStart();
+    // the owner keeps their admin switches from round to round
+    this.isOwn = !!(this.myInfo && this.myInfo.own);
+    if (this.isOwn) { if (adm.god) session.admin({ c: 'god', on: true }); if (adm.nocd) session.admin({ c: 'nocd', on: true }); }
+    $('tAdm').classList.toggle('hidden', !(touch && this.isOwn));
+    if (this.isOwn) setTimeout(() => feed(`<b class="own">👑 OWNER</b> ${touch ? 'Tap ADM' : 'Press <kbd>\`</kbd>'} for ADMIN.EXE`), 1800);
+  }
+
+  /** ADMIN.EXE fly: straight through walls, Space to go up and C to go down. */
+  noclip(b, dx, dz, speed, dt) {
+    const v = Math.max(speed, 12) * 1.5, up = (held('Space') ? 1 : 0) - (held('KeyC') ? 1 : 0);
+    const p = clampXZ({ x: b.x + dx * v * dt, z: b.z + dz * v * dt });
+    b.vx = (p.x - b.x) / Math.max(dt, 1e-3); b.vz = (p.z - b.z) / Math.max(dt, 1e-3); b.vy = 0;
+    b.x = p.x; b.z = p.z; b.y = clamp(b.y + up * v * dt, terrainH(b.x, b.z) - 2, 58);
+    b.ground = false; b.lock = 0;
+    return {};
   }
 
   addView(e) {
     const rig = new Rig({ role: e.role, look: e.look, char: e.char, variant: e.variant });
     scene.add(rig.root);
-    const v = { id: e.id, role: e.role, char: e.char, variant: e.variant, name: e.name, bot: e.bot, rig, px: 0, pz: 0, speed: 0, atkStart: -1, wasAtk: false, ry: 0, first: true };
+    const v = { id: e.id, role: e.role, char: e.char, variant: e.variant, name: e.name, bot: e.bot, own: !!e.own, rig, px: 0, pz: 0, speed: 0, atkStart: -1, wasAtk: false, ry: 0, first: true };
     const friendly = this.role !== 'exe' && e.role === 'surv' && e.id !== this.me;
-    if (friendly) { v.tag = nameTag(e.name, CHARS[e.char].accent); v.tag.position.y = 2.95; rig.root.add(v.tag); }
+    if (friendly) { v.tag = e.own ? ownerTag(e.name) : nameTag(e.name, CHARS[e.char].accent); v.tag.position.y = e.own ? 3.15 : 2.95; rig.root.add(v.tag); }
     if (e.role === 'surv') {
       const reveal = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xff1a1a, transparent: true, opacity: 0.9, depthTest: false, blending: THREE.AdditiveBlending }));
       reveal.scale.set(3.4, 4.6, 1); reveal.position.y = 1.2; reveal.visible = false; reveal.renderOrder = 15; rig.root.add(reveal); v.reveal = reveal;
@@ -274,21 +313,29 @@ class Match {
     this.slots = [];
     const mk = (key, name, accent) => { const d = document.createElement('div'); d.className = 'slot'; d.style.setProperty('--accent', accent); d.innerHTML = `<kbd>${key}</kbd><b>${esc(name)}</b><div class="cd hidden"></div>`; sl.appendChild(d); return { el: d, cdEl: d.querySelector('.cd') }; };
     sl.innerHTML = '';
-    if (this.role === 'surv') { const c = CHARS[this.kind]; this.slots.push({ ...mk(touch ? 'POWER' : 'E', c.abilityName, c.accent), key: 'abl', total: c.cd }); }
-    else if (this.role === 'exe') {
+    if (this.role === 'surv') {
+      const c = CHARS[this.kind];
+      this.slots.push({ ...mk(touch ? 'E' : 'E', c.abilityName, c.accent), key: 'abl', total: c.cd });
+      this.slots.push({ ...mk('R', c.r.name, c.accent), key: 'ab2', total: c.r.cd });
+      const q = mk('Q', this.unlock.q ? c.q.name : `🔒 ${c.q.name}`, c.accent); if (!this.unlock.q) q.el.classList.add('locked');
+      this.slots.push({ ...q, key: 'ab3', total: c.q.cd, locked: !this.unlock.q });
+    } else if (this.role === 'exe') {
       const v = VARIANTS[this.kind];
-      this.slots.push({ ...mk(touch ? 'HIT' : 'CLICK', 'Attack', '#ff2a3a'), key: 'atk', total: EXE.atkCd });
-      this.slots.push({ ...mk(touch ? 'POWER' : 'E', v.abilityName, '#ff2a3a'), key: 'abl', total: v.cd });
-      this.slots.push({ ...mk(touch ? 'SENSE' : 'Q', 'Sense', '#ff2a3a'), key: 'sense', total: EXE.senseCd });
-      this.slots.push({ ...mk(touch ? 'R' : 'R', v.ab2Name, '#ff8a3a'), key: 'ab2', total: v.cd2 });
-      this.slots.push({ ...mk(touch ? 'HIDE' : 'F', 'Disguise', '#9a7aff'), key: 'disguise', total: EXE.disguiseCd });
+      this.slots.push({ ...mk(touch ? 'HIT' : 'CLICK', v.atkName, '#ff2a3a'), key: 'atk', total: v.atkCd });
+      for (const [k, key] of [['abl', 'E'], ['ab2', 'R'], ['ab3', 'Q'], ['ab4', 'F']]) this.slots.push({ ...mk(key, v.moves[k].name, '#ff2a3a'), key: k, total: v.moves[k].cd });
+      this.slots.push({ ...mk('G', 'Disguise', '#9a7aff'), key: 'disguise', total: EXE.disguiseCd });
+      const aw = mk('V', this.unlock.awaken ? v.awake.name : `🔒 ${v.awake.name}`, '#ffd23d'); if (!this.unlock.awaken) aw.el.classList.add('locked');
+      aw.el.insertAdjacentHTML('beforeend', '<div class="meter"><i></i></div>');
+      this.slots.push({ ...aw, key: 'awaken', total: 1, locked: !this.unlock.awaken, meter: aw.el.querySelector('.meter i') });
     }
     $('hearts').classList.toggle('hidden', this.role !== 'surv');
     $('stam').classList.toggle('hidden', this.role !== 'surv');
     $('touch').classList.toggle('hidden', !touch);
     $('tAtk').classList.toggle('hidden', this.role !== 'exe');
     $('tSense').classList.toggle('hidden', this.role !== 'exe');
-    $('tDis').textContent = this.role === 'exe' ? 'DISGUISE' : 'HIDE';
+    $('tDis').textContent = this.role === 'exe' ? 'F' : 'HIDE';
+    $('tG').classList.toggle('hidden', this.role !== 'exe'); $('tV').classList.toggle('hidden', this.role !== 'exe' || !this.unlock.awaken);
+    $('tSense').textContent = 'Q';
     $('tDis').classList.toggle('hidden', this.role === 'spec');
     $('tAb2').classList.toggle('hidden', this.role !== 'exe');
     $('revInfo').classList.toggle('hidden', this.role !== 'surv');
@@ -299,15 +346,122 @@ class Match {
     const box = $('introBox');
     if (this.role === 'exe') {
       const v = VARIANTS[this.kind];
-      box.innerHTML = `<div class="who">You are</div><h1 class="glitch" data-text="${esc(v.name)}" style="color:#ff2a3a">${esc(v.name)}</h1><p>Catch them before they escape. Rift portals swap between the normal and the corrupted world (you are faster in the corrupted one).</p><p style="color:var(--muted)">${esc(v.abilityName)}: ${esc(v.desc)}<br>R: ${esc(v.ab2Name)}: ${esc(v.desc2)}<br>In the normal world press ${touch ? 'DISGUISE' : 'F'} to look like a survivor, then ${touch ? 'HIT' : 'click'} to pop out. ${touch ? 'HIT' : 'Click'} a locker to rip it open.</p>`;
+      box.innerHTML = `<div class="who">You are</div><h1 class="glitch" data-text="${esc(v.name)}" style="color:#ff2a3a">${esc(v.name)}</h1><p>${esc(v.role)}: ${esc(v.desc)} Catch them before they escape.</p><p style="color:var(--muted)">Click ${esc(v.atkName)} · E ${esc(v.moves.abl.name)} · R ${esc(v.moves.ab2.name)} · Q ${esc(v.moves.ab3.name)} · F ${esc(v.moves.ab4.name)}<br>G disguise as a survivor (normal world) · click a locker to rip it open${this.unlock.awaken ? `<br><b style="color:#ffd23d">V ${esc(v.awake.name)}</b> when your meter is full: ${esc(v.awake.desc)}` : `<br>Reach level 10 with ${esc(v.name)} to unlock its Awakening.`}</p>`;
     } else if (this.role === 'surv') {
       const c = CHARS[this.kind];
-      box.innerHTML = `<div class="who">You are</div><h1 style="color:${c.accent}">${esc(c.name)}</h1><p>Finish the 5 zone tasks to open the escape gates early (some are in the corrupted world: use the rift portals). Escape through a gate in the corrupted world.</p><p style="color:#ffb0b0">EXE can disguise as one of your friends in the normal world. You have 3 lives and can be revived once.</p><p style="color:var(--muted)">${touch ? 'HIDE' : 'F'} near a locker to hide (not while EXE is watching, and not for too long).</p><p style="color:var(--muted)">${esc(c.abilityName)}: ${esc(c.desc)}</p>`;
+      box.innerHTML = `<div class="who">You are</div><h1 style="color:${c.accent}">${esc(c.name)}</h1><p>Finish the 5 zone tasks to open the escape gates early (some are in the corrupted world: use the rift portals). Escape through a gate in the corrupted world.</p><p style="color:#ffb0b0">EXE can disguise as one of your friends in the normal world. You have 3 hearts and can be revived once.</p><p style="color:var(--muted)">${touch ? 'HIDE' : 'F'} near a locker to hide (not while EXE is watching, and not for too long).</p><p style="color:var(--muted)">E ${esc(c.abilityName)} · R ${esc(c.r.name)} · Q ${this.unlock.q ? esc(c.q.name) : `${esc(c.q.name)} (unlocks at level 10)`}</p>`;
     } else box.innerHTML = `<div class="who">Round in progress</div><h1>Watching</h1><p>You'll join the next round.</p>`;
-    $('intro').classList.remove('hidden');
-    clearTimeout(this.introT);
-    this.introT = setTimeout(() => $('intro').classList.add('hidden'), 5200);
+    $('intro').classList.remove('hidden', 'corner');
+    clearTimeout(this.introT); clearTimeout(this.introT2);
+    this.introT = setTimeout(() => $('intro').classList.add('corner'), 2600);
+    this.introT2 = setTimeout(() => $('intro').classList.add('hidden'), 7600);
     if (this.role === 'exe') setTimeout(() => sound.play('laugh', 0.8), 600);
+  }
+
+  // ---------------------------------------------------------------- spawning in
+  /** The round opens like a cartridge loading a level: a LOADING ZONE card that tears apart into pixel blocks
+   *  while everyone glitches into place out of red and black cubes. */
+  startSpawn() {
+    const me = this.s.latest && this.s.latest.pm.get(this.me);
+    const z = me ? zoneAt(me[1], me[3]) : ZONES[0];
+    const who = this.role === 'exe' ? VARIANTS[this.kind].name : this.role === 'surv' ? CHARS[this.kind].name : '';
+    const c = $('spawnCv'), W = 320, H = Math.max(160, Math.round((W * innerHeight) / Math.max(1, innerWidth)));
+    c.width = W; c.height = H; c.classList.remove('hidden');
+    const card = document.createElement('canvas'); card.width = W; card.height = H;
+    this.spawn = { t: 0, c, g: c.getContext('2d'), card, cg: card.getContext('2d'), zone: z.name.toUpperCase(), who: who.toUpperCase(), order: null, compiled: false, intro: false };
+    this.drawSpawnCard(0);
+    c.getContext('2d').drawImage(card, 0, 0);
+  }
+
+  drawSpawnCard(p) {
+    const S = this.spawn, g = S.cg, W = S.card.width, H = S.card.height;
+    g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    for (let y = 0; y < H; y += 2) { g.fillStyle = y % 4 ? 'rgba(60,0,6,0.35)' : 'rgba(0,0,0,0)'; g.fillRect(0, y, W, 1); }
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const txt = (t, y, size, col) => { g.font = `${size}px "Press Start 2P", monospace`; g.fillStyle = '#000'; g.fillText(t, W / 2 + 2, y + 2); g.fillStyle = col; g.fillText(t, W / 2, y); };
+    txt('LOADING ZONE', H * 0.24, 8, '#ff2a3a');
+    txt(S.zone, H * 0.36, S.zone.length > 13 ? 13 : 16, '#ffffff');
+    txt('ACT 1', H * 0.46, 8, '#ffd23d');
+    if (S.who) txt((this.role === 'exe' ? 'HUNT AS ' : 'YOU ARE ') + S.who, H * 0.78, 8, this.role === 'exe' ? '#ff4a5a' : '#cfe6ff');
+    // a chunky bar that stalls for a moment near the end
+    const q = p < 0.6 ? p : p < 0.82 ? 0.6 + (p - 0.6) * 0.25 : Math.min(1, 0.655 + (p - 0.82) * 1.95), n = 20, bw = 9, x0 = W / 2 - (n * (bw + 2)) / 2, y = H * 0.6;
+    g.fillStyle = '#4a0c14'; g.fillRect(x0 - 4, y - 4, n * (bw + 2) + 6, 18);
+    g.fillStyle = '#000'; g.fillRect(x0 - 2, y - 2, n * (bw + 2) + 2, 14);
+    for (let i = 0; i < Math.floor(q * n); i++) { g.fillStyle = i % 2 ? '#c8001a' : '#ff2a3a'; g.fillRect(x0 + i * (bw + 2), y, bw, 10); }
+    txt(`${Math.floor(q * 100)}%`, y + 24, 8, '#b39a9e');
+    if (Math.random() < 0.3) { const ty = Math.random() * H, th = 2 + Math.random() * 8; g.drawImage(S.card, 0, ty, W, th, (Math.random() - 0.5) * 20, ty, W, th); }
+  }
+
+  updateSpawn(dt) {
+    const S = this.spawn;
+    if (!S) return;
+    S.t += dt;
+    // compile the new monster and survivor materials now, behind the card, instead of hitching later
+    if (!S.compiled && S.t > 0.05) { S.compiled = true; try { renderer.compile(scene, camera); } catch {} }
+    const g = S.g, W = S.c.width, H = S.c.height;
+    if (S.t < 1.0) { this.drawSpawnCard(Math.min(1, S.t / 0.85)); g.clearRect(0, 0, W, H); g.drawImage(S.card, 0, 0); }
+    else if (S.t < 1.75) {
+      const bs = 16, cols = Math.ceil(W / bs), rows = Math.ceil(H / bs);
+      if (!S.order) {
+        S.order = Array.from({ length: cols * rows }, (_, i) => i);
+        for (let i = S.order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [S.order[i], S.order[j]] = [S.order[j], S.order[i]]; }
+        this.assembleT = 0; sound.play('static', 0.6); fx.pulse('glitch', 0.8);
+      }
+      const p = (S.t - 1.0) / 0.75, n = Math.floor(S.order.length * Math.min(1, p * 1.1));
+      g.clearRect(0, 0, W, H); g.drawImage(S.card, 0, 0);
+      for (let i = 0; i < n; i++) { const k = S.order[i]; g.clearRect((k % cols) * bs, Math.floor(k / cols) * bs, bs, bs); }
+      // some of the blocks still standing slip sideways or flash red
+      for (let i = 0; i < 16 && n < S.order.length; i++) {
+        const k = S.order[n + Math.floor(Math.random() * (S.order.length - n))], x = (k % cols) * bs, y = Math.floor(k / cols) * bs;
+        if (Math.random() < 0.5) { g.fillStyle = Math.random() < 0.6 ? '#ff1a2a' : '#000'; g.fillRect(x, y, bs, bs); } else g.drawImage(S.card, x, y, bs, bs, x + (Math.random() - 0.5) * 28, y, bs, bs);
+      }
+    } else { S.c.classList.add('hidden'); this.spawn = null; }
+    if (!S.intro && S.t > 1.3) { S.intro = true; this.showIntro(); }
+  }
+
+  /** Everyone in view builds up out of a swarm of red, black and white cubes, flickering in. */
+  updateAssemble(dt) {
+    this.assembleT += dt;
+    const p = Math.min(1, this.assembleT / 1.15);
+    if (!this.cubes) {
+      const views = [...this.views.values()].filter((v) => v.rig.root.visible || v.id === this.me);
+      const per = 56, N = Math.max(1, views.length * per);
+      const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff }), N);
+      mesh.frustumCulled = false;
+      const cols = [new THREE.Color(0xff1a2a), new THREE.Color(0x050505), new THREE.Color(0xffffff), new THREE.Color(0x8a0010)];
+      const list = [];
+      views.forEach((v) => {
+        const tall = v.role === 'exe' ? 3.4 : 2.5;
+        for (let i = 0; i < per; i++) {
+          const d = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 - 0.2, Math.random() - 0.5).normalize();
+          list.push({ v, off: new THREE.Vector3((Math.random() - 0.5) * 0.9, 0.1 + Math.random() * tall, (Math.random() - 0.5) * 0.7), d, dist: 2.5 + Math.random() * 3.5, delay: Math.random() * 0.35, size: 0.1 + Math.random() * 0.12 });
+          mesh.setColorAt(list.length - 1, cols[i % 4]);
+        }
+      });
+      scene.add(mesh);
+      this.cubes = { mesh, list, m: new THREE.Matrix4(), q: new THREE.Quaternion(), e: new THREE.Euler(), pos: new THREE.Vector3(), sc: new THREE.Vector3() };
+    }
+    const C = this.cubes;
+    C.list.forEach((c, i) => {
+      const q = clamp((p - c.delay) / 0.62, 0, 1), e = 1 - (1 - q) ** 3, root = c.v.rig.root;
+      C.pos.copy(root.position).add(c.off).addScaledVector(c.d, (1 - e) * c.dist);
+      const k = c.size * (q > 0.85 ? 1 - (q - 0.85) / 0.15 : 1) * (c.v.rig.root.visible || c.v.id === this.me ? 1 : 0);
+      C.e.set(i + p * 9, i * 0.7 + p * 6, 0); C.q.setFromEuler(C.e); C.sc.setScalar(Math.max(0.0001, k));
+      C.mesh.setMatrixAt(i, C.m.compose(C.pos, C.q, C.sc));
+    });
+    C.mesh.instanceMatrix.needsUpdate = true;
+    // the bodies flicker in as the cubes arrive
+    for (const v of this.views.values()) {
+      const r = v.rig.root;
+      if (!r.visible) continue;
+      r.visible = Math.random() < 0.06 + p * p;
+      r.position.x += (Math.random() - 0.5) * (1 - p) * 0.4;
+    }
+    if (p >= 1) { this.endAssemble(); }
+  }
+  endAssemble() {
+    if (this.cubes) { scene.remove(this.cubes.mesh); this.cubes.mesh.geometry.dispose(); this.cubes.mesh.material.dispose(); this.cubes.mesh.dispose(); this.cubes = null; }
+    this.assembleT = null;
   }
 
   myEntry() { return this.s.latest ? this.s.latest.pm.get(this.me) : null; }
@@ -321,49 +475,75 @@ class Match {
     this.s.sendState({ x: b.x, y: b.y, z: b.z, ry: this.ry, f });
   }
 
-  useAbility(t, st, sf) {
-    if (st !== ST.alive || t < this.cd.abl || sf & F.STUN) return;
+  /** k: 'abl' (E), 'ab2' (R), 'ab3' (Q), 'ab4' (F, monsters only). Predicts the move locally, the round decides the rest. */
+  useMove(k, t, st, sf) {
+    if (st !== ST.alive || t < this.cd[k] || sf & F.STUN) return;
     const b = this.body;
     if (this.role === 'surv') {
       const c = CHARS[this.kind];
-      if (c.ability === 'dash') {
-        const sp = Math.hypot(b.vx, b.vz), dir = sp > 1 ? Math.atan2(b.vx, b.vz) : this.yaw;
-        this.ry = dir; this.cd.abl = t + c.cd; this.until.dash = t + c.dur;
-        b.vx = Math.sin(dir) * c.dashSpeed; b.vz = Math.cos(dir) * c.dashSpeed; b.vy = Math.max(b.vy, 0); b.lock = c.dur;
-        sound.play('dash'); fx.pulse('glitch', 0.25);
-      } else if (c.ability === 'fly') { this.cd.abl = t + c.cd; this.until.fly = t + c.dur; sound.play('fly'); }
-      else { this.ry = this.yaw; this.cd.abl = t + c.missCd; this.until.atk = t + 0.35; sound.play('swing'); }
+      if (sf & F.SLOWED) { feed('Static is blocking your abilities'); return; }
+      if (k === 'abl') {
+        if (c.ability === 'dash') {
+          const sp = Math.hypot(b.vx, b.vz), dir = sp > 1 ? Math.atan2(b.vx, b.vz) : this.yaw;
+          this.ry = dir; this.cd.abl = t + c.cd; this.until.dash = t + c.dur;
+          b.vx = Math.sin(dir) * c.dashSpeed; b.vz = Math.cos(dir) * c.dashSpeed; b.vy = Math.max(b.vy, 0); b.lock = c.dur;
+          sound.play('dash'); fx.pulse('glitch', 0.25);
+        } else if (c.ability === 'fly') { this.cd.abl = t + c.cd; this.until.fly = t + c.dur; sound.play('fly'); }
+        else { this.ry = this.yaw; this.cd.abl = t + c.missCd; this.until.atk = t + 0.35; sound.play('swing'); }
+      } else {
+        const ab = k === 'ab2' ? c.r : c.q;
+        if (k === 'ab3' && !this.unlock.q) { feed(`${esc(c.q.name)} unlocks at level 10 with ${esc(c.name)}`); return; }
+        this.cd[k] = t + ab.cd;
+        if (ab.id === 'wind') { this.sta.stamina = SURV.stamina; this.sta.exhausted = false; sound.play('dash'); }
+        else if (ab.id === 'after') { this.until.invis = t + ab.dur; sound.play('fade'); fx.pulse('glitch', 0.4); }
+        else if (ab.id === 'wrench' || ab.id === 'pound' || ab.id === 'spin') { this.ry = this.yaw; this.until.atk = t + 0.35; sound.play('swing'); }
+        else if (ab.id === 'iron') sound.play('punch');
+        else if (ab.id === 'turbo' || ab.id === 'heal') sound.play('revive', 0.6);
+      }
       this.pushState(true);
-      this.s.action({ k: 'abl' });
+      this.s.action({ k });
       return;
     }
-    if (this.phase === 'intro' || this.disguised || t < this.until.pop) return;
-    const v = VARIANTS[this.kind];
-    this.cd.abl = t + v.cd;
-    if (v.ability === 'lunge') {
-      this.ry = this.yaw; this.until.lunge = t + v.dur;
-      b.vx = Math.sin(this.yaw) * v.lungeSpeed; b.vz = Math.cos(this.yaw) * v.lungeSpeed; b.lock = v.dur;
-      sound.play('lunge'); this.pushState(true); this.s.action({ k: 'abl' });
-    } else if (v.ability === 'blink') {
-      this.s.action({ k: 'abl' });
-      let d = v.dist, p = null;
-      for (; d > 2; d -= 1) {
-        p = clampXZ({ x: b.x + Math.sin(this.yaw) * d, z: b.z + Math.cos(this.yaw) * d });
-        const y = supportAt(p.x, p.z, terrainH(p.x, p.z) + 0.5, false, b.w);
-        if (!solidAt(p.x, p.z, y, b.r, b.h, b.w)) { p.y = y; break; }
-        p = null;
+    if (this.phase === 'intro' || this.disguised || t < this.until.pop || t < this.until.spin) return;
+    const v = VARIANTS[this.kind], mv = v.moves[k], aw = t < this.until.awake;
+    this.cd[k] = t + mv.cd * (aw ? v.awake.cdMul : 1);
+    this.ry = this.yaw;
+    switch (mv.id) {
+      case 'dash': {
+        const dur = mv.dur * (aw ? 1.4 : 1);
+        this.until.lunge = t + dur; b.vx = Math.sin(this.yaw) * mv.speed; b.vz = Math.cos(this.yaw) * mv.speed; b.lock = dur;
+        sound.play('lunge');
+        break;
       }
-      if (p) { this.blinkFrom(b.x, b.y, b.z); b.x = p.x; b.y = p.y; b.z = p.z; b.vx = b.vz = b.vy = 0; }
-      this.ry = this.yaw; sound.play('blink'); fx.pulse('glitch', 0.9);
-      this.pushState(true);
-    } else if (v.ability === 'fade') {
-      this.until.fade = t + v.dur; sound.play('fade'); fx.pulse('static', 0.5);
-      this.s.action({ k: 'abl' });
+      case 'spin': this.until.spin = t + mv.dur; sound.play('lunge'); fx.pulse('glitch', 0.3); break;
+      case 'hunt': this.until.hunt = t + mv.dur; sound.play('hunt'); fx.pulse('sense'); break;
+      case 'echo': case 'ping': case 'scent': sound.play('sense'); fx.pulse('sense'); break;
+      case 'blink': {
+        this.s.action({ k });
+        let d = mv.dist, p = null;
+        for (; d > 2; d -= 1) {
+          p = clampXZ({ x: b.x + Math.sin(this.yaw) * d, z: b.z + Math.cos(this.yaw) * d });
+          const y = supportAt(p.x, p.z, terrainH(p.x, p.z) + 0.5, false, b.w);
+          if (!solidAt(p.x, p.z, y, b.r, b.h, b.w)) { p.y = y; break; }
+          p = null;
+        }
+        if (p) { this.blinkFrom(b.x, b.y, b.z); b.x = p.x; b.y = p.y; b.z = p.z; b.vx = b.vz = b.vy = 0; }
+        sound.play('blink'); fx.pulse('glitch', 0.9);
+        this.pushState(true);
+        return;
+      }
+      case 'static': sound.play('staticfield'); fx.pulse('glitch', 0.6); break;
+      case 'dice': sound.play('blink'); fx.pulse('glitch', 0.7); break;
+      case 'fade': this.until.fade = t + mv.dur; sound.play('fade'); fx.pulse('static', 0.5); break;
+      case 'decoy': sound.play('decoy'); break;
+      case 'reach': this.until.reach = t + 0.45; sound.play('swing'); break;
     }
+    this.pushState(true);
+    this.s.action({ k });
   }
 
   attack(t, st, sf) {
-    if (this.role !== 'exe' || st !== ST.alive || t < this.cd.atk || sf & F.STUN || this.phase === 'intro' || t < this.until.pop) return;
+    if (this.role !== 'exe' || st !== ST.alive || t < this.cd.atk || sf & F.STUN || this.phase === 'intro' || t < this.until.pop || t < this.until.spin) return;
     if (this.disguised) {
       // first click while disguised: pop out of the disguise (a short freeze while it transforms)
       this.until.pop = t + EXE.popTime; this.cd.atk = t + EXE.popTime; this.cd.disguise = t + EXE.disguiseCd; this.disguised = 0;
@@ -373,22 +553,23 @@ class Match {
       this.s.action({ k: 'atk' });
       return;
     }
-    this.cd.atk = t + EXE.atkCd; this.until.atk = t + 0.35; this.until.fade = 0;
+    const v = VARIANTS[this.kind];
+    this.cd.atk = t + v.atkCd * (t < this.until.awake ? 0.8 : 1); this.until.atk = t + 0.35; this.until.fade = 0;
     this.ry = this.yaw;
-    sound.play('swing');
+    sound.play('swing', this.kind === 'grin' ? 1 : 0.7);
     this.pushState(true);
     this.s.action({ k: 'atk' });
   }
 
-  ab2(t, st, sf) {
-    if (this.role !== 'exe' || st !== ST.alive || this.disguised || t < this.cd.ab2 || this.phase === 'intro' || sf & F.STUN) return;
+  awaken(t, st, meter) {
+    if (this.role !== 'exe' || st !== ST.alive || this.disguised || this.phase === 'intro') return;
     const v = VARIANTS[this.kind];
-    this.cd.ab2 = t + v.cd2;
-    if (v.ab2 === 'hunt') { this.until.hunt = t + v.dur2; sound.play('hunt'); fx.pulse('sense'); }
-    else if (v.ab2 === 'static') { sound.play('staticfield'); fx.pulse('glitch', 0.6); }
-    else sound.play('decoy');
+    if (!this.unlock.awaken) { feed(`Awakening unlocks at level 10 with ${esc(v.name)}`); return; }
+    if (this.awakeUsed) { feed('You already awakened this round'); return; }
+    if (meter < 100) { feed(`Your meter is at ${meter}%. Hit survivors to fill it faster.`); return; }
+    this.awakeUsed = true;
     this.pushState(true);
-    this.s.action({ k: 'ab2' });
+    this.s.action({ k: 'awaken' });
   }
 
   hide(st) {
@@ -402,13 +583,6 @@ class Match {
     if (this.viewW !== 0) { feed('You can only disguise in the <b>normal world</b>'); return; }
     sound.play('fade'); fx.pulse('glitch', 0.5);
     this.s.action({ k: 'disguise' });
-  }
-
-  sense(t, st) {
-    if (this.role !== 'exe' || st !== ST.alive || t < this.cd.sense || this.phase === 'intro' || this.disguised) return;
-    this.cd.sense = t + EXE.senseCd;
-    sound.play('sense'); fx.pulse('sense');
-    this.s.action({ k: 'sense' });
   }
 
   blinkFrom(x, y, z) {
@@ -457,13 +631,13 @@ class Match {
         world.setExits(this.info.exits, true);
         break;
       case 'hit':
-        if (mine) { fx.pulse('hit'); sound.play('hit'); banner('YOU GOT HIT', 'Run!'); }
+        if (mine) { fx.pulse('hit', Math.min(1.2, (e.dmg || 100) / 80)); sound.play('hit', Math.min(1, 0.5 + (e.dmg || 100) / 200)); banner(`-${e.dmg || ''}`, 'Run!'); fx.taunt(this.exeVariant); if (this.exeVariant === 'exe') holdFrames = 4; }
         else sound.play('hit', vol(e.id) * 0.8);
         if (e.by === this.me) { sound.play('laugh', 0.5); fx.pulse('static', 0.4); }
         if (v) feed(`${by ? tagOf(by) : 'EXE'} hit ${tagOf(v)}`);
         break;
       case 'down':
-        if (mine) { fx.jumpscare(); sound.play('scare'); }
+        if (mine) { fx.jumpscare(this.exeVariant); sound.play('scare'); }
         else { sound.play('down', vol(e.id)); if (this.role === 'surv') fx.pulse('static', 0.5); }
         if (e.by === this.me) sound.play('laugh', 0.8);
         if (v) feed(`${tagOf(v)} is <b style="color:#ff4a5a">DOWN</b>${this.role === 'surv' && !mine ? '. Revive them!' : ''}`);
@@ -475,7 +649,7 @@ class Match {
         break;
       case 'out':
         if (v) feed(`${tagOf(v)} was <b style="color:#ff4a5a">${e.why === 'dragged' ? 'dragged away by EXE' : 'taken'}</b>${e.why === 'norevive' ? ' (no revives left)' : ''}`);
-        if (mine) { banner(e.why === 'dragged' ? 'DRAGGED AWAY' : 'YOU WERE TAKEN', e.why === 'dragged' ? 'You hid too long, twice.' : 'Click to watch the others'); fx.jumpscare(); sound.play('scare'); }
+        if (mine) { banner(e.why === 'dragged' ? 'DRAGGED AWAY' : 'YOU WERE TAKEN', e.why === 'dragged' ? 'You hid too long, twice.' : 'Click to watch the others'); fx.jumpscare(this.exeVariant); sound.play('scare'); }
         break;
       case 'hide':
         world.doorLocker(e.i);
@@ -522,14 +696,56 @@ class Match {
         break;
       case 'atk': if (e.id !== this.me) sound.play('swing', vol(e.id)); break;
       case 'abl': {
-        if (e.id !== this.me) {
-          const nm = { dash: 'dash', fly: 'fly', punch: e.hit ? 'punch' : 'miss', bonk: e.hit ? 'bonk' : 'miss', lunge: 'lunge', blink: 'blink', fade: 'fade' }[e.ab];
-          if (nm) sound.play(nm, vol(e.id));
-          if (v) v.ablStart = nowS();
-        } else if (e.hit) { this.cd.abl = nowS() + CHARS[this.kind].cd; sound.play(e.ab === 'bonk' ? 'bonk' : 'punch'); }
-        if (e.hit) { sound.play('stun', e.target === this.me ? 1 : vol(e.target)); if (v) feed(`${tagOf(v)} ${e.ab === 'bonk' ? 'bonked' : 'stunned'} EXE`); if (e.target === this.me) fx.pulse('glitch', 0.6); }
+        const SFX = { dash: e.id && v && v.role === 'exe' ? 'lunge' : 'dash', fly: 'fly', punch: e.hit ? 'punch' : 'miss', bonk: e.hit ? 'bonk' : 'miss', spin: 'lunge', hunt: 'hunt', echo: 'sense', ping: 'sense', scent: 'sense', blink: 'blink', static: 'staticfield', dice: 'blink', fade: 'fade', decoy: 'decoy', reach: 'swing' };
+        if (e.id !== this.me) { if (SFX[e.ab]) sound.play(SFX[e.ab], vol(e.id)); if (v) v.ablStart = nowS(); if (e.ab === 'reach' && v) v.reachStart = nowS(); }
+        else if (e.hit && (e.ab === 'punch' || e.ab === 'bonk')) { this.cd.abl = nowS() + CHARS[this.kind].cd; sound.play(e.ab === 'bonk' ? 'bonk' : 'punch'); }
+        if ((e.ab === 'punch' || e.ab === 'bonk') && e.hit) { sound.play('stun', e.target === this.me ? 1 : vol(e.target)); if (v) feed(`${tagOf(v)} ${e.ab === 'bonk' ? 'bonked' : 'stunned'} EXE`); if (e.target === this.me) fx.pulse('glitch', 0.6); }
+        if (this.role === 'surv' && v && v.role === 'exe' && v.w === this.viewW) {
+          if (e.ab === 'echo' && e.ids && e.ids.includes(this.me)) { fx.say('IT HEARD YOU'); fx.pulse('static', 0.8); }
+          if (e.ab === 'ping') { fx.say('IT SEES EVERYONE'); fx.pulse('glitch', 0.6); feed('Corrupt Ping: Glitch.exe can see you, and you can see it'); }
+          if (e.ab === 'scent' && e.target === this.me) { fx.say('IT SMELLS YOUR BLOOD'); fx.pulse('static', 0.8); }
+          if (e.ab === 'hunt') { fx.say("IT'S HUNTING YOU"); fx.pulse('sense'); }
+        }
+        if (e.ab === 'dice' && e.rolls) {
+          const NAMES = { warp: 'warped behind someone', swap: 'swapped places with someone', invert: 'flipped everyone\'s controls', storm: 'made a static storm' };
+          if (e.id === this.me) feed(`Dice: ${e.rolls.map((r) => NAMES[r]).join(' + ')}`);
+          else if (this.role === 'surv' && e.rolls.includes('invert') && v && v.w === this.viewW) { banner('CONTROLS FLIPPED', 'Glitch.exe rolled the dice'); fx.pulse('glitch', 1); }
+        }
+        if (e.ab === 'reach' && e.hit === this.me) { banner('GRABBED', ''); sound.play('scare', 0.6); fx.pulse('pop'); }
         break;
       }
+      case 'sab': {
+        const SFX = { wind: 'dash', after: 'fade', wrench: 'swing', turbo: 'revive', pound: 'punch', iron: 'punch', heal: 'revive', spin: 'bonk' };
+        if (e.id !== this.me) sound.play(SFX[e.ab], vol(e.id)); else if (e.ab === 'pound' || e.ab === 'spin') sound.play(e.hit ? SFX[e.ab] : 'miss');
+        if (v) v.ablStart = nowS();
+        if (e.ab === 'wrench' && v) { this.throwWrench(v, e); if (e.hit) { sound.play('bonk', e.id === this.me ? 1 : vol(e.id)); feed(`${tagOf(v)} hit EXE with a wrench`); } else if (e.id === this.me) feed('Missed!'); }
+        if (e.ab === 'pound' && e.hit && v) feed(`${tagOf(v)} ground-pounded EXE`);
+        if (e.ab === 'spin' && e.hit && v) feed(`${tagOf(v)} hammer-spun EXE`);
+        if (e.ab === 'heal' && v) { const who = this.views.get(e.target); feed(`${tagOf(v)} healed ${who ? tagOf(who) : 'someone'}`); if (e.target === this.me) { banner('+1 HEART', '', true); sound.play('revive'); } }
+        if (e.ab === 'turbo' && v) feed(`${tagOf(v)}: Turbo Gadget! Tasks near ${esc(v.name)} go twice as fast`);
+        if (e.ab === 'iron' && v && e.id !== this.me) feed(`${tagOf(v)} turned to iron`);
+        if (e.id === this.me && e.ab === 'heal' && e.target !== this.me) sound.play('revive');
+        break;
+      }
+      case 'awaken': {
+        const AW = VARIANTS[e.v].awake;
+        if (mine) { this.until.awake = nowS() + AWAKEN.dur; banner(AW.name.toUpperCase(), 'AWAKENED'); }
+        else if (v && v.w === this.viewW) { banner(`${VARIANTS[e.v].name} AWAKENED`, AW.name, false); fx.pulse('pop'); }
+        sound.play('hunt'); sound.play('laugh', 0.9); fx.pulse('sense');
+        feed(`<b style="color:#ffd23d">${esc(VARIANTS[e.v].name)} awakened: ${esc(AW.name)}</b>`);
+        break;
+      }
+      case 'admin': {
+        const NAMES = { god: 'God mode', nocd: 'No cooldowns', meter: 'Awakening meter filled', tasks: 'finished every task', time: 'changed the clock', world: 'Switched worlds', tp: 'Teleported', end: 'ended the round' };
+        if (mine) { if (['god', 'nocd', 'meter'].includes(e.c)) feed(`<b class="own">ADMIN</b> ${NAMES[e.c]}${e.on === undefined ? '' : e.on ? ' ON' : ' OFF'}`); }
+        else if (v && ['tasks', 'time', 'end'].includes(e.c)) feed(`${tagOf(v)} <span class="owntag">OWNER</span> ${NAMES[e.c]}`);
+        if (e.c === 'tasks') sound.play('revive');
+        break;
+      }
+      case 'warp':
+        if (mine && this.body) { const b = this.body; b.x = e.x; b.y = e.y; b.z = e.z; b.vx = b.vy = b.vz = 0; fx.pulse('glitch', 0.6); }
+        if (v && v.w === this.viewW) this.blinkFrom(e.x, e.y, e.z);
+        break;
       case 'knock':
         if (mine && this.body) { const b = this.body; b.vx = e.dx; b.vz = e.dz; b.vy = 6; b.ground = false; b.lock = 0.4; }
         break;
@@ -557,7 +773,7 @@ class Match {
         if (mine || !v) break;
         if (v.w === this.viewW && this.role === 'surv' && this.camFocus) {
           const d = v.rig.root.position.distanceTo(this.camFocus);
-          if (d < 7) { fx.jumpscare(); sound.play('pop'); } else if (d < 40) { sound.play('pop', clamp(1 - d / 40, 0.2, 0.8)); fx.pulse('pop'); }
+          if (d < 7) { fx.jumpscare(this.exeVariant); sound.play('pop'); } else if (d < 40) { sound.play('pop', clamp(1 - d / 40, 0.2, 0.8)); fx.pulse('pop'); }
           if (d < 40) feed(`It was <b style="color:#ff4a5a">EXE</b> all along!`);
         }
         break;
@@ -603,6 +819,7 @@ class Match {
   update(dt) {
     const S = this.s;
     if (!paused || !this.solo) S.update(dt);
+    this.updateSpawn(dt);
     if (!this.ready) this.tryStart();
     const snap = S.latest;
     const t = nowS();
@@ -637,6 +854,7 @@ class Match {
     this.pitch = clamp(this.pitch - input.dy * sens * (save.settings.invert ? -1 : 1), -1.15, 0.6);
     input.dx = input.dy = 0;
     // move
+    if (this.isOwn && adm.nocd) { for (const k in this.cd) this.cd[k] = 0; this.sta.stamina = SURV.stamina; this.sta.exhausted = false; }
     const b = this.body;
     let flying = false;
     const hiddenIn = mine ? mine[13] : 0;
@@ -644,7 +862,7 @@ class Match {
       const L = LOCKERS[hiddenIn - 1];
       b.x = L.x; b.y = L.y; b.z = L.z; b.vx = b.vy = b.vz = 0;
       if (this.hiddenAt !== hiddenIn) { this.hiddenAt = hiddenIn; this.yaw = L.ry; this.pitch = -0.05; }
-      if (input.disguise && !this.mini) this.hide(st);
+      if (input.f && !this.mini) this.hide(st);
     } else this.hiddenAt = 0;
     if (b && !hiddenIn && !(sf & F.QTE) && !this.mini && !this.spectator && this.aliveLike(st) && !(paused && this.solo)) {
       let f = 0, r = 0;
@@ -666,29 +884,36 @@ class Match {
       if (this.role === 'exe' && t < this.until.fade) flags |= F.FADE;
       if (this.role === 'exe' && t < this.until.pop) flags |= F.POP;
       if (this.role === 'exe' && t < this.until.hunt) flags |= F.HUNT;
+      if (this.role === 'exe' && t < this.until.spin) flags |= F.SPIN;
+      if (this.role === 'exe' && (t < this.until.awake || sf & F.AWAKE)) flags |= F.AWAKE;
+      flags |= sf & F.SLOWX;
+      if (sf & F.INVERT) { dx = -dx; dz = -dz; }
       flags |= sf & F.SLOWED;
       const disChar = this.disguised && this.views.get(this.disguised) ? this.views.get(this.disguised).char : null;
       const sprintEx = this.role === 'exe' && disChar && wantSprint && moving;
-      const speed = moveSpeed(this.role, this.kind, st, flags, ph, sprinting || sprintEx, b.w, disChar);
+      const speed = moveSpeed(this.role, this.kind, st, flags, ph, sprinting || sprintEx, b.w, disChar) * (this.isOwn && adm.speed ? 2 : 1);
       const canAct = st === ST.alive && !(flags & F.STUN) && !(flags & F.POP) && !(this.role === 'exe' && ph === 'intro');
       const jump = input.jump && canAct && b.ground;
-      const res = stepMove(b, { dx, dz, speed, jump, jumpV: this.role === 'exe' ? EXE.jump : SURV.jump, fly: flying, up: held('Space') }, dt);
+      const res = this.isOwn && adm.fly ? this.noclip(b, dx, dz, speed, dt) : stepMove(b, { dx, dz, speed, jump, jumpV: this.role === 'exe' ? EXE.jump : SURV.jump, fly: flying, up: held('Space') }, dt);
       if (jump) sound.play('jump', 0.6);
       if (res.spring) { sound.play('spring'); world.kickSpring(res.spring.i); }
       if (res.boost) { sound.play('boost'); fx.pulse('glitch', 0.15); }
       if (res.bumper) { sound.play('bumper'); world.kickBumper(res.bumper); }
       if (res.landed) sound.play('land', 0.5);
       if (b.lock <= 0 && moving && t > this.until.atk) this.ry = turnTo(this.ry, Math.atan2(dx, dz), 12 * dt);
-      if (input.abl) this.useAbility(t, st, sf);
+      if (input.abl) this.useMove('abl', t, st, sf);
       if (input.atk) this.attack(t, st, sf);
-      if (input.sense) this.sense(t, st);
-      if (input.disguise) { if (this.role === 'exe') this.disguise(t, st); else this.hide(st); }
-      if (input.ab2) this.ab2(t, st, sf);
+      if (input.ab2) this.useMove('ab2', t, st, sf);
+      if (input.q) this.useMove('ab3', t, st, sf);
+      if (input.f) { if (this.role === 'exe') this.useMove('ab4', t, st, sf); else this.hide(st); }
+      if (input.g) this.disguise(t, st);
+      if (input.v) this.awaken(t, st, mine ? mine[16] : 0);
       this.pushState(false);
     }
-    input.jump = input.abl = input.atk = input.sense = input.disguise = input.ab2 = false;
+    input.jump = input.abl = input.atk = input.q = input.f = input.g = input.v = input.ab2 = false;
     // everyone's rig
     for (const v of this.views.values()) this.updateView(v, dt, snap, t, flying);
+    if (this.assembleT != null) this.updateAssemble(dt);
     for (const bu of this.bursts || []) { bu.t -= dt; for (const m of bu.g.children) { m.position.addScaledVector(m.userData.v, dt); m.rotation.x += dt * 5; } bu.g.visible = Math.random() > 0.15; if (bu.t <= 0) { scene.remove(bu.g); bu.dead = true; } }
     if (this.bursts) this.bursts = this.bursts.filter((x) => !x.dead);
     this.updateCamera(dt, st);
@@ -704,6 +929,8 @@ class Match {
     if (this.role !== 'exe') for (const v of this.views.values()) { const e = snap.pm.get(v.id); if (e && e[13] && e[11] === this.viewW) occupied.add(e[13] - 1); }
     world.updateLockers(occupied, dt);
     this.updateDecoys(snap, dt);
+    this.updateGhosts(snap, dt);
+    this.updateThrows(dt);
     if (this.role === 'exe' && (t < this.until.hunt || sf & F.HUNT) && t > this.printT) {
       this.printT = t + 0.22;
       for (const v of this.views.values()) { const e = snap.pm.get(v.id); if (v.role === 'surv' && e && e[11] === this.viewW && e[7] & F.REVEAL && !(e[7] & F.AIR)) world.addFootprint(e[1] + (Math.random() - 0.5) * 0.4, e[2], e[3] + (Math.random() - 0.5) * 0.4, e[4]); }
@@ -728,6 +955,8 @@ class Match {
       fx.pulse('glitch', 0.3 + terror * 0.4); if (Math.random() < 0.5) sound.play('static', 0.4);
     }
     fx.update(dt, terror, ph !== 'over', this.viewW);
+    // EXE: the picture stutters (skips frames) when it's close
+    if (this.exeVariant === 'exe' && this.role === 'surv' && fx.terror > 0.45 && !holdFrames && Math.random() < fx.terror * 0.02) holdFrames = 2 + Math.floor(Math.random() * 3);
     const chase = ph === 'escape' || (this.role === 'surv' && terror > 0.35);
     sound.update(dt, chase ? 'chase' : ph === 'over' ? 'menu' : this.viewW ? 'corrupt' : 'normal', terror, flying);
     lantern.position.copy(camera.position).y += 1.2;
@@ -740,7 +969,7 @@ class Match {
     const root = v.rig.root;
     if (!e) { root.visible = false; return; }
     const st = e[6], flags = e[7];
-    v.w = e[11];
+    v.w = e[11]; v.rig.world = v.w;
     const isMe = v.id === this.me && this.body;
     let pose;
     if (isMe) pose = { x: this.body.x, y: this.body.y, z: this.body.z, ry: this.ry };
@@ -763,7 +992,7 @@ class Match {
       if (!d && tv) {
         const info = this.info.ents.find((x) => x.id === disId);
         d = { rig: new Rig({ role: 'surv', look: info.look, char: info.char }) };
-        if (this.role !== 'exe') { d.tag = nameTag(info.name, CHARS[info.char].accent); d.tag.position.y = 2.95; d.rig.root.add(d.tag); }
+        if (this.role !== 'exe') { d.tag = info.own ? ownerTag(info.name) : nameTag(info.name, CHARS[info.char].accent); d.tag.position.y = info.own ? 3.15 : 2.95; d.rig.root.add(d.tag); }
         scene.add(d.rig.root); this.disRigs.set(disId, d);
       }
       if (d) {
@@ -783,7 +1012,9 @@ class Match {
     if (isMe && t < this.until.atk) atk = 1 - (this.until.atk - t) / 0.35;
     else if (atkOn && v.atkStart >= 0) atk = clamp((t - v.atkStart) / 0.35, 0, 1);
     if (!isMe && v.ablStart && t - v.ablStart < 0.35 && (v.char === 'rook' || v.char === 'mira')) atk = (t - v.ablStart) / 0.35;
+    const reach = v.reachStart && t - v.reachStart < 0.5 ? (t - v.reachStart) / 0.5 : isMe && t < this.until.reach ? 1 - (this.until.reach - t) / 0.45 : -1;
     v.rig.update(dt, {
+      spin: v.role === 'exe' && (isMe ? t < this.until.spin : !!(flags & F.SPIN)), awake: v.role === 'exe' && (!!(flags & F.AWAKE) || (isMe && t < this.until.awake)), reach,
       speed: v.speed, sprint: !!(flags & F.SPRINT), air: !!(flags & F.AIR) || (isMe && !this.body.ground),
       fly: isMe ? flying : !!(flags & F.FLY), down: st === ST.down, atk, stun: !!(flags & F.STUN) || (v.role === 'exe' && !!(flags & F.POP)),
       dash: isMe ? t < this.until.dash : !!(flags & F.DASH), lunge: isMe ? t < this.until.lunge : !!(flags & F.LUNGE),
@@ -802,6 +1033,9 @@ class Match {
         m.visible = Math.random() > 0.25;
       });
     } else {
+      const invis = flags & F.INVIS || (isMe && t < this.until.invis);
+      if (invis && this.role === 'exe') { root.visible = false; return; }
+      v.rig.setOpacity(invis ? 0.3 : 1);
       v.reveal.visible = this.role === 'exe' && !!(flags & F.REVEAL);
       if (v.reveal.visible) v.reveal.material.opacity = 0.5 + Math.sin(t * 10) * 0.3;
     }
@@ -869,20 +1103,28 @@ class Match {
       const e = snap.pm.get(v.id); if (!e) continue;
       const s = e[6];
       const cls = s === ST.down ? 'down' : s === ST.esc ? 'esc' : s === ST.out ? 'out' : '';
-      const status = s === ST.down ? `DOWN ${e[8]}s` : s === ST.esc ? 'ESCAPED' : s === ST.out ? 'TAKEN' : e[13] && this.role !== 'exe' ? 'HIDING' : `${'♥'.repeat(Math.max(0, e[5]))}`;
+      const status = s === ST.down ? `DOWN ${e[8]}s` : s === ST.esc ? 'ESCAPED' : s === ST.out ? 'TAKEN' : e[13] && this.role !== 'exe' ? 'HIDING' : `${'♥'.repeat(Math.max(0, Math.ceil(e[5] / SURV.heart)))}`;
       const wIcon = s === ST.alive || s === ST.down ? `<em class="${e[11] ? 'bad' : 'good'}">${e[11] ? '☠' : '☀'}</em>` : '';
-      html += `<div class="${cls}${v.id === this.me ? ' me' : ''}"><i style="background:${CHARS[v.char].accent}"></i>${esc(v.name)}${v.bot ? ' <small style="color:var(--muted)">bot</small>' : ''}${e[7] & F.CARRY ? ' <small style="color:#ffa040">core</small>' : ''}<span>${wIcon}${status}</span></div>`;
+      html += `<div class="${cls}${v.id === this.me ? ' me' : ''}"><i style="background:${CHARS[v.char].accent}"></i>${v.own ? `<b class="own">👑 ${esc(v.name)}</b>` : esc(v.name)}${v.bot ? ' <small style="color:var(--muted)">bot</small>' : ''}${e[7] & F.CARRY ? ' <small style="color:#ffa040">core</small>' : ''}<span>${wIcon}${status}</span></div>`;
     }
     setHTML($('team'), html);
     // hearts + stamina
     if (this.role === 'surv') {
-      setHTML($('hearts'), Array.from({ length: SURV.hp }, (_, i) => `<span class="${i < hp ? '' : 'gone'}">❤️</span>`).join(''));
+      setHTML($('hearts'), Array.from({ length: SURV.hp / SURV.heart }, (_, i) => `<span class="hrt"><b style="width:${Math.round(Math.max(0, Math.min(1, (hp - i * SURV.heart) / SURV.heart)) * 100)}%"></b></span>`).join(''));
       setText($('revInfo'), mine && mine[15] >= SURV.revives ? 'no revives left' : '1 revive left');
       $('revInfo').classList.toggle('bad', !!(mine && mine[15] >= SURV.revives));
       $('stam').querySelector('i').style.transform = `scaleX(${this.sta.stamina / SURV.stamina})`;
       $('stam').classList.toggle('tired', this.sta.exhausted);
     }
     for (const s of this.slots) {
+      if (s.locked) { s.el.classList.remove('ready'); continue; }
+      if (s.key === 'awaken') {
+        const m = mine ? mine[16] : 0, on = t < this.until.awake || (sf & F.AWAKE);
+        s.meter.style.width = `${on ? 100 : m}%`;
+        s.el.classList.toggle('ready', !this.awakeUsed && m >= 100);
+        s.el.classList.toggle('on', !!on);
+        continue;
+      }
       const left = this.cd[s.key] - t;
       const ready = left <= 0 && st === ST.alive;
       s.el.classList.toggle('ready', ready);
@@ -969,6 +1211,11 @@ class Match {
       if (this.role === 'surv' && e[6] === ST.down) marks.push({ x: e[1], y: e[2] + 1.5, z: e[3], color: '#ff4a5a', label: `${v.name} ↓` });
       if (this.role === 'exe' && e[7] & F.REVEAL) marks.push({ x: e[1], y: e[2] + 2.6, z: e[3], color: '#ff2a3a', label: '!' });
     }
+    for (const v of this.views.values()) {
+      if (v.role !== 'exe' || this.role === 'exe') continue;
+      const e = snap.pm.get(v.id);
+      if (e && e[11] === this.viewW && e[7] & F.PINGED) marks.push({ x: e[1], y: e[2] + 3.4, z: e[3], color: '#ff2a8a', label: 'GLITCH.EXE' });
+    }
     this.drawMarks(marks);
   }
 
@@ -987,11 +1234,46 @@ class Match {
     for (const [id, r] of this.decoyRigs) if (!seen.has(id)) { scene.remove(r.root); r.dispose(); this.decoyRigs.delete(id); }
   }
 
+  /** Bolt's afterimages: a copy of Bolt running straight ahead. EXE sees a real Bolt; teammates see a faint one. */
+  updateGhosts(snap, dt) {
+    const seen = new Set();
+    for (const g of snap.gh || []) {
+      if (g[6] !== this.viewW) continue;
+      seen.add(g[0]);
+      let r = this.ghostRigs.get(g[0]);
+      if (!r) { const o = this.info.ents.find((x) => x.id === g[1]); r = new Rig({ role: 'surv', look: o ? o.look : undefined, char: o ? o.char : 'bolt' }); scene.add(r.root); this.ghostRigs.set(g[0], r); }
+      r.root.visible = true; r.root.position.set(g[2], g[3], g[4]); r.root.rotation.y = g[5];
+      r.update(dt, { speed: 10, sprint: true, atk: -1 });
+      r.setOpacity(this.role === 'exe' ? 1 : 0.4);
+    }
+    for (const [id, r] of this.ghostRigs) if (!seen.has(id)) { scene.remove(r.root); r.dispose(); this.ghostRigs.delete(id); }
+  }
+
+  /** Pip's wrench, spinning through the air. */
+  throwWrench(v, e) {
+    const from = v.rig.root.position;
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.6, 0.08), new THREE.MeshLambertMaterial({ color: 0xb8c0cc })));
+    const head = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.05, 6, 10, Math.PI * 1.5), new THREE.MeshLambertMaterial({ color: 0xb8c0cc })); head.position.y = 0.32; g.add(head);
+    g.position.set(from.x, from.y + 1.8, from.z);
+    scene.add(g);
+    this.throws.push({ g, a: new THREE.Vector3(from.x, from.y + 1.8, from.z), b: new THREE.Vector3(e.tx, e.ty, e.tz), t: 0 });
+  }
+  updateThrows(dt) {
+    for (const w of this.throws) {
+      w.t += dt / 0.35;
+      w.g.position.lerpVectors(w.a, w.b, Math.min(1, w.t)); w.g.position.y += Math.sin(Math.min(1, w.t) * Math.PI) * 1.2;
+      w.g.rotation.x += dt * 25;
+      if (w.t >= 1.3) { scene.remove(w.g); w.dead = true; }
+    }
+    this.throws = this.throws.filter((w) => !w.dead);
+  }
+
   /** The Q/E quick-time minigame when EXE drags you out of a locker. */
   startMinigame(reason) {
     if (this.mini) this.mini.close();
     const el = $('qte'), keyEl = $('qteKey'), ring = $('qteRing'), count = $('qteCount'), txt = $('qteText');
-    const c = $('qteFace'); c.width = 640; c.height = 512; drawScareFaceInto(c);
+    const c = $('qteFace'); c.width = this.exeVariant === 'glitch' ? 480 : 220; c.height = Math.round(c.width * 0.8); drawScareFaceInto(c, this.exeVariant);
     const lines = ['LET ME IN', 'FOUND YOU', 'TOO LONG', 'STAY WITH ME', "YOU CAN'T HIDE", 'COME OUT'];
     const seq = Array.from({ length: QTE.prompts }, () => (Math.random() < 0.5 ? 'Q' : 'E'));
     const m = { i: 0, seq, start: nowS() + 0.6, done: false };
@@ -1079,6 +1361,7 @@ class Match {
     if (document.pointerLockElement) document.exitPointerLock();
     const won = (this.role === 'exe' && e.win === 'exe') || (this.role === 'surv' && e.escaped.includes(this.me));
     const exeWin = e.win === 'exe';
+    const oldXp = $('resXp'); if (oldXp) oldXp.remove();
     $('resTitle').textContent = exeWin ? 'EXE WINS' : 'SURVIVORS WIN';
     $('resTitle').style.color = exeWin ? '#ff2a3a' : '#7ff0ff';
     $('resSub').textContent = `${e.tasks}/5 zone tasks done. ` + (this.spectator ? 'Next round starts soon.' : this.role === 'exe' ? (exeWin ? 'Nobody got out.' : `${e.escaped.length} got away.`) : e.escaped.includes(this.me) ? 'You made it out.' : 'You were taken.');
@@ -1091,6 +1374,20 @@ class Match {
     }
     $('resTable').innerHTML = rows;
     if (!this.spectator) {
+      // XP for the character or monster you played
+      const meStat = e.stats.find((x) => x.id === this.me) || {};
+      const L = this.role === 'exe' ? LEVEL.exe : LEVEL.surv;
+      const gained = this.role === 'exe'
+        ? L.round + (meStat.hits || 0) * L.hit + (meStat.downs || 0) * L.down + (e.win === 'exe' ? L.win : 0)
+        : L.round + (meStat.tasks || 0) * L.task + (meStat.revives || 0) * L.revive + (e.escaped.includes(this.me) ? L.escape : 0);
+      const before = lvOf(this.kind);
+      save.xp[this.kind] = (save.xp[this.kind] || 0) + gained;
+      const after = lvOf(this.kind);
+      const nm = this.role === 'exe' ? VARIANTS[this.kind].name : CHARS[this.kind].name;
+      let xpHtml = `<div class="xp"><b>+${gained} XP</b> · ${esc(nm)} level ${after.lv}${after.lv < LEVEL.max ? ` <span class="xpbar"><i style="width:${Math.round((after.into / after.need) * 100)}%"></i></span> ${after.into}/${after.need}` : ' (max)'}</div>`;
+      if (after.lv > before.lv) xpHtml += `<div class="xp up">LEVEL UP! ${esc(nm)} is level ${after.lv}</div>`;
+      if (after.lv >= LEVEL.max && before.lv < LEVEL.max) xpHtml += `<div class="xp up">${this.role === 'exe' ? `Awakening unlocked: ${esc(VARIANTS[this.kind].awake.name)} (press V when the meter is full)` : `New ability unlocked: ${esc(CHARS[this.kind].q.name)} (Q)`}</div>`;
+      $('resSub').insertAdjacentHTML('afterend', `<div id="resXp">${xpHtml}</div>`);
       save.stats.rounds++; if (won) save.stats.wins++;
       if (e.escaped.includes(this.me)) save.stats.escapes++;
       const me = e.stats.find((s) => s.id === this.me); if (me) { save.stats.shards += me.shards || 0; save.stats.downs += me.downs || 0; }
@@ -1107,12 +1404,15 @@ class Match {
   dispose() {
     for (const v of this.views.values()) { scene.remove(v.rig.root); v.rig.dispose(); }
     for (const d of this.decoyRigs.values()) { scene.remove(d.root); d.dispose(); }
+    for (const d of this.ghostRigs.values()) { scene.remove(d.root); d.dispose(); }
+    for (const w of this.throws) scene.remove(w.g);
     if (this.mini) this.mini.close();
     $('lockerView').classList.add('hidden');
     for (const d of this.disRigs.values()) scene.remove(d.rig.root);
     $('minimap').classList.add('hidden'); $('tasks').classList.add('hidden');
     for (const b of this.bursts || []) scene.remove(b.g);
-    clearTimeout(this.introT);
+    clearTimeout(this.introT); clearTimeout(this.introT2);
+    this.endAssemble(); this.spawn = null; $('spawnCv').classList.add('hidden');
     this.s.on.ev = null;
     world.setShards(null); world.setExits([], false);
     $('hud').classList.add('hidden'); $('intro').classList.add('hidden'); $('touch').classList.add('hidden');
@@ -1121,20 +1421,119 @@ class Match {
 }
 
 // ------------------------------------------------------------------ menus
-const screens = ['title', 'soloPick', 'custom', 'lobby', 'results', 'pause', 'settings'];
+const screens = ['title', 'soloPick', 'custom', 'lobby', 'results', 'pause', 'settings', 'admin'];
 let curScreen = 'title';
 function show(id) { curScreen = id; for (const s of screens) $(s).classList.toggle('hidden', s !== id); }
 // menus that sit on the pixel-art title picture instead of the 3D world
-const PIX_SCREENS = new Set(['title', 'soloPick', 'lobby', 'settings']);
+const PIX_SCREENS = new Set(['title', 'soloPick', 'lobby', 'settings', 'admin']);
 const title = new Title($('pix'), sound, () => $('title').classList.add('menu'));
-const pressStart = () => { if (!match && curScreen === 'title' && title.state !== 'evil') { sound.start(); title.press(); return true; } return false; };
+const pressStart = () => { if (!window.__bootDone) return false; if (!match && curScreen === 'title' && title.state !== 'evil') { sound.start(); title.press(); return true; } return false; };
 $('pix').addEventListener('pointerdown', () => { sound.start(); pressStart(); });
 addEventListener('keydown', (e) => { if (!e.repeat && !(document.activeElement && document.activeElement.tagName === 'INPUT') && pressStart()) e.preventDefault(); });
 let menuMode = 'title'; // what the background camera does: title | custom
 let net = null;
 
 function setStatus(msg, err = false) { const s = $('status'); s.textContent = msg; s.classList.toggle('err', err); }
-function updateWho() { $('whoami').textContent = `${myName()} · ${CHARS[save.char].name}`; }
+function updateWho() { $('whoami').textContent = `${myName()}${acct.user ? ' ✓' : ''} · ${CHARS[save.char].name}`; }
+/** The title's account line: who you're signed in as, or how to sign in. */
+function renderAcct() {
+  const el = $('acct');
+  if (acct.user) el.innerHTML = `<span class="tick">✓</span> ${isOwner() ? `<b class="own">👑 ${esc(myName())}</b><span class="owntag">OWNER</span>` : `<b>${esc(myName())}</b>`}`;
+  else el.innerHTML = `Guest · <a href="../../" target="_top">Sign in</a> to use your account`;
+  el.title = acct.user ? 'Signed in with your Free Period account' : '';
+}
+function accountChanged() { renderAcct(); updateWho(); if (curScreen === 'custom') renderCustom(); }
+renderAcct();
+refreshAccount(acct).then((a) => { acct = a; accountChanged(); });
+// signing in or out on Free Period in another tab
+addEventListener('storage', (e) => { if (e.key === 'fp.token' || e.key === 'fp.user' || e.key === null) { acct = account(); accountChanged(); refreshAccount(acct).then((a) => { acct = a; accountChanged(); }); } });
+
+/** The owner's announcement: a banner in a round, a line in the lobby. */
+function showAnn(m) {
+  sound.play('click');
+  const line = `<b class="own">📢 ${esc(m.by)}</b> ${esc(m.text)}`;
+  if (match && !match.done) {
+    const b = $('annBar'); b.innerHTML = `<small>📢 ${esc(m.by)} · OWNER</small>${esc(m.text)}`; b.classList.add('on');
+    clearTimeout(showAnn.t); showAnn.t = setTimeout(() => b.classList.remove('on'), 5000);
+    feed(line);
+  }
+  else $('lobbyAnn').innerHTML = line;
+}
+
+// ------------------------------------------------------------------ ADMIN.EXE (the owner's tools)
+let adminFrom = null;
+const canAdmin = () => (match ? !!match.isOwn : !!(net && net.own));
+function openAdmin() {
+  if (curScreen === 'admin' || !canAdmin()) return;
+  adminFrom = curScreen;
+  if (match && !match.done) paused = true;
+  $('admNote').textContent = '';
+  renderAdmin(); show('admin');
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+function closeAdmin() {
+  if (curScreen !== 'admin') return;
+  if (match && !match.done) { paused = false; show(null); if (!touch) canvas.requestPointerLock?.()?.catch?.(() => {}); }
+  else show(adminFrom && adminFrom !== 'admin' ? adminFrom : net ? 'lobby' : 'title');
+}
+function renderAdmin() {
+  const inGame = !!(match && !match.done && match.isOwn && match.phase !== 'over');
+  const people = net && net.lobby ? net.lobby.players : [];
+  $('admWho').innerHTML = `<b class="own">👑 ${esc(myName())}</b><span class="owntag">OWNER</span> · ${net ? `room ${esc((net.lobby && net.lobby.code) || '')}` : 'solo game'}`;
+  const room = [];
+  if (net && !match) room.push('<button data-a="start">Start now</button>');
+  if (inGame) room.push('<button data-a="end">End round</button>');
+  $('admRoomBtns').innerHTML = room.join('');
+  $('admRoomBtns').classList.toggle('hidden', !room.length);
+  $('admExeWrap').classList.toggle('hidden', !net);
+  $('admExe').innerHTML = net ? [['', 'Random'], ['0', 'A bot'], ...people.map((p) => [String(p.id), p.id === net.me ? 'Me' : p.name])]
+    .map(([id, l]) => `<button data-a="exe" data-id="${id}" class="${(admExe === null ? '' : admExe) === id ? 'on' : ''}">${esc(l)}</button>`).join('') : '';
+  const others = net ? people.filter((p) => p.id !== net.me) : [];
+  $('admKickWrap').classList.toggle('hidden', !others.length);
+  $('admKick').innerHTML = others.map((p) => `<button data-a="kick" data-id="${p.id}">✕ ${esc(p.name)}</button>`).join('');
+  $('admAnnWrap').classList.toggle('hidden', !net);
+  $('admPow').classList.toggle('hidden', !inGame);
+  const POW = [['god', 'God mode'], ['speed', 'Super speed'], ['fly', touch ? 'Fly (JUMP goes up)' : 'Fly (Space up, C down)'], ['nocd', 'No cooldowns']];
+  $('admPowers').innerHTML = POW.map(([k, l]) => `<button data-a="pow" data-k="${k}" class="${adm[k] ? 'on' : ''}">${l}${adm[k] ? ' ON' : ''}</button>`).join('')
+    + (inGame && match.role === 'exe' ? '<button data-a="meter">Fill Awakening</button>' : '');
+  $('admRnd').classList.toggle('hidden', !inGame);
+  if (inGame) {
+    const targets = [...match.views.values()].filter((v) => v.id !== match.me);
+    $('admTp').innerHTML = targets.map((v) => `<button data-a="tp" data-id="${v.id}">${esc(v.role === 'exe' ? VARIANTS[v.variant].name : v.name)}</button>`).join('')
+      + ZONES.map((z, i) => `<button data-a="tpz" data-z="${i}">${esc(z.name)}</button>`).join('');
+    $('admRound').innerHTML = '<button data-a="tasks">Finish all tasks</button><button data-a="time" data-d="60">+1 min</button><button data-a="time" data-d="-60">−1 min</button><button data-a="world">Switch world</button>';
+  }
+  $('admEmpty').classList.toggle('hidden', !!(inGame || net));
+}
+$('admin').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-a]');
+  if (!b || !canAdmin()) return;
+  sound.play('click');
+  const a = b.dataset.a, s = match && !match.done ? match.s : null, note = (t) => { $('admNote').textContent = t; };
+  switch (a) {
+    case 'start': if (net) net.admin({ c: 'start' }); closeAdmin(); return;
+    case 'end': if (s) s.admin({ c: 'end' }); closeAdmin(); return;
+    case 'exe': admExe = b.dataset.id === '' ? null : b.dataset.id; if (net) net.admin({ c: 'exe', id: admExe === null ? null : +admExe }); break;
+    case 'kick': if (net) net.admin({ c: 'kick', id: +b.dataset.id }); break;
+    case 'pow': {
+      const k = b.dataset.k; adm[k] = !adm[k];
+      if ((k === 'god' || k === 'nocd') && s) s.admin({ c: k, on: adm[k] });
+      note(`${b.textContent.replace(/ ON$/, '')} ${adm[k] ? 'on' : 'off'}`);
+      break;
+    }
+    case 'meter': if (s) s.admin({ c: 'meter' }); note('Awakening meter is full. Press V.'); break;
+    case 'tp': if (s) s.admin({ c: 'tp', id: +b.dataset.id }); closeAdmin(); return;
+    case 'tpz': if (s) s.admin({ c: 'tp', zone: +b.dataset.z }); closeAdmin(); return;
+    case 'tasks': if (s) s.admin({ c: 'tasks' }); note('Every task is done. The gates are open.'); break;
+    case 'time': if (s) s.admin({ c: 'time', d: +b.dataset.d }); note(+b.dataset.d > 0 ? 'Added a minute' : 'Took away a minute'); break;
+    case 'world': if (s) s.admin({ c: 'world' }); closeAdmin(); return;
+  }
+  renderAdmin();
+});
+const sendAnn = () => { const t = $('admAnn').value.trim(); if (!t || !net || !net.own) return; net.admin({ c: 'ann', text: t }); $('admAnn').value = ''; $('admNote').textContent = 'Sent to everyone in the room'; };
+$('admAnnGo').onclick = () => { sound.play('click'); sendAnn(); };
+$('admAnn').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendAnn(); });
+$('admClose').onclick = () => { sound.play('click'); closeAdmin(); };
 
 function endMatch() { if (match) { match.dispose(); match = null; } paused = false; if (document.pointerLockElement) document.exitPointerLock(); }
 function leaveToMenu() {
@@ -1148,7 +1547,7 @@ function startSolo() {
   endMatch();
   let role = save.soloRole;
   if (role === 'random') role = Math.random() < 1 / 3 ? 'exe' : 'surv';
-  const session = new LocalSession({ seed: Math.floor(Math.random() * 1e9), players: [{ id: 1, name: myName(), look: save.look, char: save.char, variant: save.variant }], exeId: role === 'exe' ? 1 : null, me: 1 });
+  const session = new LocalSession({ seed: Math.floor(Math.random() * 1e9), players: [{ id: 1, name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock(), own: isOwner(), acct: !!acct.user }], exeId: role === 'exe' ? 1 : null, me: 1 });
   match = new Match(session, { solo: true });
   show(null);
   sound.start();
@@ -1177,14 +1576,18 @@ async function goOnline(mode) {
   if (mode === 'join' && code.length !== 4) { setStatus('Type the 4-letter room code first.', true); return; }
   setStatus(mode === 'quick' ? 'Finding a room… (the free server can take up to a minute to wake up)' : 'Connecting… (the free server can take up to a minute to wake up)');
   for (const b of ['bQuick', 'bCreate', 'bJoin']) $(b).disabled = true;
+  $('lobbyAnn').innerHTML = ''; admExe = null;
   if (net) net.close();
   net = new NetSession(serverUrl);
   try {
-    const w = await net.connect({ name: myName(), look: save.look, char: save.char, variant: save.variant, mode, code });
+    const w = await net.connect({ name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock(), mode, code, token: acct.token || undefined });
     setStatus('');
     net.on.lobby = (m) => renderLobby(m);
+    net.on.acct = () => { if (net.lobby) renderLobby(net.lobby); };
+    net.on.ann = (m) => showAnn(m);
+    net.on.adm = (m) => { $('admNote').textContent = m.msg; if (match && !match.done) feed(`<b class="own">ADMIN</b> ${esc(m.msg)}`); };
     net.on.round = () => { endMatch(); match = new Match(net, { solo: false }); show(null); if (!touch) canvas.requestPointerLock?.()?.catch?.(() => {}); };
-    net.on.close = () => { const wasIn = !!match || !$('lobby').classList.contains('hidden'); leaveToMenu(); if (wasIn) setStatus('Lost connection to the server.', true); };
+    net.on.close = () => { const wasIn = !!match || !$('lobby').classList.contains('hidden'), kicked = net && net.kicked; leaveToMenu(); if (kicked) setStatus('The owner kicked you from that room.', true); else if (wasIn) setStatus('Lost connection to the server.', true); };
     renderLobby(w);
     if (w.round) { match = new Match(net, { solo: false }); show(null); }
     else show('lobby');
@@ -1204,8 +1607,10 @@ function renderLobby(m) {
   const isHost = m.host === net.me;
   $('lobbyKind').textContent = m.public ? 'Quick play room' : 'Room code (tell your friends)';
   $('lobbyCode').textContent = m.code;
-  $('lobbyList').innerHTML = m.players.map((p) => `<div><i style="background:${CHARS[p.char] ? CHARS[p.char].accent : '#fff'}"></i>${esc(p.name)}${p.id === net.me ? ' (you)' : ''}<small>${CHARS[p.char] ? CHARS[p.char].name : ''}${p.id === m.host ? ' · host' : ''}</small></div>`).join('');
+  $('lobbyList').innerHTML = m.players.map((p) => `<div><i style="background:${CHARS[p.char] ? CHARS[p.char].accent : '#fff'}"></i>${p.own ? `<b class="own">👑 ${esc(p.name)}</b><span class="owntag">OWNER</span>` : esc(p.name)}${p.acct && !p.own ? ' <span class="tick" title="Signed in with a Free Period account">✓</span>' : ''}${p.id === net.me ? ' (you)' : ''}<small>${CHARS[p.char] ? CHARS[p.char].name : ''}${p.id === m.host ? ' · host' : ''}</small></div>`).join('');
   $('lobbyStart').classList.toggle('hidden', !isHost || m.public);
+  $('lobbyAdmin').classList.toggle('hidden', !net.own);
+  if (curScreen === 'admin') renderAdmin();
   const startAt = m.startIn != null ? performance.now() + m.startIn * 1000 : null;
   clearInterval(lobbyTimer);
   const tick = () => {
@@ -1216,25 +1621,44 @@ function renderLobby(m) {
     $('lobbyStatus').textContent = s;
   };
   tick(); lobbyTimer = setInterval(tick, 250);
-  if (!match || match.done) { if (match && match.done) { endMatch(); } show('lobby'); }
+  if (!match || match.done) { if (match && match.done) { endMatch(); } if (curScreen !== 'admin') show('lobby'); }
 }
 $('lobbyStart').onclick = () => { sound.play('click'); net && net.start(); };
 $('lobbyLeave').onclick = () => { sound.play('click'); leaveToMenu(); };
 $('lobbyCustom').onclick = () => { sound.play('click'); openCustom('lobby'); };
+$('lobbyAdmin').onclick = () => { sound.play('click'); openAdmin(); };
 
 // ------------------------------------------------------------------ customize
 let customFrom = 'title', tab = 'char', preview = null;
+const pvScene = new THREE.Scene();
+const pvCam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 80);
+const pvBg = new THREE.CanvasTexture($('pix'));
+pvBg.colorSpace = THREE.SRGBColorSpace; pvBg.magFilter = pvBg.minFilter = THREE.NearestFilter; pvBg.generateMipmaps = false;
+pvScene.background = pvBg; pvScene.backgroundIntensity = 0.5;
+pvScene.add(new THREE.HemisphereLight(0xffd6d6, 0x1a0006, 1.5));
+{ const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(3, 5, 6); pvScene.add(key); const rim = new THREE.DirectionalLight(0xff2a2a, 4); rim.position.set(-4, 3, -5); pvScene.add(rim); }
+{ const floor = new THREE.Mesh(new THREE.CircleGeometry(1.8, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6, depthWrite: false })); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.01; pvScene.add(floor); }
+addEventListener('resize', () => pvBg.dispose());
+function renderPreview(dt) {
+  pvBg.needsUpdate = true;
+  if (preview) { preview.root.rotation.y += dt * 0.5; preview.update(dt, { speed: 0, atk: -1 }); }
+  const exe = tab === 'exe', h = exe ? 4.0 : 2.6, dist = h * 2.7 + 2.5;
+  pvCam.aspect = innerWidth / innerHeight; pvCam.updateProjectionMatrix();
+  const halfW = Math.tan(THREE.MathUtils.degToRad(pvCam.fov / 2)) * dist * pvCam.aspect, off = innerWidth > 760 ? halfW * 0.36 : 0;
+  pvCam.position.set(-off, h * 0.62, dist); pvCam.lookAt(-off, h * 0.5, 0);
+  renderer.render(pvScene, pvCam);
+}
 function rebuildPreview() {
-  if (preview) { scene.remove(preview.root); preview.dispose(); }
+  if (preview) { pvScene.remove(preview.root); preview.dispose(); }
   preview = tab === 'exe' ? new Rig({ role: 'exe', variant: save.variant }) : new Rig({ role: 'surv', look: save.look, char: save.char });
-  preview.root.position.set(4, V.y, 7); preview.root.rotation.y = 0.3;
-  scene.add(preview.root);
+  preview.root.rotation.y = 0.3;
+  pvScene.add(preview.root);
 }
 function openCustom(from) { customFrom = from; show('custom'); menuMode = 'custom'; renderCustom(); rebuildPreview(); }
 function closeCustom() {
-  if (preview) { scene.remove(preview.root); preview = null; }
+  if (preview) { pvScene.remove(preview.root); preview.dispose(); preview = null; }
   persist(); updateWho();
-  if (net) net.pick({ name: myName(), look: save.look, char: save.char, variant: save.variant });
+  if (net) net.pick({ name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock() });
   menuMode = 'title';
   show(customFrom);
 }
@@ -1249,10 +1673,13 @@ function chips(id, list, cur, onPick) {
 function renderCustom() {
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   for (const t of ['char', 'avatar', 'exe']) $('tab-' + t).classList.toggle('hidden', t !== tab);
-  $('charCards').innerHTML = CHAR_IDS.map((id) => { const c = CHARS[id]; return `<button class="card${save.char === id ? ' on' : ''}" data-id="${id}" style="--accent:${c.accent}"><b>${c.name}</b><i>${c.role}</i><p>${esc(c.desc)}</p><div class="ab">${c.abilityName} · ${c.cd}s</div></button>`; }).join('');
-  $('exeCards').innerHTML = VARIANT_IDS.map((id) => { const v = VARIANTS[id]; return `<button class="card${save.variant === id ? ' on' : ''}" data-id="${id}" style="--accent:#ff2a3a"><b>${esc(v.name)}</b><i>speed ${v.speed}</i><p>${esc(v.desc)}</p><div class="ab">E: ${v.abilityName} · ${v.cd}s</div><p style="margin-top:4px">${esc(v.desc2)}</p><div class="ab">R: ${v.ab2Name} · ${v.cd2}s</div></button>`; }).join('');
+  const lvLine = (k) => { const l = isOwner() ? { lv: LEVEL.max } : lvOf(k); return `<div class="lv">Level ${l.lv}${l.lv < LEVEL.max ? ` <span class="xpbar"><i style="width:${Math.round((l.into / l.need) * 100)}%"></i></span>` : ' · MAX'}</div>`; };
+  $('charCards').innerHTML = CHAR_IDS.map((id) => { const c = CHARS[id], q = unlocked(id); return `<button class="card${save.char === id ? ' on' : ''}" data-id="${id}" style="--accent:${c.accent}"><b>${c.name}</b><i>${c.role}</i>${lvLine(id)}<div class="ab">E ${c.abilityName}</div><div class="ab">R ${c.r.name}</div><p>${esc(c.r.desc)}</p><div class="ab${q ? '' : ' lockd'}">Q ${c.q.name}${q ? '' : ' 🔒 Lv 10'}</div><p>${esc(c.q.desc)}</p></button>`; }).join('');
+  $('exeCards').innerHTML = VARIANT_IDS.map((id) => { const v = VARIANTS[id], aw = unlocked(id); return `<button class="card${save.variant === id ? ' on' : ''}" data-id="${id}" style="--accent:#ff2a3a"><b>${esc(v.name)}</b><i>${v.role} · speed ${v.speed} · hits ${v.dmg}</i>${lvLine(id)}<p>${esc(v.desc)}</p><div class="ab">Click ${v.atkName}</div>${['abl', 'ab2', 'ab3', 'ab4'].map((k, i) => `<div class="ab">${'ERQF'[i]} ${v.moves[k].name}</div>`).join('')}<div class="ab${aw ? '' : ' lockd'}">V ${v.awake.name}${aw ? '' : ' 🔒 Lv 10'}</div><p>${esc(v.awake.desc)}</p></button>`; }).join('');
   const L = save.look;
-  $('name').value = save.name;
+  $('name').value = acct.user ? myName() : save.name;
+  $('name').disabled = !!acct.user;
+  $('nameNote').textContent = acct.user ? 'Your name comes from your Free Period account.' : '';
   swatches('swSkin', SKINS, L.skin, (v) => { L.skin = v; });
   swatches('swShirt', COLORS, L.shirt, (v) => { L.shirt = v; });
   chips('chStyle', SHIRT_STYLES, L.style, (v) => { L.style = v; });
@@ -1290,12 +1717,13 @@ $('bSettings').onclick = () => { sound.start(); sound.play('click'); settingsFro
 function togglePause(force) {
   if (!match || match.done) return;
   paused = force === true ? true : !paused;
-  if (paused) { show('pause'); $('pNote').textContent = match.solo ? 'The game is paused.' : 'Online games keep going while you are paused.'; }
+  if (paused) { show('pause'); $('pNote').textContent = match.solo ? 'The game is paused.' : 'Online games keep going while you are paused.'; $('pAdmin').classList.toggle('hidden', !match.isOwn); }
   else { show(null); if (!touch) canvas.requestPointerLock?.()?.catch?.(() => {}); }
 }
 $('pResume').onclick = () => { sound.play('click'); togglePause(false); paused = false; show(null); if (!touch) canvas.requestPointerLock?.()?.catch?.(() => {}); };
 $('pSettings').onclick = () => { sound.play('click'); settingsFrom = 'pause'; renderSettings(); show('settings'); };
 $('pLeave').onclick = () => { sound.play('click'); leaveToMenu(); };
+$('pAdmin').onclick = () => { sound.play('click'); paused = false; openAdmin(); };
 
 // ------------------------------------------------------------------ server status on the title screen
 async function refreshOnline() {
@@ -1347,7 +1775,7 @@ function menuUpdate(dt, t) {
 }
 
 // ------------------------------------------------------------------ main loop
-let last = performance.now(), pixWas = null;
+let last = performance.now(), pixWas = null, holdFrames = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); // the first frame's timestamp can be older than `last`
@@ -1363,10 +1791,19 @@ function frame(now) {
     sound.update(dt, title.music, 0.03);
     return;
   }
+  if (!match && curScreen === 'custom') {
+    // the title picture behind the character being customized
+    title.update(dt); title.draw();
+    tickRigFx(dt);
+    renderPreview(dt);
+    sound.update(dt, 'menu', 0.03);
+    return;
+  }
   if (match) { lurker.root.visible = false; match.update(dt); }
   else menuUpdate(dt, t);
+  tickRigFx(dt, match ? match.viewW : undefined);
   world.update(dt, camera, match && match.camFocus ? match.camFocus : null);
-  composer.render(dt);
+  if (holdFrames > 0) holdFrames--; else composer.render(dt);
   adaptResolution(dt);
 }
 updateWho();
@@ -1374,6 +1811,16 @@ show('title');
 refreshOnline();
 requestAnimationFrame(frame);
 
+(async () => {
+  const B = window.__boot;
+  B && B.set(0.82, 'LOADING FACES');
+  const font = document.fonts ? document.fonts.load('8px "Press Start 2P"').catch(() => {}) : 0;
+  await Promise.race([Promise.all([glitchFacesReady(), font]), new Promise((r) => setTimeout(r, 4000))]);
+  B && B.set(0.9, 'COMPILING SHADERS');
+  try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 6000))]); } catch {}
+  await finishBoot();
+})();
+
 // for testing from the console / headless browser
-window.__hx = { get match() { return match; }, world, save, startSolo, leaveToMenu, input, sound, fx, renderer, camera, title, show };
+window.__hx = { get match() { return match; }, get net() { return net; }, get acct() { return acct; }, adm, openAdmin, closeAdmin, world, save, startSolo, leaveToMenu, input, sound, fx, renderer, camera, title, show };
 window.__hxGround = (x, z) => supportAt(x, z, terrainH(x, z) + 0.2);

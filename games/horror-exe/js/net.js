@@ -22,6 +22,8 @@ export class LocalSession {
   }
   sendState(s) { this.round.input(this.me, s); }
   action(a) { return this.round.action(this.me, a); }
+  /** The owner's admin tools in a solo game: round tools only (there's no room to kick from or announce to). */
+  admin(c) { return this.round.admin(this.me, c); }
   /** Pose of anyone right now. */
   sample(id, out) {
     const e = this.round.ents.get(id);
@@ -39,7 +41,8 @@ export class NetSession {
     this.ws = null;
     this.offset = 0; this.bestRtt = Infinity; this.rtt = 0;
     this.snaps = []; this.latest = null; this.info = null; this.lobby = null;
-    this.on = {}; // lobby, round, ev, close
+    this.on = {}; // lobby, round, ev, close, acct, ann, adm, kicked
+    this.own = false; this.acct = null; this.kicked = false;
     this.sentAt = 0;
   }
 
@@ -99,6 +102,11 @@ export class NetSession {
         this.latest = m;
         break;
       case 'ev': for (const e of m.ev) this.on.ev && this.on.ev(e); break;
+      // the server checked our Free Period sign-in
+      case 'acct': this.acct = m.username; this.own = !!m.own; this.on.acct && this.on.acct(m); break;
+      case 'ann': this.on.ann && this.on.ann(m); break;
+      case 'adm': this.on.adm && this.on.adm(m); break;
+      case 'kicked': this.kicked = true; break;
     }
   }
 
@@ -111,6 +119,7 @@ export class NetSession {
   }
   action(a) { this.send({ t: 'act', k: a.k, ok: a.ok === true }); return true; }
   pick(p) { this.send({ t: 'pick', ...p }); }
+  admin(c) { this.send({ t: 'admin', ...c }); return true; }
   start() { this.send({ t: 'start' }); }
   update() {}
 

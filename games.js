@@ -26,7 +26,7 @@ window.GAMES = [
   {
     id: 'bing-ball',
     title: 'Bing Ball',
-    tagline: '3D multiplayer soccer with anime-style moves, Flow states and ranked.',
+    tagline: '3D multiplayer soccer with Flow states and ranked.',
     url: 'https://bing-ball.onrender.com',
     thumb: 'assets/bing-ball.jpg',
     hero: 'assets/bing-ball-hero.jpg',
@@ -62,7 +62,7 @@ window.GAMES = [
     url: 'games/horror-exe/',
     thumb: 'assets/horror-exe.jpg',
     tags: ['3D', 'Multiplayer', 'Horror'],
-    controls: 'WASD move · Shift sprint · Space jump · E power · F hide · EXE: click attack, E/R powers, Q sense, F disguise · Esc pause',
+    controls: 'WASD move · Shift sprint · Space jump · E R Q abilities · F hide · EXE: click + E R Q F moves, G disguise, V awaken · Esc pause',
     accent: '#ff2a3a',
     saveKey: 'horrorexe.v1',
     added: '2026-11-09',

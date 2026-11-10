@@ -158,14 +158,28 @@ function decideSurv(R, e, b) {
     b.mode = 'flee'; b.tx = e.x + Math.sin(best) * 10; b.tz = e.z + Math.cos(best) * 10; b.arrive = 0;
     b.dir = b.detour > 0 ? b.detourA : best;
     b.sprint = true;
+    const realExe = threat && threat.fx && threat === x;
+    if (!R.inField(e) && R.rand() < 0.6) {
+      const r = c.r.id, q = e.unlockQ ? c.q.id : null, rd = t >= e.cd.ab2, qd = q && t >= e.cd.ab3;
+      const faceX = Math.atan2(threat.x - e.x, threat.z - e.z);
+      if (qd && q === 'after' && dx < 7) { b.act = 'ab3'; return; }
+      if (qd && q === 'iron' && dx < 4 && e.hp <= 150) { b.act = 'ab3'; return; }
+      if (qd && q === 'spin' && dx < 4 && realExe) { b.act = 'ab3'; return; }
+      if (rd && r === 'wind' && e.sta.stamina < 30) { b.act = 'ab2'; return; }
+      if (rd && r === 'wrench' && dx > 4 && dx < 14 && realExe) { b.act = 'ab2'; b.face = faceX; return; }
+      if (rd && r === 'pound' && dx < 5 && realExe) { b.act = 'ab2'; return; }
+      if (rd && r === 'heal' && e.hp <= 150) { b.act = 'ab2'; return; }
+    }
     if (t >= e.cd.abl && R.rand() < 0.7 && !R.inField(e)) {
       if (c.ability === 'dash' && dx < 5.5) { b.act = 'abl'; b.face = best; }
       else if (c.ability === 'fly' && dx < 6.5) { b.act = 'abl'; b.flyUp = 1.9; }
-      else if ((c.ability === 'punch' || c.ability === 'bonk') && dx < 3.0 && x.fx && x.fx.stun <= t) { b.act = 'abl'; b.face = Math.atan2(x.x - e.x, x.z - e.z); }
+      else if ((c.ability === 'punch' || c.ability === 'bonk') && dx < 3.0 && realExe && x.fx.stun <= t) { b.act = 'abl'; b.face = Math.atan2(x.x - e.x, x.z - e.z); }
     }
     return;
   }
   b.sprint = false;
+  if (c.r.id === 'heal' && t >= e.cd.ab2 && team.some((o) => o.st === ST.alive && o.w === e.w && o.hp <= 200 && dist(o, e) < c.r.range)) { b.act = 'ab2'; }
+  if (e.unlockQ && c.q.id === 'turbo' && t >= e.cd.ab3 && b.mode === 'stay') b.act = 'ab3';
   // revive a teammate in this world
   const downed = team.filter((s) => s.st === ST.down && s.w === e.w);
   if (downed.length && (!visibleExe || dx > 22)) {
@@ -243,8 +257,8 @@ function decideExe(R, e, b) {
   if (b.lastW !== e.w) { b.lastW = e.w; b.wantPortal = false; b.noTarget = 0; b.wander = null; b.lastSeen = null; }
   const alive = R.survivors().filter((s) => s.st === ST.alive);
   let target = null, best = Infinity;
-  for (const s of alive) {
-    if (s.w !== e.w || s.hidden) continue;
+  const cands = alive.filter((s) => s.w === e.w && !s.hidden && !(s.fx.invis > t)).concat(R.ghosts.filter((g) => g.w === e.w).map((g) => ({ ...g, fx: { reveal: 0, invuln: 0 }, hp: 100, ghost: true })));
+  for (const s of cands) {
     const d = dist(s, e);
     const known = s.fx.reveal > t || d < 26 || (d < 60 && lineOfSight(e.x, e.y + 2.6, e.z, s.x, s.y + 1.5, s.z, e.w));
     if (!known) continue;
@@ -254,13 +268,7 @@ function decideExe(R, e, b) {
   if (target) {
     b.wantPortal = false;
     b.targetId = target.id; b.noTarget = 0; b.lastSeen = { x: target.x, z: target.z };
-    if (!e.disguise && t >= e.cd.ab2 && R.rand() < 0.4) {
-      const d0 = dist(target, e);
-      if (v.ab2 === 'hunt' && d0 > 10 && d0 < 30) b.act = 'ab2';
-      else if (v.ab2 === 'static' && d0 < 7) b.act = 'ab2';
-      else if (v.ab2 === 'decoy' && d0 > 15 && d0 < 45) b.act = 'ab2';
-      if (b.act) return;
-    }
+    if (!e.disguise && e.unlockAwaken && !e.awakeUsed && e.meter >= 100 && dist(target, e) < 25) { b.act = 'awaken'; return; }
     const d = dist(target, e), lead = Math.min(0.5, d / 20);
     const px = target.x + (target.vx || 0) * lead, pz = target.z + (target.vz || 0) * lead;
     goal(e, b, px, pz, 'chase', 0);
@@ -273,18 +281,31 @@ function decideExe(R, e, b) {
     }
     b.sprint = false;
     if (e.w === 0 && d > 20 && t >= e.cd.disguise && R.rand() < 0.5) { b.act = 'disguise'; return; }
-    if (d < EXE.atkRange * 0.8 && t >= e.cd.atk && target.fx.invuln <= t && Math.abs(target.y - e.y) < 2.5) { b.face = facing; b.act = 'atk'; }
-    else if (t >= e.cd.abl && R.rand() < 0.5) {
-      if (v.ability === 'lunge' && d > 4 && d < 9.5) { b.face = facing; b.act = 'abl'; }
-      else if (v.ability === 'blink' && d > 10 && d < 22) { b.face = facing; b.act = 'abl'; }
-      else if (v.ability === 'fade' && d > 14 && d < 45) b.act = 'abl';
+    if (d < v.range * 0.8 && t >= e.cd.atk && target.fx.invuln <= t && Math.abs(target.y - e.y) < 2.5 && !(e.fx.spin > t)) { b.face = facing; b.act = 'atk'; }
+    else if (R.rand() < 0.5) {
+      // pick one of the four moves that fits the distance
+      const m = v.moves, ready = (k) => t >= e.cd[k];
+      const use = (k, face) => { b.act = k; if (face) b.face = facing; };
+      for (const k of ['abl', 'ab2', 'ab3', 'ab4']) {
+        if (!ready(k) || b.act) continue;
+        const id = m[k].id;
+        if (id === 'dash' && d > 4 && d < 12) use(k, true);
+        else if (id === 'spin' && d < 9 && d > 2) use(k, true);
+        else if (id === 'hunt' && d > 10 && d < 30) use(k);
+        else if (id === 'blink' && d > 10 && d < 22) use(k, true);
+        else if (id === 'static' && d < 7) use(k);
+        else if (id === 'dice' && d > 12 && R.rand() < 0.3) use(k);
+        else if (id === 'fade' && d > 14 && d < 45) use(k);
+        else if (id === 'decoy' && d > 15 && d < 45) use(k, true);
+        else if (id === 'reach' && d > 3.5 && d < 8.5) use(k, true);
+      }
     }
     if (target.y > e.y + 1.2 && d < 6) b.jump = true;
     return;
   }
   b.targetId = null; b.noTarget += 0.12;
   if (e.w === 0 && !e.disguise && t >= e.cd.disguise) b.act = 'disguise';
-  else if (b.noTarget > 4 && t >= e.cd.sense && !e.disguise) b.act = 'sense';
+  else if (b.noTarget > 4 && t >= e.cd.ab3 && !e.disguise) b.act = 'ab3'; // Echo / Corrupt Ping / Scent
   // hunt in the world where most survivors are
   const here = alive.filter((s) => s.w === e.w).length, there = alive.length - here;
   if (b.wantPortal || (there > here && b.noTarget > 3) || (!here && there)) { toPortal(e, b); b.sprint = !!e.disguise; return; }
@@ -303,7 +324,7 @@ function decideExe(R, e, b) {
     goal(e, b, lk.fx, lk.fz, 'rip', 0.6);
     return;
   }
-  if (!e.disguise && t >= e.cd.ab2 && v.ab2 === 'hunt' && b.noTarget > 5) { b.act = 'ab2'; return; }
+  if (!e.disguise && t >= e.cd.ab2 && v.moves.ab2.id === 'hunt' && b.noTarget > 5) { b.act = 'ab2'; return; }
   b.lastSeen = null;
   if (!b.wander || dist(b.wander, e) < 4 || b.noTarget > 14) {
     b.noTarget = Math.min(b.noTarget, 5);

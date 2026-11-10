@@ -35,11 +35,12 @@ export const QTE = { prompts: 6, ring0: 1.05, ring1: 0.62, timeout: 12, botWin: 
 export const TASK = { valveTime: 5, valveRange: 2.2, panelRange: 1.7, bellRange: 2.3, coreRange: 2.0, engineRange: 3.5, carryMul: 0.8 };
 
 export const SURV = {
-  hp: 3, revives: 1, // three lives; each survivor can be revived once
+  hp: 300, heart: 100, revives: 1, // health: three hearts of 100; each survivor can be revived once (back with 1 heart)
   stamina: 100, drain: 19, regen: 14, regenDelay: 0.9, exhaustedUntil: 25,
   jump: 9.2, crawl: 1.4,
   downTime: 20, reviveTime: 3, reviveRange: 2.8,
-  boostMul: 1.4, boostTime: 3, invulnTime: 1.6,
+  boostMul: 1.4, boostPer100: 2.4, invulnBase: 0.4, invulnPer100: 0.55, // after a hit: a speed burst and a moment of safety, both scale with damage
+  lavaDmg: 50, qteDmg: 100,
   pickupRange: 2.4, shardTime: 4.5, exitRange: 3.4,
   height: 2.4, radius: 0.5,
   waterMul: 0.62, gooMul: 0.5,
@@ -48,56 +49,98 @@ export const SURV = {
 
 export const EXE = {
   jump: 10.5,
-  atkRange: 3.3, atkDot: 0.25, atkCd: 1.0, lagGrace: 1.2,
-  recoverTime: 2.0, recoverMul: 0.45,
+  atkDot: 0.25, lagGrace: 1.2, recoverMul: 0.5, slowMul: 0.6,
   senseCd: 22, senseRange: 26, revealTime: 4.5,
   escapeMul: 1.08, corruptMul: 1.1,
   height: 3.0, radius: 0.6,
   disguiseCd: 15, popTime: 0.7,
 };
 
+// Awakening (monsters at level 10): a meter fills during the round; full = press V for 25 s of super mode
+export const AWAKEN = { dur: 25, passive: 0.9, perHit: 10, perDown: 25, screamRange: 10, screamStun: 1.4 };
+
+// levels: XP per round for the character or monster you played; level 10 unlocks Q (survivors) / Awakening (monsters)
+export const LEVEL = {
+  max: 10,
+  need: (lv) => 150 + 60 * (lv - 1), // XP from level lv to lv + 1
+  surv: { round: 60, task: 25, revive: 40, escape: 120, shard: 0 },
+  exe: { round: 60, hit: 6, down: 40, win: 150 },
+};
+export function levelOf(xp) {
+  let lv = 1, left = Math.max(0, xp | 0);
+  while (lv < LEVEL.max && left >= LEVEL.need(lv)) { left -= LEVEL.need(lv); lv++; }
+  return { lv, into: left, need: lv < LEVEL.max ? LEVEL.need(lv) : 0 };
+}
+
 export const CHARS = {
   bolt: {
     name: 'Bolt', role: 'Speedster', accent: '#ffd23d', walk: 7.0, sprint: 11.2,
     ability: 'dash', abilityName: 'Dash', cd: 8, dur: 0.32, dashSpeed: 28,
     desc: 'The fastest runner. Dash bursts you forward, and nothing can touch you mid-dash.',
+    r: { id: 'wind', name: 'Second Wind', cd: 20, dur: 3, desc: 'Full stamina and a 3 s speed burst.' },
+    q: { id: 'after', name: 'Afterimage', cd: 25, dur: 3, desc: 'A fake you runs straight ahead while you turn invisible for 3 s.' },
   },
   pip: {
     name: 'Pip', role: 'Flyer', accent: '#ff9a2e', walk: 6.4, sprint: 10,
     ability: 'fly', abilityName: 'Fly', cd: 13, dur: 3,
     desc: 'Fly for 3 seconds. Hold Space to climb onto ledges and floating platforms.',
+    r: { id: 'wrench', name: 'Wrench Toss', cd: 12, missCd: 5, range: 16, dur: 3, desc: 'Throw a wrench: EXE is slowed for 3 s.' },
+    q: { id: 'turbo', name: 'Turbo Gadget', cd: 35, dur: 8, range: 10, desc: 'For 8 s, you and teammates near you do tasks twice as fast.' },
   },
   rook: {
     name: 'Rook', role: 'Brawler', accent: '#ff4d4d', walk: 6.2, sprint: 9.8,
     ability: 'punch', abilityName: 'Stun Punch', cd: 20, missCd: 4, dur: 2, range: 3.6,
     desc: 'Punch EXE up close to freeze it for 2 seconds.',
+    r: { id: 'pound', name: 'Ground Pound', cd: 18, missCd: 6, range: 5.5, dur: 2, knock: 14, desc: 'Slam the ground: EXE nearby is thrown back and slowed.' },
+    q: { id: 'iron', name: 'Iron Body', cd: 30, dur: 4, desc: 'Take no damage for 4 s.' },
   },
   mira: {
     name: 'Mira', role: 'Hammer', accent: '#ff6fb5', walk: 6.4, sprint: 10,
     ability: 'bonk', abilityName: 'Bonk', cd: 15, missCd: 4, dur: 0.8, range: 3.8, knock: 16, reviveMul: 2,
     desc: 'Bonk EXE away with your mallet. You also revive teammates twice as fast.',
+    r: { id: 'heal', name: 'Heart Toss', cd: 28, range: 9, amount: 100, desc: 'Heal the most hurt teammate near you (or yourself) by 1 heart.' },
+    q: { id: 'spin', name: 'Hammer Spin', cd: 25, range: 4.5, dur: 1.5, knock: 12, desc: 'Spin your mallet: stuns everything around you.' },
   },
 };
 export const CHAR_IDS = Object.keys(CHARS);
 
+// the monsters: 5 moves each (click + E, R, Q, F), a shared disguise (G) and, at level 10, an Awakening (V)
 export const VARIANTS = {
   exe: {
-    name: 'EXE', speed: 9.0, ability: 'lunge', abilityName: 'Lunge', cd: 7, dur: 0.45, lungeSpeed: 23,
-    desc: 'The balanced hunter. Lunge forward and tear through anyone in the way.',
-    ab2: 'hunt', ab2Name: 'Bloodhunt', cd2: 30, dur2: 6, huntMul: 1.3,
-    desc2: 'For 6 seconds you run much faster and see everyone in your world.',
+    name: 'EXE', role: 'Speedster', speed: 10.2, dmg: 35, atkCd: 0.45, range: 3.0, recover: 0.35,
+    desc: 'The fastest hunter. Light hits, thrown very fast.',
+    atkName: 'Rapid Claws',
+    moves: {
+      abl: { id: 'dash', name: 'Dash Strike', cd: 7, dur: 0.5, speed: 30, dmg: 35, desc: 'Tear forward, slashing everyone you pass.' },
+      ab2: { id: 'hunt', name: 'Bloodhunt', cd: 30, dur: 6, mul: 1.25, desc: 'For 6 s you are faster and see everyone in your world.' },
+      ab3: { id: 'echo', name: 'Echo', cd: 18, range: 30, dur: 4.5, desc: 'Reveal survivors who are running or close by.' },
+      ab4: { id: 'spin', name: 'Spin Rush', cd: 16, dur: 3, mul: 1.6, dmg: 25, desc: 'Roll as a spinning blade for 3 s, smashing anyone you touch.' },
+    },
+    awake: { name: 'Overdrive', speedMul: 1.3, dmgMul: 1.45, cdMul: 0.5, desc: 'Faster still, harder claws, half cooldowns, and runners near you are always revealed.' },
   },
   glitch: {
-    name: 'Glitch.exe', speed: 8.6, ability: 'blink', abilityName: 'Blink', cd: 10, dist: 15,
-    desc: 'Slower, but Blink teleports you 15 m ahead, straight through walls.',
-    ab2: 'static', ab2Name: 'Static Field', cd2: 26, dur2: 6, radius: 9, slowMul: 0.5,
-    desc2: 'Drop a glitch zone for 6 seconds: survivors inside move at half speed and cannot use abilities.',
+    name: 'Glitch.exe', role: 'Wildcard', speed: 9.2, dmg: 55, atkCd: 0.9, range: 3.2, recover: 0.9,
+    desc: 'Unpredictable. Medium speed, medium hits, and tricks nobody can read.',
+    atkName: 'Static Slash',
+    moves: {
+      abl: { id: 'blink', name: 'Blink', cd: 10, dist: 15, desc: 'Teleport 15 m ahead, straight through walls.' },
+      ab2: { id: 'static', name: 'Static Field', cd: 26, dur: 6, radius: 9, slowMul: 0.5, desc: 'A glitch zone for 6 s: survivors inside are slowed and cannot use abilities.' },
+      ab3: { id: 'ping', name: 'Corrupt Ping', cd: 20, dur: 2.5, desc: 'See every survivor in your world for a moment, but they see you too.' },
+      ab4: { id: 'dice', name: 'Roll the Dice', cd: 18, desc: 'Something random: warp behind someone, swap places, flip their controls, or a static storm.' },
+    },
+    awake: { name: 'Fatal Error', speedMul: 1.15, dmgMul: 1.35, cdMul: 0.45, desc: 'Blink almost nonstop, your static fields follow you, and every dice roll happens twice.' },
   },
   grin: {
-    name: 'Grin.exe', speed: 8.9, ability: 'fade', abilityName: 'Fade', cd: 18, dur: 6, fadeMul: 1.12,
-    desc: 'Fade turns you almost invisible for 6 seconds. Attacking ends it.',
-    ab2: 'decoy', ab2Name: 'Decoy', cd2: 20, dur2: 6, decoySpeed: 11,
-    desc2: 'Send a fake Grin running at the nearest survivor. It bursts into static: harmless, but they will not know that.',
+    name: 'Grin.exe', role: 'Brute', speed: 9.0, dmg: 110, atkCd: 1.1, range: 4.0, recover: 1.1,
+    desc: 'The slowest, and the heaviest hitter by far.',
+    atkName: 'Crushing Grab',
+    moves: {
+      abl: { id: 'fade', name: 'Fade', cd: 18, dur: 6, mul: 1.12, desc: 'Almost invisible for 6 s. Attacking ends it.' },
+      ab2: { id: 'decoy', name: 'Decoy', cd: 20, dur: 6, speed: 11, desc: 'A fake Grin runs at the nearest survivor and bursts into static.' },
+      ab3: { id: 'scent', name: 'Scent', cd: 20, dur: 6, desc: 'Smell the most hurt survivor in your world and see them for 6 s.' },
+      ab4: { id: 'reach', name: 'Long Reach', cd: 9, missCd: 4, range: 10, dmg: 30, desc: 'Your arm stretches out and drags a survivor right up to you.' },
+    },
+    awake: { name: 'Wide Smile', speedMul: 1.15, dmgMul: 1.45, cdMul: 0.6, desc: 'Bigger and harder hitting, a scream that freezes everyone near you, and triple decoys.' },
   },
 };
 export const VARIANT_IDS = Object.keys(VARIANTS);
@@ -108,6 +151,7 @@ export const F = {
   FADE: 256, REVEAL: 512, LUNGE: 1024, RECOVER: 2048, REVIVING: 4096, WATER: 8192,
   GOO: 16384, CARRY: 32768, POP: 65536, ICE: 131072,
   HIDDEN: 262144, QTE: 524288, HUNT: 1048576, SLOWED: 2097152,
+  SPIN: 4194304, AWAKE: 8388608, INVIS: 16777216, IRON: 33554432, INVERT: 67108864, TURBO: 134217728, PINGED: 268435456, SLOWX: 536870912,
 };
 export const ST = { alive: 0, down: 1, out: 2, esc: 3 };
 export const PHASES = ['intro', 'play', 'escape', 'over'];
@@ -116,13 +160,17 @@ export const PHASES = ['intro', 'play', 'escape', 'over'];
 export function moveSpeed(role, kind, st, flags, phase, sprinting, w = 0, disguisedAs = null) {
   if (role === 'exe') {
     if (phase === 'intro' || flags & F.STUN || flags & F.POP) return 0;
-    if (flags & F.HUNT && !disguisedAs) return VARIANTS[kind].speed * VARIANTS.exe.huntMul * (w === 1 ? EXE.corruptMul : 1);
-    if (disguisedAs) return Math.min(sprinting ? CHARS[disguisedAs].sprint : CHARS[disguisedAs].walk, VARIANTS[kind].speed);
-    let s = VARIANTS[kind].speed;
+    const v = VARIANTS[kind];
+    if (disguisedAs) return Math.min(sprinting ? CHARS[disguisedAs].sprint : CHARS[disguisedAs].walk, v.speed);
+    let s = v.speed;
     if (phase === 'escape') s *= EXE.escapeMul;
     if (w === 1) s *= EXE.corruptMul;
+    if (flags & F.AWAKE) s *= v.awake.speedMul;
+    if (flags & F.HUNT) s *= VARIANTS.exe.moves.ab2.mul;
+    if (flags & F.SPIN) s *= VARIANTS.exe.moves.ab4.mul;
+    if (flags & F.FADE) s *= VARIANTS.grin.moves.abl.mul;
     if (flags & F.RECOVER) s *= EXE.recoverMul;
-    if (flags & F.FADE) s *= VARIANTS[kind].fadeMul || 1;
+    if (flags & F.SLOWX) s *= EXE.slowMul;
     if (flags & F.GOO) s *= SURV.gooMul;
     return s;
   }
@@ -134,7 +182,7 @@ export function moveSpeed(role, kind, st, flags, phase, sprinting, w = 0, disgui
   if (flags & F.WATER) s *= SURV.waterMul;
   if (flags & F.GOO) s *= SURV.gooMul;
   if (flags & F.CARRY) s *= TASK.carryMul;
-  if (flags & F.SLOWED) s *= VARIANTS.glitch.slowMul;
+  if (flags & F.SLOWED) s *= VARIANTS.glitch.moves.ab2.slowMul;
   return s;
 }
 
