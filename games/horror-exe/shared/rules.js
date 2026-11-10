@@ -28,10 +28,14 @@ export const TASKS = [
   { id: 'core', zone: 'Frostbite Peak', w: 1, label: 'Bring the fire core to the engine' },
   { id: 'bells', zone: 'Ember Ruins', w: 1, label: 'Ring the bells' },
 ];
+// lockers: hide from EXE (and its Sense), but not for too long
+export const HIDE = { range: 1.9, max: 15, warn: 10, seenRange: 12, cooldown: 4 };
+// the quick-time minigame when EXE drags you out of a locker
+export const QTE = { prompts: 6, ring0: 1.05, ring1: 0.62, timeout: 12, botWin: 0.55 };
 export const TASK = { valveTime: 5, valveRange: 2.2, panelRange: 1.7, bellRange: 2.3, coreRange: 2.0, engineRange: 3.5, carryMul: 0.8 };
 
 export const SURV = {
-  hp: 2,
+  hp: 3, revives: 1, // three lives; each survivor can be revived once
   stamina: 100, drain: 19, regen: 14, regenDelay: 0.9, exhaustedUntil: 25,
   jump: 9.2, crawl: 1.4,
   downTime: 20, reviveTime: 3, reviveRange: 2.8,
@@ -80,14 +84,20 @@ export const VARIANTS = {
   exe: {
     name: 'EXE', speed: 9.0, ability: 'lunge', abilityName: 'Lunge', cd: 7, dur: 0.45, lungeSpeed: 23,
     desc: 'The balanced hunter. Lunge forward and tear through anyone in the way.',
+    ab2: 'hunt', ab2Name: 'Bloodhunt', cd2: 30, dur2: 6, huntMul: 1.3,
+    desc2: 'For 6 seconds you run much faster and see everyone in your world.',
   },
   glitch: {
     name: 'Glitch.exe', speed: 8.6, ability: 'blink', abilityName: 'Blink', cd: 10, dist: 15,
     desc: 'Slower, but Blink teleports you 15 m ahead, straight through walls.',
+    ab2: 'static', ab2Name: 'Static Field', cd2: 26, dur2: 6, radius: 9, slowMul: 0.5,
+    desc2: 'Drop a glitch zone for 6 seconds: survivors inside move at half speed and cannot use abilities.',
   },
   grin: {
     name: 'Grin.exe', speed: 8.9, ability: 'fade', abilityName: 'Fade', cd: 18, dur: 6, fadeMul: 1.12,
     desc: 'Fade turns you almost invisible for 6 seconds. Attacking ends it.',
+    ab2: 'decoy', ab2Name: 'Decoy', cd2: 20, dur2: 6, decoySpeed: 11,
+    desc2: 'Send a fake Grin running at the nearest survivor. It bursts into static: harmless, but they will not know that.',
   },
 };
 export const VARIANT_IDS = Object.keys(VARIANTS);
@@ -97,6 +107,7 @@ export const F = {
   SPRINT: 1, AIR: 2, FLY: 4, ATK: 8, DASH: 16, STUN: 32, BOOST: 64, INVULN: 128,
   FADE: 256, REVEAL: 512, LUNGE: 1024, RECOVER: 2048, REVIVING: 4096, WATER: 8192,
   GOO: 16384, CARRY: 32768, POP: 65536, ICE: 131072,
+  HIDDEN: 262144, QTE: 524288, HUNT: 1048576, SLOWED: 2097152,
 };
 export const ST = { alive: 0, down: 1, out: 2, esc: 3 };
 export const PHASES = ['intro', 'play', 'escape', 'over'];
@@ -105,6 +116,7 @@ export const PHASES = ['intro', 'play', 'escape', 'over'];
 export function moveSpeed(role, kind, st, flags, phase, sprinting, w = 0, disguisedAs = null) {
   if (role === 'exe') {
     if (phase === 'intro' || flags & F.STUN || flags & F.POP) return 0;
+    if (flags & F.HUNT && !disguisedAs) return VARIANTS[kind].speed * VARIANTS.exe.huntMul * (w === 1 ? EXE.corruptMul : 1);
     if (disguisedAs) return Math.min(sprinting ? CHARS[disguisedAs].sprint : CHARS[disguisedAs].walk, VARIANTS[kind].speed);
     let s = VARIANTS[kind].speed;
     if (phase === 'escape') s *= EXE.escapeMul;
@@ -115,13 +127,14 @@ export function moveSpeed(role, kind, st, flags, phase, sprinting, w = 0, disgui
     return s;
   }
   if (st === ST.down) return SURV.crawl;
-  if (st !== ST.alive) return 0;
+  if (st !== ST.alive || flags & (F.HIDDEN | F.QTE)) return 0;
   const c = CHARS[kind];
   let s = sprinting ? c.sprint : c.walk;
   if (flags & F.BOOST) s *= SURV.boostMul;
   if (flags & F.WATER) s *= SURV.waterMul;
   if (flags & F.GOO) s *= SURV.gooMul;
   if (flags & F.CARRY) s *= TASK.carryMul;
+  if (flags & F.SLOWED) s *= VARIANTS.glitch.slowMul;
   return s;
 }
 

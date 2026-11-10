@@ -222,6 +222,22 @@ export class Sound {
       case 'boost': this.burst(t, 0.35, 0.3 * v, 'bandpass', 500, 1, m, 5000); this.osc('square', 440, t, 0.003, 0.06 * v, 0.2, m, 1760); break;
       case 'bumper': this.osc('square', 1200, t, 0.002, 0.15 * v, 0.08); this.osc('sine', 600, t, 0.002, 0.3 * v, 0.2, m, 1200); break;
       case 'task': for (const [i, f] of [659, 784, 988, 1319].entries()) this.osc('triangle', f, t + i * 0.09, 0.005, 0.2 * v, 0.6); break;
+      case 'locker': this.burst(t, 0.18, 0.4 * v, 'bandpass', 700, 3); this.osc('square', 140, t, 0.002, 0.12 * v, 0.12, m, 90); break;
+      case 'rip':
+        this.burst(t, 0.5, 0.8 * v, 'bandpass', 1200, 1.5, m, 300); this.osc('sawtooth', 90, t, 0.005, 0.4 * v, 0.4, this.dist || m, 40);
+        for (const f of [700, 930, 1240]) this.osc('sawtooth', f, t + 0.05, 0.02, 0.15 * v, 0.6, m, f * 0.5);
+        break;
+      case 'qtehit': this.osc('square', 660, t, 0.002, 0.12 * v, 0.08); this.osc('square', 990, t + 0.04, 0.002, 0.1 * v, 0.08); break;
+      case 'qtefail': this.burst(t, 0.6, 0.6, 'lowpass', 900, 1, m, 120); this.osc('sawtooth', 220, t, 0.01, 0.4, 0.7, this.dist || m, 55); break;
+      case 'qtewin': for (const [i, f] of [523, 659, 784].entries()) this.osc('triangle', f, t + i * 0.06, 0.005, 0.25, 0.4); break;
+      case 'hunt':
+        for (const f of [70, 95, 140]) { const o = this.osc('sawtooth', f, t, 0.08, 0.35 * v, 1.4, this.dist || m, f * 0.7); const l = this.ctx.createOscillator(), lg = this.ctx.createGain(); l.frequency.value = 7; lg.gain.value = 12; l.connect(lg); lg.connect(o.frequency); l.start(t); l.stop(t + 1.5); }
+        this.burst(t, 1.2, 0.4 * v, 'lowpass', 600, 1, m, 200); break;
+      case 'staticfield': for (let i = 0; i < 10; i++) this.osc('square', 100 + Math.random() * 2000, t + i * 0.04, 0.002, 0.08 * v, 0.05); this.burst(t, 1.0, 0.35 * v, 'highpass', 3000); break;
+      case 'decoy': for (let i = 0; i < 4; i++) this.osc('triangle', 900 - i * 120 + Math.random() * 60, t + i * 0.09, 0.005, 0.12 * v, 0.1, this.echo); break;
+      case 'decoypop': this.burst(t, 0.5, 0.5 * v, 'highpass', 1500); this.osc('sawtooth', 800, t, 0.003, 0.2 * v, 0.3, m, 150); break;
+      case 'denied': this.osc('square', 220, t, 0.003, 0.15, 0.15); this.osc('square', 180, t + 0.15, 0.003, 0.15, 0.2); break;
+      case 'warn': this.osc('sine', 120, t, 0.01, 0.3, 0.3, m, 90); this.burst(t, 0.3, 0.15, 'bandpass', 400, 2); break;
     }
   }
 }

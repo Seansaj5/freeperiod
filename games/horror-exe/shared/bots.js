@@ -1,8 +1,8 @@
 // Bot brains. Survivors work on zone tasks in both worlds (using rift portals on purpose), flee EXE,
 // revive friends and run for the gates; a bot EXE hunts, hops between worlds and disguises itself in the
 // normal world. Decisions run ~8 times a second, steering every tick.
-import { CHARS, VARIANTS, SURV, EXE, ST, F } from './rules.js';
-import { terrainH, solidAt, supportAt, lineOfSight, surfaceAt, SPRINGS, PORTALS, OBJ, MAX_SLOPE, HALF, CAVE, STEP } from './map.js';
+import { CHARS, VARIANTS, SURV, EXE, ST, F, HIDE } from './rules.js';
+import { terrainH, solidAt, supportAt, lineOfSight, surfaceAt, SPRINGS, PORTALS, OBJ, LOCKERS, MAX_SLOPE, HALF, CAVE, STEP } from './map.js';
 
 export const newBrain = () => ({
   mode: 'idle', tx: 0, tz: 0, arrive: 0.6, dir: null, think: 0, sprint: false, jump: false, act: null, face: null,
@@ -100,6 +100,15 @@ function decideSurv(R, e, b) {
   const t = R.time, c = CHARS[e.char];
   const team = R.survivors();
   if (b.lastW !== e.w) { b.lastW = e.w; b.wantPortal = false; b.entryDone = null; }
+  if (e.qte) { b.mode = 'stay'; return; }
+  if (e.hidden) {
+    // wait until EXE has wandered off (never long enough to get dragged out)
+    const xh = R.exeEnt();
+    const near = xh && xh.w === e.w && dist(xh, e) < 18;
+    if (e.hideT > HIDE.warn - 1.5 || (!near && e.hideT > b.hideFor)) b.act = 'hide';
+    b.mode = 'stay';
+    return;
+  }
   if (e.st === ST.down) {
     const m = nearest(team.filter((s) => s !== e && s.st === ST.alive && s.w === e.w), e);
     if (m) goal(e, b, m.x, m.z, 'crawl', 1); else b.mode = 'idle';
@@ -117,12 +126,25 @@ function decideSurv(R, e, b) {
       spotted = b.sus;
     }
   }
-  const visibleExe = x && x.st === ST.alive && x.w === e.w && (!x.disguise || x.fx.pop > t || spotted);
-  const dx = visibleExe ? dist(x, e) : 999;
+  let visibleExe = x && x.st === ST.alive && x.w === e.w && (!x.disguise || x.fx.pop > t || spotted);
+  let threat = visibleExe ? x : null;
+  // a Grin decoy looks just like the real thing
+  for (const d of R.decoys) if (d.w === e.w && dist(d, e) < 20 && (!threat || dist(d, e) < dist(threat, e))) { threat = d; visibleExe = true; }
+  const dx = visibleExe ? dist(threat, e) : 999;
   const fading = visibleExe && x.fx.fade > t;
   const threatR = (e.hp < SURV.hp ? 30 : 24) * (fading ? 0.3 : 1);
-  if (visibleExe && R.phase !== 'intro' && dx < threatR && (dx < 12 || lineOfSight(e.x, e.y + 1.8, e.z, x.x, x.y + 2.4, x.z, e.w))) {
+  if (visibleExe && R.phase !== 'intro' && dx < threatR && (dx < 12 || lineOfSight(e.x, e.y + 1.8, e.z, threat.x, threat.y + 2.4, threat.z, e.w))) {
     b.wantPortal = false;
+    // a locker close by and EXE not right on top of us: hide in it
+    if (dx > HIDE.seenRange + 1 && t >= e.cd.hide && !e.carrying) {
+      const lk = LOCKERS.find((l) => Math.hypot(l.fx - e.x, l.fz - e.z) < 9 && Math.abs(l.y - e.y) < 1.5 && !team.some((o) => o.hidden === l.i + 1));
+      if (lk) {
+        if (Math.hypot(lk.fx - e.x, lk.fz - e.z) < 1.5) { b.act = 'hide'; b.hideFor = 4 + R.rand() * 5; }
+        else { b.mode = 'tolocker'; b.tx = lk.fx; b.tz = lk.fz; b.arrive = 0.5; b.dir = steerDir(e, b, Math.atan2(lk.fx - e.x, lk.fz - e.z)); b.sprint = true; }
+        return;
+      }
+    }
+    const x = threat;
     const away = Math.atan2(e.x - x.x, e.z - x.z);
     let best = away, bestScore = -Infinity;
     for (const o of [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8]) {
@@ -136,10 +158,10 @@ function decideSurv(R, e, b) {
     b.mode = 'flee'; b.tx = e.x + Math.sin(best) * 10; b.tz = e.z + Math.cos(best) * 10; b.arrive = 0;
     b.dir = b.detour > 0 ? b.detourA : best;
     b.sprint = true;
-    if (t >= e.cd.abl && R.rand() < 0.7) {
+    if (t >= e.cd.abl && R.rand() < 0.7 && !R.inField(e)) {
       if (c.ability === 'dash' && dx < 5.5) { b.act = 'abl'; b.face = best; }
       else if (c.ability === 'fly' && dx < 6.5) { b.act = 'abl'; b.flyUp = 1.9; }
-      else if ((c.ability === 'punch' || c.ability === 'bonk') && dx < 3.0 && x.fx.stun <= t) { b.act = 'abl'; b.face = Math.atan2(x.x - e.x, x.z - e.z); }
+      else if ((c.ability === 'punch' || c.ability === 'bonk') && dx < 3.0 && x.fx && x.fx.stun <= t) { b.act = 'abl'; b.face = Math.atan2(x.x - e.x, x.z - e.z); }
     }
     return;
   }
@@ -222,7 +244,7 @@ function decideExe(R, e, b) {
   const alive = R.survivors().filter((s) => s.st === ST.alive);
   let target = null, best = Infinity;
   for (const s of alive) {
-    if (s.w !== e.w) continue;
+    if (s.w !== e.w || s.hidden) continue;
     const d = dist(s, e);
     const known = s.fx.reveal > t || d < 26 || (d < 60 && lineOfSight(e.x, e.y + 2.6, e.z, s.x, s.y + 1.5, s.z, e.w));
     if (!known) continue;
@@ -232,6 +254,13 @@ function decideExe(R, e, b) {
   if (target) {
     b.wantPortal = false;
     b.targetId = target.id; b.noTarget = 0; b.lastSeen = { x: target.x, z: target.z };
+    if (!e.disguise && t >= e.cd.ab2 && R.rand() < 0.4) {
+      const d0 = dist(target, e);
+      if (v.ab2 === 'hunt' && d0 > 10 && d0 < 30) b.act = 'ab2';
+      else if (v.ab2 === 'static' && d0 < 7) b.act = 'ab2';
+      else if (v.ab2 === 'decoy' && d0 > 15 && d0 < 45) b.act = 'ab2';
+      if (b.act) return;
+    }
     const d = dist(target, e), lead = Math.min(0.5, d / 20);
     const px = target.x + (target.vx || 0) * lead, pz = target.z + (target.vz || 0) * lead;
     goal(e, b, px, pz, 'chase', 0);
@@ -260,6 +289,21 @@ function decideExe(R, e, b) {
   const here = alive.filter((s) => s.w === e.w).length, there = alive.length - here;
   if (b.wantPortal || (there > here && b.noTarget > 3) || (!here && there)) { toPortal(e, b); b.sprint = !!e.disguise; return; }
   if (b.lastSeen && dist(b.lastSeen, e) > 3) { goal(e, b, b.lastSeen.x, b.lastSeen.z, 'search', 2); return; }
+  // they vanished near a locker? go and rip it open (only sometimes: it might be empty)
+  if (b.lastSeen && !e.disguise) {
+    const lk = LOCKERS.find((l) => Math.hypot(l.x - b.lastSeen.x, l.z - b.lastSeen.z) < 10 && Math.abs(l.y - e.y) < 2);
+    if (lk && b.ripTried !== lk.i && R.rand() < 0.6) {
+      b.ripTarget = lk;
+    }
+    b.lastSeen = null;
+  }
+  if (b.ripTarget) {
+    const lk = b.ripTarget;
+    if (Math.hypot(lk.fx - e.x, lk.fz - e.z) < 1.4) { b.face = Math.atan2(lk.x - e.x, lk.z - e.z); b.act = 'atk'; b.ripTried = lk.i; b.ripTarget = null; return; }
+    goal(e, b, lk.fx, lk.fz, 'rip', 0.6);
+    return;
+  }
+  if (!e.disguise && t >= e.cd.ab2 && v.ab2 === 'hunt' && b.noTarget > 5) { b.act = 'ab2'; return; }
   b.lastSeen = null;
   if (!b.wander || dist(b.wander, e) < 4 || b.noTarget > 14) {
     b.noTarget = Math.min(b.noTarget, 5);

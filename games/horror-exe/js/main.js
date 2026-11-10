@@ -12,9 +12,9 @@ import { Title } from './title.js';
 import { Sound } from './audio.js';
 import { LocalSession, NetSession } from './net.js';
 import { SERVER_URL } from './config.js';
-import { CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, SURV, EXE, F, ST, PHASES, ROUND, TASKS, TASK, PORTAL, moveSpeed, tickStamina } from '../shared/rules.js';
+import { CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, SURV, EXE, F, ST, PHASES, ROUND, TASKS, TASK, PORTAL, HIDE, QTE, moveSpeed, tickStamina } from '../shared/rules.js';
 import { stepMove, body } from '../shared/move.js';
-import { rayDist, terrainH, supportAt, solidAt, clampXZ, EXITS, V, S as HOLLOW, PORTALS, OBJ, ZONES, zoneAt, HALF, LAVA, GOO, ICE, L as LAKE } from '../shared/map.js';
+import { rayDist, terrainH, supportAt, solidAt, clampXZ, EXITS, V, S as HOLLOW, PORTALS, OBJ, ZONES, zoneAt, HALF, LAVA, GOO, ICE, L as LAKE, LOCKERS } from '../shared/map.js';
 import { defaultLook, randomLook, sanitizeLook, SKINS, COLORS, SHIRT_STYLES, PATTERNS, FACES, HATS, LABELS } from '../shared/looks.js';
 import { clamp, damp, wrap, turnTo } from '../shared/util.js';
 
@@ -101,17 +101,19 @@ function adaptResolution(dt) {
 
 // ------------------------------------------------------------------ input
 const touch = matchMedia('(pointer: coarse)').matches || params.has('touch');
-const input = { keys: new Set(), dx: 0, dy: 0, jump: false, abl: false, atk: false, sense: false, disguise: false, sprintToggle: false, stick: { x: 0, y: 0 } };
-const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyE', 'KeyQ', 'KeyF']);
+const input = { keys: new Set(), dx: 0, dy: 0, jump: false, abl: false, atk: false, sense: false, disguise: false, ab2: false, sprintToggle: false, stick: { x: 0, y: 0 } };
+const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyE', 'KeyQ', 'KeyF', 'KeyR']);
 addEventListener('keydown', (e) => {
   if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
   if (GAME_KEYS.has(e.code)) e.preventDefault();
   if (e.repeat) return;
+  if (match && match.mini && (e.code === 'KeyQ' || e.code === 'KeyE')) { match.mini.press(e.code === 'KeyQ' ? 'Q' : 'E'); return; }
   input.keys.add(e.code);
   if (e.code === 'Space') input.jump = true;
   if (e.code === 'KeyE') input.abl = true;
   if (e.code === 'KeyQ') input.sense = true;
   if (e.code === 'KeyF') input.disguise = true;
+  if (e.code === 'KeyR') input.ab2 = true;
   if (e.code === 'Escape' && match && !touch && !document.pointerLockElement) togglePause();
 });
 addEventListener('keyup', (e) => input.keys.delete(e.code));
@@ -151,6 +153,9 @@ if (touch) {
   btn('tAtk', () => { input.atk = true; });
   btn('tSense', () => { input.sense = true; });
   btn('tDis', () => { input.disguise = true; });
+  btn('tAb2', () => { input.ab2 = true; });
+  btn('tQ', () => match && match.mini && match.mini.press('Q'));
+  btn('tE', () => match && match.mini && match.mini.press('E'));
   btn('tSprint', () => { input.sprintToggle = !input.sprintToggle; $('tSprint').classList.toggle('on', input.sprintToggle); });
 }
 
@@ -173,6 +178,8 @@ function feed(html) {
   setTimeout(() => d.remove(), 6500);
 }
 const tagOf = (v) => `<b style="color:${v.role === 'exe' ? '#ff4a5a' : CHARS[v.char].accent}">${esc(v.role === 'exe' ? VARIANTS[v.variant].name : v.name)}</b>`;
+
+function drawScareFaceInto(c) { import('./rig.js').then((m) => m.drawScareFace(c.getContext('2d'), c.width, c.height)); }
 
 // ------------------------------------------------------------------ minimap backgrounds (one per world)
 const miniCache = [null, null];
@@ -214,9 +221,9 @@ class Match {
     this.ready = false; this.done = false; this.over = null;
     this.yaw = 0; this.pitch = -0.22; this.ry = 0;
     this.sta = { stamina: SURV.stamina, exhausted: false, rest: 0 };
-    this.cd = { abl: 0, atk: 0, sense: 0, disguise: 0 };
-    this.until = { fly: 0, dash: 0, lunge: 0, fade: 0, atk: 0, pop: 0 };
-    this.viewW = -1; this.disRigs = new Map(); this.miniT = 0;
+    this.cd = { abl: 0, atk: 0, sense: 0, disguise: 0, ab2: 0 };
+    this.until = { fly: 0, dash: 0, lunge: 0, fade: 0, atk: 0, pop: 0, hunt: 0 };
+    this.viewW = -1; this.disRigs = new Map(); this.miniT = 0; this.decoyRigs = new Map(); this.flickT = 0; this.printT = 0; this.warnT = 0; this.mini = null; this.hiddenAt = 0;
     this.phase = 'intro'; this.lastPh = -1; this.lastSt = ST.alive;
     this.specId = null; this.spectating = this.spectator;
     this.absorbTick = 0; this.prevSprint = false;
@@ -273,6 +280,7 @@ class Match {
       this.slots.push({ ...mk(touch ? 'HIT' : 'CLICK', 'Attack', '#ff2a3a'), key: 'atk', total: EXE.atkCd });
       this.slots.push({ ...mk(touch ? 'POWER' : 'E', v.abilityName, '#ff2a3a'), key: 'abl', total: v.cd });
       this.slots.push({ ...mk(touch ? 'SENSE' : 'Q', 'Sense', '#ff2a3a'), key: 'sense', total: EXE.senseCd });
+      this.slots.push({ ...mk(touch ? 'R' : 'R', v.ab2Name, '#ff8a3a'), key: 'ab2', total: v.cd2 });
       this.slots.push({ ...mk(touch ? 'HIDE' : 'F', 'Disguise', '#9a7aff'), key: 'disguise', total: EXE.disguiseCd });
     }
     $('hearts').classList.toggle('hidden', this.role !== 'surv');
@@ -280,7 +288,10 @@ class Match {
     $('touch').classList.toggle('hidden', !touch);
     $('tAtk').classList.toggle('hidden', this.role !== 'exe');
     $('tSense').classList.toggle('hidden', this.role !== 'exe');
-    $('tDis').classList.toggle('hidden', this.role !== 'exe');
+    $('tDis').textContent = this.role === 'exe' ? 'DISGUISE' : 'HIDE';
+    $('tDis').classList.toggle('hidden', this.role === 'spec');
+    $('tAb2').classList.toggle('hidden', this.role !== 'exe');
+    $('revInfo').classList.toggle('hidden', this.role !== 'surv');
     $('tSprint').classList.toggle('hidden', this.role !== 'surv');
   }
 
@@ -288,10 +299,10 @@ class Match {
     const box = $('introBox');
     if (this.role === 'exe') {
       const v = VARIANTS[this.kind];
-      box.innerHTML = `<div class="who">You are</div><h1 class="glitch" data-text="${esc(v.name)}" style="color:#ff2a3a">${esc(v.name)}</h1><p>Catch them before they escape. Rift portals swap between the normal and the corrupted world (you are faster in the corrupted one).</p><p style="color:var(--muted)">${esc(v.abilityName)}: ${esc(v.desc)}<br>In the normal world press ${touch ? 'HIDE' : 'F'} to disguise as a survivor, then ${touch ? 'HIT' : 'click'} to pop out.</p>`;
+      box.innerHTML = `<div class="who">You are</div><h1 class="glitch" data-text="${esc(v.name)}" style="color:#ff2a3a">${esc(v.name)}</h1><p>Catch them before they escape. Rift portals swap between the normal and the corrupted world (you are faster in the corrupted one).</p><p style="color:var(--muted)">${esc(v.abilityName)}: ${esc(v.desc)}<br>R: ${esc(v.ab2Name)}: ${esc(v.desc2)}<br>In the normal world press ${touch ? 'DISGUISE' : 'F'} to look like a survivor, then ${touch ? 'HIT' : 'click'} to pop out. ${touch ? 'HIT' : 'Click'} a locker to rip it open.</p>`;
     } else if (this.role === 'surv') {
       const c = CHARS[this.kind];
-      box.innerHTML = `<div class="who">You are</div><h1 style="color:${c.accent}">${esc(c.name)}</h1><p>Finish the 5 zone tasks to open the escape gates early (some are in the corrupted world: use the rift portals). Escape through a gate in the corrupted world.</p><p style="color:#ffb0b0">EXE can disguise as one of your friends in the normal world.</p><p style="color:var(--muted)">${esc(c.abilityName)}: ${esc(c.desc)}</p>`;
+      box.innerHTML = `<div class="who">You are</div><h1 style="color:${c.accent}">${esc(c.name)}</h1><p>Finish the 5 zone tasks to open the escape gates early (some are in the corrupted world: use the rift portals). Escape through a gate in the corrupted world.</p><p style="color:#ffb0b0">EXE can disguise as one of your friends in the normal world. You have 3 lives and can be revived once.</p><p style="color:var(--muted)">${touch ? 'HIDE' : 'F'} near a locker to hide (not while EXE is watching, and not for too long).</p><p style="color:var(--muted)">${esc(c.abilityName)}: ${esc(c.desc)}</p>`;
     } else box.innerHTML = `<div class="who">Round in progress</div><h1>Watching</h1><p>You'll join the next round.</p>`;
     $('intro').classList.remove('hidden');
     clearTimeout(this.introT);
@@ -367,6 +378,23 @@ class Match {
     sound.play('swing');
     this.pushState(true);
     this.s.action({ k: 'atk' });
+  }
+
+  ab2(t, st, sf) {
+    if (this.role !== 'exe' || st !== ST.alive || this.disguised || t < this.cd.ab2 || this.phase === 'intro' || sf & F.STUN) return;
+    const v = VARIANTS[this.kind];
+    this.cd.ab2 = t + v.cd2;
+    if (v.ab2 === 'hunt') { this.until.hunt = t + v.dur2; sound.play('hunt'); fx.pulse('sense'); }
+    else if (v.ab2 === 'static') { sound.play('staticfield'); fx.pulse('glitch', 0.6); }
+    else sound.play('decoy');
+    this.pushState(true);
+    this.s.action({ k: 'ab2' });
+  }
+
+  hide(st) {
+    if (this.role !== 'surv' || st !== ST.alive || this.mini) return;
+    this.pushState(true);
+    this.s.action({ k: 'hide' });
   }
 
   disguise(t, st) {
@@ -446,8 +474,46 @@ class Match {
         if (v) feed(`${by ? tagOf(by) : 'Someone'} revived ${tagOf(v)}`);
         break;
       case 'out':
-        if (v) feed(`${tagOf(v)} was <b style="color:#ff4a5a">taken</b>`);
-        if (mine) { banner('YOU WERE TAKEN', 'Click to watch the others'); fx.pulse('down'); }
+        if (v) feed(`${tagOf(v)} was <b style="color:#ff4a5a">${e.why === 'dragged' ? 'dragged away by EXE' : 'taken'}</b>${e.why === 'norevive' ? ' (no revives left)' : ''}`);
+        if (mine) { banner(e.why === 'dragged' ? 'DRAGGED AWAY' : 'YOU WERE TAKEN', e.why === 'dragged' ? 'You hid too long, twice.' : 'Click to watch the others'); fx.jumpscare(); sound.play('scare'); }
+        break;
+      case 'hide':
+        world.doorLocker(e.i);
+        if (mine) { sound.play('locker'); feed(`Hiding. EXE can't see you or sense you. Leave within ${HIDE.max}s.`); }
+        else sound.play('locker', vol(e.id) * 0.6);
+        break;
+      case 'unhide':
+        if (mine) sound.play('locker'); else sound.play('locker', vol(e.id) * 0.6);
+        break;
+      case 'hide-denied':
+        if (mine) { banner('IT SEES YOU', "You can't hide while EXE is watching"); sound.play('denied'); fx.pulse('static', 0.5); }
+        break;
+      case 'eject':
+        if (mine && this.body) { const b = this.body; b.x = e.x; b.y = e.y; b.z = e.z; b.vx = b.vy = b.vz = 0; this.ry = e.ry; }
+        break;
+      case 'rip': {
+        world.ripLocker(e.i, !!e.hit);
+        sound.play('rip', e.id === this.me ? 1 : vol(e.id) || (e.hit === this.me ? 1 : 0));
+        if (e.id === this.me) feed(e.hit ? 'Found one!' : 'Empty...');
+        else if (e.hit && this.views.get(e.hit)) feed(`EXE ripped open a locker and found ${tagOf(this.views.get(e.hit))}`);
+        break;
+      }
+      case 'qte':
+        if (mine) this.startMinigame(e.reason);
+        else if (v) feed(`EXE is dragging ${tagOf(v)} out of a locker!`);
+        break;
+      case 'qte-end':
+        if (mine) { if (this.mini) this.mini.close(); banner(e.ok ? 'YOU BROKE FREE' : 'IT GOT YOU', e.ok ? '' : 'You lost a life', e.ok); sound.play(e.ok ? 'qtewin' : 'qtefail'); if (!e.ok) fx.pulse('hit'); }
+        break;
+      case 'ab2': {
+        const nm = { hunt: 'hunt', static: 'staticfield', decoy: 'decoy' }[e.ab];
+        if (e.id !== this.me) sound.play(nm, vol(e.id));
+        if (e.ab === 'hunt' && this.role === 'surv' && v && v.w === this.viewW) { fx.say("IT'S HUNTING YOU"); fx.pulse('sense'); }
+        break;
+      }
+      case 'decoy-pop':
+        if (mine) { fx.pulse('pop'); sound.play('decoypop'); fx.say('NOT REAL'); }
+        else if (this.camFocus) { const d = Math.hypot(e.x - this.camFocus.x, e.z - this.camFocus.z); if (d < 40) sound.play('decoypop', clamp(1 - d / 40, 0.1, 0.6)); }
         break;
       case 'esc':
         sound.play('escape', mine ? 1 : 0.4);
@@ -573,7 +639,14 @@ class Match {
     // move
     const b = this.body;
     let flying = false;
-    if (b && !this.spectator && this.aliveLike(st) && !(paused && this.solo)) {
+    const hiddenIn = mine ? mine[13] : 0;
+    if (hiddenIn && b) {
+      const L = LOCKERS[hiddenIn - 1];
+      b.x = L.x; b.y = L.y; b.z = L.z; b.vx = b.vy = b.vz = 0;
+      if (this.hiddenAt !== hiddenIn) { this.hiddenAt = hiddenIn; this.yaw = L.ry; this.pitch = -0.05; }
+      if (input.disguise && !this.mini) this.hide(st);
+    } else this.hiddenAt = 0;
+    if (b && !hiddenIn && !(sf & F.QTE) && !this.mini && !this.spectator && this.aliveLike(st) && !(paused && this.solo)) {
       let f = 0, r = 0;
       if (held('KeyW', 'ArrowUp')) f += 1;
       if (held('KeyS', 'ArrowDown')) f -= 1;
@@ -592,6 +665,8 @@ class Match {
       let flags = (sf & (F.STUN | F.BOOST | F.RECOVER | F.CARRY)) | (b.water ? F.WATER : 0) | (b.surface === 'goo' ? F.GOO : 0);
       if (this.role === 'exe' && t < this.until.fade) flags |= F.FADE;
       if (this.role === 'exe' && t < this.until.pop) flags |= F.POP;
+      if (this.role === 'exe' && t < this.until.hunt) flags |= F.HUNT;
+      flags |= sf & F.SLOWED;
       const disChar = this.disguised && this.views.get(this.disguised) ? this.views.get(this.disguised).char : null;
       const sprintEx = this.role === 'exe' && disChar && wantSprint && moving;
       const speed = moveSpeed(this.role, this.kind, st, flags, ph, sprinting || sprintEx, b.w, disChar);
@@ -607,10 +682,11 @@ class Match {
       if (input.abl) this.useAbility(t, st, sf);
       if (input.atk) this.attack(t, st, sf);
       if (input.sense) this.sense(t, st);
-      if (input.disguise) this.disguise(t, st);
+      if (input.disguise) { if (this.role === 'exe') this.disguise(t, st); else this.hide(st); }
+      if (input.ab2) this.ab2(t, st, sf);
       this.pushState(false);
     }
-    input.jump = input.abl = input.atk = input.sense = input.disguise = false;
+    input.jump = input.abl = input.atk = input.sense = input.disguise = input.ab2 = false;
     // everyone's rig
     for (const v of this.views.values()) this.updateView(v, dt, snap, t, flying);
     for (const bu of this.bursts || []) { bu.t -= dt; for (const m of bu.g.children) { m.position.addScaledVector(m.userData.v, dt); m.rotation.x += dt * 5; } bu.g.visible = Math.random() > 0.15; if (bu.t <= 0) { scene.remove(bu.g); bu.dead = true; } }
@@ -623,6 +699,16 @@ class Match {
     const vp = {};
     for (let i = 0; i < snap.vp.length; i += 2) vp[snap.vp[i]] = snap.vp[i + 1] / 100;
     world.updateTasks({ vm: snap.vm, vp, pm: snap.pn, bm: snap.bm, co: snap.co }, dt);
+    world.updateFields(snap.fl, this.viewW, VARIANTS.glitch.radius);
+    const occupied = new Set();
+    if (this.role !== 'exe') for (const v of this.views.values()) { const e = snap.pm.get(v.id); if (e && e[13] && e[11] === this.viewW) occupied.add(e[13] - 1); }
+    world.updateLockers(occupied, dt);
+    this.updateDecoys(snap, dt);
+    if (this.role === 'exe' && (t < this.until.hunt || sf & F.HUNT) && t > this.printT) {
+      this.printT = t + 0.22;
+      for (const v of this.views.values()) { const e = snap.pm.get(v.id); if (v.role === 'surv' && e && e[11] === this.viewW && e[7] & F.REVEAL && !(e[7] & F.AIR)) world.addFootprint(e[1] + (Math.random() - 0.5) * 0.4, e[2], e[3] + (Math.random() - 0.5) * 0.4, e[4]); }
+    }
+    if (this.mini) this.mini.tick(t);
     if (snap.ex) world.setExits(this.info.exits, true);
     // fear
     const exe = [...this.views.values()].find((v) => v.role === 'exe');
@@ -635,8 +721,15 @@ class Match {
       if (ph === 'intro') terror *= 0.2;
     }
     if (this.spectating && this.role === 'surv') terror *= 0.5;
+    // EXE close: the screen glitches between the two worlds
+    if (this.flickT > 0) { this.flickT -= dt; if (this.flickT <= 0) applyTheme(this.viewW); }
+    else if (terror > 0.2 && ph !== 'over' && Math.random() < terror * terror * dt * 7) {
+      applyTheme(this.viewW ? 0 : 1); this.flickT = 0.04 + Math.random() * 0.1;
+      fx.pulse('glitch', 0.3 + terror * 0.4); if (Math.random() < 0.5) sound.play('static', 0.4);
+    }
     fx.update(dt, terror, ph !== 'over', this.viewW);
-    sound.update(dt, ph === 'escape' ? 'chase' : ph === 'over' ? 'menu' : this.viewW ? 'corrupt' : 'normal', terror, flying);
+    const chase = ph === 'escape' || (this.role === 'surv' && terror > 0.35);
+    sound.update(dt, chase ? 'chase' : ph === 'over' ? 'menu' : this.viewW ? 'corrupt' : 'normal', terror, flying);
     lantern.position.copy(camera.position).y += 1.2;
     lantern.color.setHex(this.role === 'exe' ? 0xff4a3a : 0xffc8a0);
     this.updateHUD(snap, mine, st, sf, hp, t, ph);
@@ -653,7 +746,7 @@ class Match {
     if (isMe) pose = { x: this.body.x, y: this.body.y, z: this.body.z, ry: this.ry };
     else pose = this.s.sample(v.id, tmpPose);
     if (!pose) { root.visible = false; return; }
-    root.visible = st !== ST.esc && st !== ST.out && v.w === this.viewW;
+    root.visible = st !== ST.esc && st !== ST.out && v.w === this.viewW && !e[13];
     root.position.set(pose.x, pose.y, pose.z);
     if (v.first) { v.px = pose.x; v.pz = pose.z; v.ry = pose.ry; v.first = false; }
     v.ry = isMe ? pose.ry : v.ry + wrap(pose.ry - v.ry) * Math.min(1, dt * 14);
@@ -722,6 +815,17 @@ class Match {
   }
 
   updateCamera(dt, st) {
+    $('lockerView').classList.toggle('hidden', !this.hiddenAt || this.spectating);
+    if (this.hiddenAt && !this.spectating) {
+      const L = LOCKERS[this.hiddenAt - 1];
+      this.yaw = L.ry + clamp(wrap(this.yaw - L.ry), -0.7, 0.7); this.pitch = clamp(this.pitch, -0.35, 0.3);
+      const cp = Math.cos(this.pitch);
+      camera.position.set(L.x + Math.sin(L.ry) * 0.2, L.y + 2.0, L.z + Math.cos(L.ry) * 0.2);
+      camera.lookAt(camera.position.x + Math.sin(this.yaw) * cp * 10, camera.position.y + Math.sin(this.pitch) * 10, camera.position.z + Math.cos(this.yaw) * cp * 10);
+      this.camFocus = (this.camFocus || new THREE.Vector3()).set(L.x, L.y, L.z);
+      $('spect').classList.add('hidden');
+      return;
+    }
     let fx0, fy0, fz0, isExe = this.role === 'exe', down = st === ST.down;
     if (this.spectating || !this.body) {
       let v = this.specId && this.views.get(this.specId);
@@ -765,7 +869,7 @@ class Match {
       const e = snap.pm.get(v.id); if (!e) continue;
       const s = e[6];
       const cls = s === ST.down ? 'down' : s === ST.esc ? 'esc' : s === ST.out ? 'out' : '';
-      const status = s === ST.down ? `DOWN ${e[8]}s` : s === ST.esc ? 'ESCAPED' : s === ST.out ? 'TAKEN' : e[5] < SURV.hp ? 'HURT' : 'OK';
+      const status = s === ST.down ? `DOWN ${e[8]}s` : s === ST.esc ? 'ESCAPED' : s === ST.out ? 'TAKEN' : e[13] && this.role !== 'exe' ? 'HIDING' : `${'♥'.repeat(Math.max(0, e[5]))}`;
       const wIcon = s === ST.alive || s === ST.down ? `<em class="${e[11] ? 'bad' : 'good'}">${e[11] ? '☠' : '☀'}</em>` : '';
       html += `<div class="${cls}${v.id === this.me ? ' me' : ''}"><i style="background:${CHARS[v.char].accent}"></i>${esc(v.name)}${v.bot ? ' <small style="color:var(--muted)">bot</small>' : ''}${e[7] & F.CARRY ? ' <small style="color:#ffa040">core</small>' : ''}<span>${wIcon}${status}</span></div>`;
     }
@@ -773,6 +877,8 @@ class Match {
     // hearts + stamina
     if (this.role === 'surv') {
       setHTML($('hearts'), Array.from({ length: SURV.hp }, (_, i) => `<span class="${i < hp ? '' : 'gone'}">❤️</span>`).join(''));
+      setText($('revInfo'), mine && mine[15] >= SURV.revives ? 'no revives left' : '1 revive left');
+      $('revInfo').classList.toggle('bad', !!(mine && mine[15] >= SURV.revives));
       $('stam').querySelector('i').style.transform = `scaleX(${this.sta.stamina / SURV.stamina})`;
       $('stam').classList.toggle('tired', this.sta.exhausted);
     }
@@ -822,12 +928,19 @@ class Match {
         if (t > this.absorbTick) { this.absorbTick = t + 0.5; sound.play('valve', 0.4); }
       });
       if (sf & F.CARRY) prompt = 'Carrying the fire core: bring it to the frozen engine';
+      if (!prompt) for (const L of LOCKERS) if (Math.hypot(this.body.x - L.fx, this.body.z - L.fz) < HIDE.range && Math.abs(L.y - this.body.y) < 1.5) prompt = `${touch ? 'HIDE' : 'F'}: hide in the locker`;
       if (!prompt) for (const p of PORTALS) if (Math.hypot(this.body.x - p.x, this.body.z - p.z) < 6) prompt = `Rift portal: step in to enter the ${this.viewW ? 'normal' : 'corrupted'} world`;
       if (t < this.until.fly) prompt = touch ? 'Hold JUMP to fly up' : 'Hold Space to fly up';
     }
     if (this.body && st === ST.alive && this.role === 'exe') {
       if (this.disguised) prompt = `Disguised as ${esc(this.views.get(this.disguised)?.name || 'a survivor')} · ${touch ? 'HIT' : 'click'} to pop out`;
       else if (!prompt) for (const p of PORTALS) if (Math.hypot(this.body.x - p.x, this.body.z - p.z) < 6) prompt = `Rift portal → ${this.viewW ? 'normal' : 'corrupted'} world`;
+    }
+    if (mine && mine[13] && !this.mini) {
+      const left = Math.max(0, HIDE.max - mine[14]);
+      const danger = mine[14] >= HIDE.warn;
+      prompt = `${danger ? '<span style="color:#ff4a5a">EXE IS COMING FOR YOU · GET OUT</span>' : `Hiding · ${Math.ceil(left)}s`} · ${touch ? 'HIDE' : 'F'} to leave<div class="bar"><i style="width:${(left / HIDE.max) * 100}%;background:${danger ? '#ff4a5a' : 'var(--cyan)'}"></i></div>`;
+      if (danger && t > this.warnT) { this.warnT = t + 1; sound.play('warn'); fx.pulse('static', 0.4); }
     }
     if (!prompt && !touch && !paused && document.pointerLockElement !== canvas && !this.done) prompt = 'Click to look around';
     $('prompt').classList.toggle('hidden', !prompt);
@@ -859,6 +972,55 @@ class Match {
     this.drawMarks(marks);
   }
 
+  /** Grin.exe decoys: drawn like Grin, flickering a little. */
+  updateDecoys(snap, dt) {
+    const seen = new Set();
+    for (const d of snap.dc || []) {
+      if (d[5] !== this.viewW) continue;
+      seen.add(d[0]);
+      let r = this.decoyRigs.get(d[0]);
+      if (!r) { r = new Rig({ role: 'exe', variant: 'grin' }); scene.add(r.root); this.decoyRigs.set(d[0], r); }
+      r.root.visible = true; r.root.position.set(d[1], d[2], d[3]); r.root.rotation.y = d[4];
+      r.update(dt, { speed: 10, sprint: true, atk: -1 });
+      r.setOpacity(this.role === 'exe' ? 0.45 : Math.random() < 0.05 ? 0.5 : 1);
+    }
+    for (const [id, r] of this.decoyRigs) if (!seen.has(id)) { scene.remove(r.root); r.dispose(); this.decoyRigs.delete(id); }
+  }
+
+  /** The Q/E quick-time minigame when EXE drags you out of a locker. */
+  startMinigame(reason) {
+    if (this.mini) this.mini.close();
+    const el = $('qte'), keyEl = $('qteKey'), ring = $('qteRing'), count = $('qteCount'), txt = $('qteText');
+    const c = $('qteFace'); c.width = 640; c.height = 512; drawScareFaceInto(c);
+    const lines = ['LET ME IN', 'FOUND YOU', 'TOO LONG', 'STAY WITH ME', "YOU CAN'T HIDE", 'COME OUT'];
+    const seq = Array.from({ length: QTE.prompts }, () => (Math.random() < 0.5 ? 'Q' : 'E'));
+    const m = { i: 0, seq, start: nowS() + 0.6, done: false };
+    const dur = (i) => QTE.ring0 + (QTE.ring1 - QTE.ring0) * (i / (QTE.prompts - 1));
+    const show = () => {
+      keyEl.textContent = seq[m.i]; count.textContent = `${m.i + 1}/${seq.length}`; txt.textContent = lines[Math.floor(Math.random() * lines.length)];
+      keyEl.classList.remove('pop'); void keyEl.offsetWidth; keyEl.classList.add('pop');
+    };
+    const finish = (ok) => { if (m.done) return; m.done = true; this.s.action({ k: 'qte', ok }); setTimeout(() => m.close(), ok ? 200 : 450); if (!ok) { el.classList.add('fail'); sound.play('qtefail'); } };
+    m.press = (k) => {
+      if (m.done || nowS() < m.start) return;
+      if (k === seq[m.i]) { sound.play('qtehit'); fx.pulse('glitch', 0.2); m.i++; m.start = nowS(); if (m.i >= seq.length) finish(true); else show(); }
+      else finish(false);
+    };
+    m.tick = (t) => {
+      if (m.done) return;
+      const k = clamp((t - m.start) / dur(m.i), 0, 1);
+      ring.style.strokeDashoffset = String(k * 302);
+      el.style.transform = `translate(${(Math.random() - 0.5) * 8}px, ${(Math.random() - 0.5) * 8}px)`;
+      if (t - m.start > dur(m.i)) finish(false);
+    };
+    m.close = () => { el.classList.add('hidden'); el.classList.remove('fail'); $('touchQE').classList.add('hidden'); if (this.mini === m) this.mini = null; };
+    this.mini = m;
+    el.classList.remove('hidden'); $('touchQE').classList.toggle('hidden', !touch);
+    $('qteTitle').textContent = reason === 'rip' ? 'EXE TORE OPEN YOUR LOCKER' : 'YOU STAYED TOO LONG';
+    show();
+    sound.play('rip'); fx.pulse('pop');
+  }
+
   /** Top-down map: zones, portals, tasks in this world, teammates in this world, gates once open. */
   drawMinimap(snap) {
     const c = $('minimap'), g = c.getContext('2d'), S = c.width, k = S / (HALF * 2);
@@ -866,6 +1028,7 @@ class Match {
     g.drawImage(minimapBg(this.viewW), 0, 0, S, S);
     const dot = (x, z, r, col, ring) => { const [px, py] = P(x, z); g.beginPath(); g.arc(px, py, r, 0, 7); if (ring) { g.strokeStyle = col; g.lineWidth = 2; g.stroke(); } else { g.fillStyle = col; g.fill(); } };
     for (const p of PORTALS) dot(p.x, p.z, 4, this.viewW ? '#ff3a4a' : '#a07aff', true);
+    if (this.role !== 'exe') for (const L of LOCKERS) { const [px, py] = P(L.x, L.z); g.fillStyle = '#c8c8d0'; g.fillRect(px - 2, py - 2, 4, 4); }
     if (this.role !== 'exe') {
       if (this.viewW === 0) {
         this.info.shards.forEach((p, i) => { if (!(snap.sh & (1 << i)) && snap.sa & (1 << i)) dot(p[0], p[2], 3, '#7ff0ff'); });
@@ -942,7 +1105,10 @@ class Match {
   }
 
   dispose() {
-    for (const v of this.views.values()) scene.remove(v.rig.root);
+    for (const v of this.views.values()) { scene.remove(v.rig.root); v.rig.dispose(); }
+    for (const d of this.decoyRigs.values()) { scene.remove(d.root); d.dispose(); }
+    if (this.mini) this.mini.close();
+    $('lockerView').classList.add('hidden');
     for (const d of this.disRigs.values()) scene.remove(d.rig.root);
     $('minimap').classList.add('hidden'); $('tasks').classList.add('hidden');
     for (const b of this.bursts || []) scene.remove(b.g);
@@ -1059,7 +1225,7 @@ $('lobbyCustom').onclick = () => { sound.play('click'); openCustom('lobby'); };
 // ------------------------------------------------------------------ customize
 let customFrom = 'title', tab = 'char', preview = null;
 function rebuildPreview() {
-  if (preview) scene.remove(preview.root);
+  if (preview) { scene.remove(preview.root); preview.dispose(); }
   preview = tab === 'exe' ? new Rig({ role: 'exe', variant: save.variant }) : new Rig({ role: 'surv', look: save.look, char: save.char });
   preview.root.position.set(4, V.y, 7); preview.root.rotation.y = 0.3;
   scene.add(preview.root);
@@ -1084,7 +1250,7 @@ function renderCustom() {
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   for (const t of ['char', 'avatar', 'exe']) $('tab-' + t).classList.toggle('hidden', t !== tab);
   $('charCards').innerHTML = CHAR_IDS.map((id) => { const c = CHARS[id]; return `<button class="card${save.char === id ? ' on' : ''}" data-id="${id}" style="--accent:${c.accent}"><b>${c.name}</b><i>${c.role}</i><p>${esc(c.desc)}</p><div class="ab">${c.abilityName} · ${c.cd}s</div></button>`; }).join('');
-  $('exeCards').innerHTML = VARIANT_IDS.map((id) => { const v = VARIANTS[id]; return `<button class="card${save.variant === id ? ' on' : ''}" data-id="${id}" style="--accent:#ff2a3a"><b>${esc(v.name)}</b><i>speed ${v.speed}</i><p>${esc(v.desc)}</p><div class="ab">${v.abilityName} · ${v.cd}s</div></button>`; }).join('');
+  $('exeCards').innerHTML = VARIANT_IDS.map((id) => { const v = VARIANTS[id]; return `<button class="card${save.variant === id ? ' on' : ''}" data-id="${id}" style="--accent:#ff2a3a"><b>${esc(v.name)}</b><i>speed ${v.speed}</i><p>${esc(v.desc)}</p><div class="ab">E: ${v.abilityName} · ${v.cd}s</div><p style="margin-top:4px">${esc(v.desc2)}</p><div class="ab">R: ${v.ab2Name} · ${v.cd2}s</div></button>`; }).join('');
   const L = save.look;
   $('name').value = save.name;
   swatches('swSkin', SKINS, L.skin, (v) => { L.skin = v; });
