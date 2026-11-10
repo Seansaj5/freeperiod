@@ -230,7 +230,7 @@ addEventListener('pointerdown', wake, { capture: true });
 
 // ---------------------------------------------------------------- screens
 let mode = 'boot'; // boot | garage | setup | loading | intro | race | finish | results | pause
-const SCREENS = ['garage', 'setup', 'pause', 'results'];
+const SCREENS = ['title', 'garage', 'setup', 'pause', 'results'];
 function show(name) {
   for (const s of SCREENS) $(s).classList.toggle('hidden', s !== name);
   $('topbar').classList.toggle('hidden', !(name === 'garage' || name === 'setup'));
@@ -412,7 +412,7 @@ const ROLL = ['nitro', 'oil', 'ball', 'rocket', 'shield', 'coins', 'overdrive'];
 
 // ---------------------------------------------------------------- input
 const keys = new Set();
-const touch = { left: false, right: false, gas: false, brake: false, drift: false, item: false };
+const touch = { left: false, right: false, gas: false, brake: false, drift: false, item: false, back: false };
 let prevItem = false;
 // quick taps can start and end between two frames: remember them until the next frame reads the input
 const tapped = { item: false, drift: false };
@@ -425,6 +425,7 @@ addEventListener('keydown', (e) => {
   if (!e.repeat && DRIFT_KEYS.includes(e.code)) tapped.drift = true;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   if (mode === 'intro') { skipIntro(); return; }
+  if (mode === 'title') { if (e.code === 'Escape') leave(); else lr(); return; }
   if (e.code === 'Escape' || e.code === 'KeyP') {
     if (mode === 'race' || mode === 'finish') pause(true);
     else if (mode === 'pause') pause(false);
@@ -436,7 +437,7 @@ addEventListener('keydown', (e) => {
   else if (mode === 'results' && (e.code === 'Enter' || e.code === 'KeyR')) { const b = $('r-foot').querySelector('.primary'); if (b) b.click(); }
   if (e.code === 'KeyM' && mode !== 'garage') toggleMusic();
 });
-addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('keyup', (e) => { keys.delete(e.code); if (mode === 'title') lr(); });
 addEventListener('blur', () => { keys.clear(); if (mode === 'race') pause(true); });
 const isTouch = matchMedia('(pointer: coarse)').matches;
 if (isTouch) document.body.classList.add('touch');
@@ -445,7 +446,8 @@ for (const [id, k] of [['t-left', 'left'], ['t-right', 'right'], ['t-gas', 'gas'
   const on = (v) => (e) => { e.preventDefault(); wake(); touch[k] = v; el.classList.toggle('on', v); };
   el.addEventListener('pointerdown', on(true)); el.addEventListener('pointerup', on(false)); el.addEventListener('pointercancel', on(false)); el.addEventListener('pointerleave', on(false));
 }
-function readInput() {
+let steerS = 0, lookBack = false;
+function readInput(dt = 1 / 60) {
   const k = (...c) => c.some((x) => keys.has(x));
   const inp = {
     gas: k('KeyW', 'ArrowUp') || touch.gas,
@@ -454,10 +456,17 @@ function readInput() {
     drift: k(...DRIFT_KEYS) || touch.drift || tapped.drift,
     item: k(...ITEM_KEYS) || touch.item,
   };
+  // ease the on/off keys in and out: quick to turn in, quicker to let go, instant to flip sides
+  const want = inp.steer;
+  const rate = want === 0 ? 11 : Math.sign(want) !== Math.sign(steerS) && steerS !== 0 ? 16 : 7.5;
+  steerS = want > steerS ? Math.min(want, steerS + rate * dt) : Math.max(want, steerS - rate * dt);
+  inp.steer = steerS;
+  lookBack = k('KeyC', 'KeyB') || touch.back;
   const pad = navigator.getGamepads ? [...navigator.getGamepads()].find((p) => p && p.connected) : null;
   if (pad) {
     const ax = pad.axes[0] || 0;
-    if (Math.abs(ax) > 0.15) inp.steer = ax;
+    if (Math.abs(ax) > 0.15) inp.steer = Math.sign(ax) * Math.min(1, (Math.abs(ax) - 0.15) / 0.75);
+    if (pad.buttons[3]?.pressed) lookBack = true;
     if (pad.buttons[14]?.pressed) inp.steer = -1; if (pad.buttons[15]?.pressed) inp.steer = 1;
     if (pad.buttons[0]?.pressed || pad.buttons[7]?.value > 0.2) inp.gas = true;
     if (pad.buttons[1]?.pressed) inp.brake = true;
@@ -485,16 +494,8 @@ function startEvent() {
   loadRace();
 }
 
-async function loadRace() {
-  mode = 'loading';
-  const t = trackById(ev.tracks[ev.n]);
-  $('liq-logo').querySelector('.t2').innerHTML = 'K<i>A</i>RTS';
-  loadBar(0, ev.mode === 'gp' ? `Turbo Cup · race ${ev.n + 1} of 3 · ${t.name}` : t.name);
-  await liquid.fill(); logo(true);
-  music.stop();
-  disposeRace();
-  show(null); $('hud').classList.add('hidden');
-  await frameWait();
+/** Sky, lights, reflections and the track (into `world` / `track`). */
+async function buildWorld(t) {
   const th = THEMES[t.theme];
   world = new THREE.Scene();
   world.fog = new THREE.Fog(th.fog[0], th.fog[1], th.fog[2]);
@@ -507,6 +508,74 @@ async function loadRace() {
   track = new Track(t, settings.quality);
   track.build(world.userData.env);
   world.add(track.group);
+}
+
+// ---------------------------------------------------------------- the title screen: karts racing behind the logo, PRESS L + R
+let shotT = 0, shot = 0, shotKart = null;
+const shotFix = new THREE.Vector3();
+async function startAttract() {
+  const t = TRACKS[Math.floor(Math.random() * TRACKS.length)];
+  ev = { mode: 'attract' };
+  await buildWorld(t);
+  race = new Race({ scene: world, track, env: world.userData.env, hi, cls: 'pro', mode: 'vs', player: myBuild(), rivals: rivalBuilds(PAINTS[K().p]), on: {} });
+  race.autoplay = true; race.state = 'race';
+  for (const k of race.karts) if (Math.random() < 0.7) { k.boost(1.2); k.v = k.top0 * 0.4; }
+  shotT = 0;
+}
+/** TV-style camera for the title: low chase, alongside, trackside as they pass, head-on. */
+function titleCam(dt) {
+  shotT -= dt;
+  if (shotT <= 0 || !shotKart) {
+    shotT = 4 + Math.random() * 2;
+    shot = (shot + 1 + Math.floor(Math.random() * 2)) % 4;
+    shotKart = race.placeList[Math.floor(Math.random() * Math.min(5, race.placeList.length))];
+    if (shot === 2) {
+      const kk = track.w(shotKart.hint + 40 + Math.floor(Math.random() * 20)), side = Math.random() < 0.5 ? -1 : 1;
+      track.point(kk, side * (track.W[kk] + 2.2), shotFix); shotFix.y += 1 + Math.random() * 2.5;
+    }
+  }
+  const k = shotKart, fx = Math.sin(k.yaw + k.driftAng * 0.5), fz = Math.cos(k.yaw + k.driftAng * 0.5), rx = -fz, rz = fx;
+  if (shot === 0) { camera.position.set(k.pos.x - fx * 4.4, k.pos.y + 1.35, k.pos.z - fz * 4.4); camera.lookAt(k.pos.x + fx * 6, k.pos.y + 0.8, k.pos.z + fz * 6); }
+  else if (shot === 1) { camera.position.set(k.pos.x + rx * 4.8 + fx * 1.2, k.pos.y + 1.2, k.pos.z + rz * 4.8 + fz * 1.2); camera.lookAt(k.pos.x, k.pos.y + 0.6, k.pos.z); }
+  else if (shot === 2) { camera.position.copy(shotFix); camera.lookAt(k.pos.x, k.pos.y + 0.6, k.pos.z); }
+  else { camera.position.set(k.pos.x + fx * 6.5 - rx * 1.2, k.pos.y + 1.0, k.pos.z + fz * 6.5 - rz * 1.2); camera.lookAt(k.pos.x, k.pos.y + 0.7, k.pos.z); }
+  if (camera.fov !== 52) { camera.fov = 52; camera.updateProjectionMatrix(); }
+}
+function lr() { // light up the L / R buttons you are holding
+  const pad = navigator.getGamepads ? [...navigator.getGamepads()].find((p) => p && p.connected) : null;
+  const l = keys.has('KeyQ') || !!pad?.buttons[4]?.pressed || !!pad?.buttons[6]?.pressed, r = keys.has('KeyE') || !!pad?.buttons[5]?.pressed || !!pad?.buttons[7]?.pressed;
+  $('t-l').classList.toggle('on', l); $('t-r').classList.toggle('on', r);
+  if (l && r) titleGo();
+}
+async function titleGo() {
+  if (mode !== 'title') return;
+  wake();
+  mode = 'loading'; // the karts keep racing under the water
+  $('title').classList.add('go');
+  music.go(); sound.play('swish', { gain: 0.8, rate: 1.1 });
+  await sleep(450);
+  await liquid.fill(1050);
+  ev = null; disposeRace();
+  $('title').classList.add('hidden'); $('title').classList.remove('go');
+  enterGarage();
+  await sleep(180);
+  await liquid.drain();
+}
+$('title').addEventListener('pointerdown', (e) => { if (!e.target.closest('#t-back')) titleGo(); });
+$('t-back').onclick = () => leave();
+
+async function loadRace() {
+  mode = 'loading';
+  const t = trackById(ev.tracks[ev.n]);
+  $('liq-logo').querySelector('.t2').innerHTML = 'K<i>A</i>RTS';
+  loadBar(0, ev.mode === 'gp' ? `Turbo Cup · race ${ev.n + 1} of 3 · ${t.name}` : t.name);
+  await liquid.fill(); logo(true);
+  music.stop();
+  disposeRace();
+  show(null); $('hud').classList.add('hidden');
+  await frameWait();
+  const th = THEMES[t.theme];
+  await buildWorld(t);
   loadBar(0.7);
   await frameWait();
   // grid: race 1 you start at the back; after that, by the points table (leader in front)
@@ -556,7 +625,7 @@ function raceHooks() {
       $('touch').classList.toggle('hidden', !isTouch);
     },
     box: () => { music.crystal(); $('h-item').classList.add('roll'); },
-    gotItem: (it) => { music.gotItem(); paintItem(); const b = $('h-item'); b.classList.remove('roll', 'got'); void b.offsetWidth; b.classList.add('got'); },
+    gotItem: (it) => { music.gotItem(); paintItem(); if (it === 'oil' || it === 'ball') pop(isTouch ? 'Hold ITEM to drag it behind you' : 'Hold E to drag it behind you', '#cfe4ff'); const b = $('h-item'); b.classList.remove('roll', 'got'); void b.offsetWidth; b.classList.add('got'); },
     used: (k, it) => {
       if (k.me) { paintItem(); if (it === 'nitro' || it === 'nitro3' || it === 'overdrive') sound.nitro(); else if (it === 'shield' || it === 'coins') music.gotItem(); else sound.play('swish', { gain: 0.6 }); }
       else if (it === 'rocket' && race) { const tg = race.karts.find((o) => o.place === k.place - 1); if (tg && tg.me) pop('Rocket behind you!', '#ff5a4e'); }
@@ -581,6 +650,7 @@ function raceHooks() {
       if (k.me && hit) { shake = 0.8; pop(s.kind === 'oil' ? 'Slipped!' : s.kind === 'rocket' ? 'Rocket hit!' : 'Bonk!', '#ff5a4e'); }
       if (s.owner && s.owner.me && !k.me && hit) pop(`Hit ${k.label}!`, '#6dff8a');
     },
+    blocked: (k) => { if (k.me) { pop('Blocked!', '#8af7ff'); sound.play('clank', { gain: 0.7 }); } },
     bump: (rel) => { sound.play('clank', { gain: Math.min(0.6, 0.15 + rel / 25), rate: 1.2 }); },
     event: (k, e) => {
       if (!k.me) return;
@@ -588,7 +658,10 @@ function raceHooks() {
       else if (e.startsWith('mt')) { const lv = +e[2]; pop(['', 'Mini-turbo', 'Super mini-turbo', 'Ultra mini-turbo'][lv], ['', '#4aa8ff', '#ff8a1a', '#ffe066'][lv]); sound.play('swish', { gain: 0.7, rate: 1.1 }); sound.nitro(); }
       else if (e === 'pad') sound.play('whoosh', { gain: 0.6, rate: 1.2 });
       else if (e === 'startboost') { pop('Rocket start!', '#6dff8a'); sound.nitro(); }
-      else if (e === 'stall') pop('Too early!', '#ff5a4e');
+      else if (e === 'stall') { pop('Burnout! Too early', '#ff5a4e'); sound.play('squeal', { gain: 0.5 }); }
+      else if (e === 'lv1' || e === 'lv2' || e === 'lv3') music.charge(+e[2]);
+      else if (e === 'draft') { pop('Slipstream!', '#8af7ff'); sound.play('whoosh', { gain: 0.7, rate: 1.1 }); }
+      else if (e === 'drift') sound.play('squeak', { gain: 0.25, rate: 1.3 });
       else if (e === 'trick') music.trick();
       else if (e === 'trickboost') { pop('Trick!', '#3de0ff'); sound.nitro(); }
       else if (e === 'glide') { sound.play('swish', { gain: 0.9, rate: 0.8 }); pop('Glide!', '#3de0ff'); }
@@ -649,11 +722,12 @@ function flyover(dt) {
 /** Chase camera behind the kart. */
 function chase(dt, snap = false) {
   const k = race.player;
-  const want = k.yaw + k.driftAng * 0.4;
+  const want = k.yaw + k.driftAng * 0.35; // the camera only half follows the swing, so you see the kart's angle
   camYaw = snap ? want : camYaw + wrapA(want - camYaw) * (1 - Math.exp(-(k.spinT > 0 ? 2 : 7) * dt));
   const fx = Math.sin(camYaw), fz = Math.cos(camYaw);
   const back = (k.glide ? 7.4 : 5.8) + Math.min(1.8, Math.abs(k.v) * 0.035), up = k.glide ? 3.6 : 2.3;
-  const tx = k.pos.x - fx * back, tz = k.pos.z - fz * back;
+  const out = -k.drift * 0.8 * (k.driftK || 0); // in a drift the camera drifts to the outside so you see the angle
+  const tx = k.pos.x - fx * back - fz * out, tz = k.pos.z - fz * back + fx * out;
   const L = track.locate(tx, tz, k.hint, {}, 30);
   let ty = k.pos.y + up;
   if (!L.gap) ty = Math.max(ty, L.y + L.ramp + 1.0);
@@ -666,6 +740,31 @@ function chase(dt, snap = false) {
   const tf = 70 + (k.boosting ? 10 : 0) + Math.min(1, Math.abs(k.v) / k.top0) * 4;
   fov = snap ? tf : damp(fov, tf, 4, dt);
   camera.fov = fov; camera.updateProjectionMatrix();
+}
+/** Look back (hold C): a camera on the nose looking behind you. */
+function rearCam() {
+  const k = race.player, fx = Math.sin(k.yaw), fz = Math.cos(k.yaw);
+  camera.position.set(k.pos.x - fx * 1.4, k.pos.y + 1.5, k.pos.z - fz * 1.4);
+  camera.lookAt(k.pos.x - fx * 14, k.pos.y + 0.7, k.pos.z - fz * 14);
+  camPos.copy(camera.position);
+}
+/** Streaks at the edges of the screen when boosting (white) or in a slipstream (blue). */
+const sl = $('speedlines'), slx = sl.getContext('2d');
+let slOn = false;
+function speedLines(k) {
+  const on = !!k && (k.boosting || k.drafting) && k.respawnT <= 0;
+  if (!on) { if (slOn) { slx.clearRect(0, 0, sl.width, sl.height); slOn = false; } return; }
+  if (sl.width !== innerWidth) { sl.width = innerWidth; sl.height = innerHeight; }
+  slOn = true;
+  const w = sl.width, h = sl.height, cx = w / 2, cy = h * 0.45, R = Math.hypot(w, h) / 2;
+  slx.clearRect(0, 0, w, h);
+  slx.lineCap = 'round';
+  const n = k.boosting ? 34 : 18, col = k.boosting ? (k.starT > 0 ? '255,230,120' : '255,255,255') : '140,220,255';
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, r1 = R * (0.55 + Math.random() * 0.3), r2 = r1 + R * (0.12 + Math.random() * 0.25);
+    slx.strokeStyle = `rgba(${col},${0.12 + Math.random() * 0.3})`; slx.lineWidth = 1 + Math.random() * 3;
+    slx.beginPath(); slx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); slx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2); slx.stroke();
+  }
 }
 /** After the finish: swing round to the front of the kart. */
 function finishCam(dt) {
@@ -700,7 +799,6 @@ function hud(dt) {
   const lv = p.drift ? p.driftLevel : 0;
   $('h-mt').classList.toggle('on', !!p.drift);
   if (p.drift) [...$('h-mt').children].forEach((el, i) => { el.className = p.charge >= DRIFT_LV[i] ? `l${lv}` : ''; });
-  if (lv > lastLv) music.charge(lv);
   lastLv = lv;
   // rocket warning
   const inbound = race.items.shots.some((s) => s.kind === 'rocket' && s.target === p && Math.hypot(s.x - p.pos.x, s.z - p.pos.z) < 80);
@@ -857,16 +955,31 @@ function frame(now) {
   const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
   time += dt;
   fpsAvg = fpsAvg * 0.95 + (dt > 0 ? 1 / dt : 60) * 0.05;
-  if (race && world && (mode === 'intro' || mode === 'count' || mode === 'race' || mode === 'finish' || mode === 'results' || mode === 'pause')) {
-    const inp = mode === 'race' || mode === 'count' ? readInput() : { gas: false, brake: false, steer: 0, drift: false, item: false };
+  const attract = ev && ev.mode === 'attract';
+  if (race && world && attract) {
+    if (mode === 'title') lr();
+    race.update(dt, NOINPUT, time);
+    titleCam(dt);
+    race.updateFx(dt, fxScale());
+    world.children[0].position.copy(camera.position);
+    sound.engine(900, 0, 0, false, false);
+    draw(world);
+  } else if (race && world && (mode === 'intro' || mode === 'count' || mode === 'race' || mode === 'finish' || mode === 'results' || mode === 'pause')) {
+    const inp = mode === 'race' || mode === 'count' ? readInput(dt) : NOINPUT;
     if (mode !== 'pause') for (let i = 0; i < test.fast; i++) race.update(dt, inp, time + i * dt);
+    if (mode !== 'pause') race.updateFx(dt, fxScale());
     if (mode === 'intro') flyover(dt);
     else if (mode === 'finish' || mode === 'results') finishCam(dt);
-    else if (mode !== 'pause') chase(dt);
+    else if (mode !== 'pause') { if (lookBack && mode === 'race') rearCam(); else chase(dt); }
+    $('h-rear').classList.toggle('hidden', !(lookBack && mode === 'race'));
+    speedLines(mode === 'race' ? race.player : null);
     if (mode !== 'intro' && mode !== 'results') hud(dt);
     world.children[0].position.copy(camera.position);
     const p = race.player;
-    sound.engine(2400 + Math.min(1, Math.abs(p.v) / p.top0) * 4800 + (p.drift ? 400 : 0), race.state === 'race' && (p.input.gas || p.boosting) ? 1 : 0, Math.abs(p.v), mode !== 'pause' && mode !== 'results', p.boosting);
+    const revving = race.state === 'count' && inp.gas; // hold the gas on the grid and it revs
+    const rpm = revving ? 6000 + Math.sin(time * 9) * 500 : p.stallT > 0 ? 7400 : 2400 + Math.min(1, Math.abs(p.v) / p.top0) * 4800 + (p.drift ? 500 : 0);
+    sound.engine(rpm, revving || p.stallT > 0 || (race.state === 'race' && (p.input.gas || p.boosting)) ? 1 : 0, Math.abs(p.v), mode !== 'pause' && mode !== 'results', p.boosting);
+    if (revving && Math.random() < 0.4) { const m = race.meshes[0], V = new THREE.Vector3(); for (const pp of m.userData.pipes) { V.copy(pp).applyMatrix4(m.matrixWorld); race.dust.emit(V.x, V.y, V.z, -Math.sin(p.yaw) * 2, 0.8, -Math.cos(p.yaw) * 2, 0.6, 0.25, 0.9, [0.55, 0.55, 0.6], [0.3, 0.3, 0.34], 0.5, 0.6); } }
     sound.tires(p.drift && p.ground ? 0.35 : p.offroad && Math.abs(p.v) > 8 ? 0.15 : 0);
     draw(world);
     adapt(dt);
@@ -876,22 +989,28 @@ function frame(now) {
     sound.engine(900, 0, 0, false, false);
     draw(garage);
   } else if (world) draw(world);
+  if (liquid.showing) liquid.grab(renderer.domElement); // the water shows this frame through it
 }
+const fxScale = () => renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+const NOINPUT = { gas: false, brake: false, steer: 0, drift: false, item: false };
 
 // ---------------------------------------------------------------- start
 (async () => {
   loadBar(0.05, 'Filling the tank…');
   await frameWait();
   await makeThumbs();
-  loadBar(0.85, 'Polishing the karts…');
+  loadBar(0.8, 'Polishing the karts…');
   fillGarage(); setPreview(); placeGarageCam();
-  initAccount({ reload: () => { save = readSave(); fixKart(); if (mode === 'garage') { setPreview(); paintGarage(); } }, pullOk: () => mode === 'garage' || mode === 'setup' });
+  initAccount({ reload: () => { save = readSave(); fixKart(); if (mode === 'garage') { setPreview(); paintGarage(); } }, pullOk: () => mode === 'garage' || mode === 'setup' || mode === 'title' });
+  loadBar(0.85, 'Warming up the engines…');
+  await startAttract();
   requestAnimationFrame(frame);
   loadBar(1, 'Ready!');
-  await sleep(450);
-  mode = 'garage'; show('garage');
+  await sleep(400);
+  mode = 'title'; show('title');
+  $('t-keys').innerHTML = isTouch ? 'Tap the screen to start' : 'Keyboard <kbd>Q</kbd> + <kbd>E</kbd> · controller <kbd>LB</kbd> + <kbd>RB</kbd> · or click';
   logo(false);
-  music.play('garage');
+  music.play('title');
   await liquid.drain();
 })();
 

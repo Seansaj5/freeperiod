@@ -134,12 +134,37 @@ export class Items {
     this.shots.push({ kind: 'oil', mesh: m, x, z, k: L.k, life: 40, owner: kart, safe: 0.6, grow: 0 });
   }
 
-  fireBall(kart) {
-    const fx = Math.sin(kart.yaw), fz = Math.cos(kart.yaw);
+  /** The bouncing ball, straight ahead (or straight back). */
+  fireBall(kart, back = false) {
+    const d = back ? -1 : 1, fx = Math.sin(kart.yaw) * d, fz = Math.cos(kart.yaw) * d;
     const m = new THREE.Mesh(new THREE.SphereGeometry(0.55, 18, 12), this.ballMat);
     this.group.add(m);
-    const sp = Math.max(36, kart.v + 16);
+    const sp = back ? 34 : Math.max(36, kart.v + 16);
     this.shots.push({ kind: 'ball', mesh: m, x: kart.pos.x + fx * 2.4, z: kart.pos.z + fz * 2.4, vx: fx * sp, vz: fz * sp, k: kart.hint, life: 7, owner: kart, safe: 0.3, bounces: 0 });
+  }
+
+  /** An oil drum or the ball dragged behind a kart while its item button is held. */
+  trailFor(kart, i, time) {
+    this.trails = this.trails || [];
+    let t = this.trails[i];
+    if (!kart.trail) { if (t) t.visible = false; return; }
+    if (!t || t.userData.kind !== kart.trail) {
+      if (t) { t.removeFromParent(); t.traverse((o) => o.geometry && o.geometry.dispose()); }
+      if (kart.trail === 'ball') t = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 10), this.ballMat);
+      else {
+        t = new THREE.Group();
+        const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.8, 16), new THREE.MeshStandardMaterial({ color: 0x1a1c24, roughness: 0.35, metalness: 0.6 }));
+        const band = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.04, 6, 20), this.finMat); band.rotation.x = Math.PI / 2;
+        const drip = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), new THREE.MeshStandardMaterial({ color: 0x050508, roughness: 0.05, metalness: 0.5 }));
+        drip.position.set(0, 0.42, 0); drip.scale.y = 0.5;
+        t.add(drum, band, drip);
+      }
+      t.userData.kind = kart.trail; this.trails[i] = t; this.group.add(t);
+    }
+    t.visible = true;
+    const fx = Math.sin(kart.yaw), fz = Math.cos(kart.yaw);
+    t.position.set(kart.pos.x - fx * 1.9, kart.pos.y + 0.45 + Math.abs(Math.sin(time * 9 + i)) * 0.12, kart.pos.z - fz * 1.9);
+    t.rotation.set(kart.trail === 'ball' ? time * 10 : 0.3, kart.yaw, 0);
   }
 
   fireRocket(kart, target) {

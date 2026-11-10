@@ -1,6 +1,14 @@
-// One kart's driving: speed and steering from its parts' stats, drifting (hop, slide, charge sparks, release for a
-// mini-turbo), jumps and tricks, the glider, offroad, walls, getting hit, falling off and being put back.
-// The same code drives your kart and the computer's (they just get their input from ai.js).
+// One kart's driving: speed and steering from its parts' stats, drifting, jumps and tricks, the glider, offroad,
+// walls, getting hit, falling off and being put back. The same code drives your kart and the computer's
+// (they just get their input from ai.js).
+//
+// Drifting, the heart of it:
+//   press drift  -> a little hop (you can turn a bit in the air)
+//   land while holding drift and steering -> the kart swings its tail out and slides round in that direction.
+//     Steering INTO the drift tightens it and charges the sparks faster; steering against it widens it.
+//     Sparks: blue (mini-turbo), orange (super), gold (ultra). On grass they don't charge.
+//   let go -> a speed kick and a boost as long as the sparks were good.
+// Brake while drifting to tighten even more (charges a little slower).
 import * as THREE from 'three';
 import { statsOf } from './parts.js';
 
@@ -9,9 +17,10 @@ export const CLASSES = {
   pro: { name: 'Pro', speed: 0.9, ai: 0.93 },
   elite: { name: 'Elite', speed: 1.0, ai: 0.985 },
 };
-export const DRIFT_LV = [1.0, 2.1, 3.3]; // seconds of charge for blue, orange, gold sparks
-const BOOST_LV = [0, 0.65, 1.15, 1.8];
+export const DRIFT_LV = [0.8, 1.75, 2.85]; // charge for blue, orange, gold sparks
+const BOOST_LV = [0, 0.7, 1.25, 1.95];
 const GRAV = 30;
+const BOOST = 1.32;
 
 const wrapA = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
 const damp = (a, b, r, dt) => b + (a - b) * Math.exp(-r * dt);
@@ -47,12 +56,14 @@ export class Kart {
     this.v = 0; this.vy = 0; this.ground = true; this.air = 0;
     this.hint = t.w(k); this.total = total; this.lastS = t.w(k); this.lap = 1; this.lapMax = 1;
     this.finished = false; this.finishT = 0; this.place = 0;
-    this.drift = 0; this.charge = 0; this.driftAng = 0; this.hopT = 0; this.wantDrift = false; this.prevDrift = false;
-    this.boostT = 0; this.boostMax = 0; this.padT = 0;
-    this.spinT = 0; this.spinMax = 1; this.spinDir = 1; this.shieldT = 0; this.starT = 0;
-    this.coins = 0; this.item = null; this.itemN = 0; this.rollT = 0;
-    this.glide = false; this.trick = 0; this.trickT = 0; this.launchT = 0; this.launchK = 0;
+    this.drift = 0; this.driftT = 0; this.driftK = 0; this.charge = 0; this.lvPrev = 0; this.driftAng = 0; this.driftAngV = 0;
+    this.hopT = 0; this.wantDrift = false; this.prevDrift = false;
+    this.boostT = 0; this.boostMax = 0; this.boostPow = BOOST; this.padT = 0; this.stallT = 0;
+    this.spinT = 0; this.spinMax = 1; this.spinDir = 1; this.shieldT = 0; this.starT = 0; this.safeT = 0;
+    this.coins = 0; this.item = null; this.itemN = 0; this.rollT = 0; this.trail = null;
+    this.glide = false; this.trick = 0; this.trickT = 0; this.trickKind = 0; this.launchT = 0;
     this.respawnT = 0; this.lastSafe = this.hint; this.offroad = false; this.wallHit = 0; this.landed = 0;
+    this.draftC = 0; this.drafting = false;
     this.push.set(0, 0); this.steerVis = 0; this.pitch = 0; this.roll = 0; this.events = [];
     this.prevRamp = 0; this.mul = 1; this.got = 0;
     this.locate();
@@ -64,19 +75,33 @@ export class Kart {
   get boosting() { return this.boostT > 0 || this.starT > 0; }
   get driftLevel() { return this.charge >= DRIFT_LV[2] ? 3 : this.charge >= DRIFT_LV[1] ? 2 : this.charge >= DRIFT_LV[0] ? 1 : 0; }
 
-  /** Speed boost for `t` seconds (mini-turbo, dash pad, nitro, trick, start). */
-  boost(t, kind = 'boost') { this.boostT = Math.max(this.boostT, t); this.boostMax = Math.max(this.boostT, 0.01); this.events.push(kind); }
+  /** Speed boost for `t` seconds at `pow` x top speed (mini-turbo, dash pad, nitro, trick, start, slipstream, coin). */
+  boost(t, kind = 'boost', pow = BOOST) {
+    if (this.boostT <= 0 || pow >= this.boostPow) this.boostPow = pow;
+    this.boostT = Math.max(this.boostT, t); this.boostMax = Math.max(this.boostT, 0.01);
+    this.events.push(kind);
+  }
 
   /** Hit by something. kind: 'spin' (oil, ball) or 'launch' (rocket). Returns false if it bounced off a shield/star. */
   hit(kind = 'spin') {
-    if (this.starT > 0 || this.respawnT > 0) return false;
+    if (this.starT > 0 || this.respawnT > 0 || this.safeT > 0) return false;
     if (this.shieldT > 0) { this.shieldT = 0; this.events.push('shield-pop'); return false; }
     this.spinT = this.spinMax = kind === 'launch' ? 1.5 : 1.15; this.spinDir = Math.random() < 0.5 ? -1 : 1;
     if (kind === 'launch') { this.vy = 8.5; this.ground = false; }
-    this.drift = 0; this.charge = 0; this.boostT = 0;
+    this.drift = 0; this.charge = 0; this.boostT = 0; this.trail = null;
     const lost = Math.min(this.coins, 3); this.coins -= lost;
     this.events.push(kind === 'launch' ? 'launched' : 'spun'); if (lost) this.events.push('coins-lost');
     return true;
+  }
+
+  endDrift(boost) {
+    if (!this.drift) return;
+    const lv = this.driftLevel;
+    if (boost && lv) {
+      this.boost(BOOST_LV[lv] * this.turboK, 'mt' + lv);
+      this.v = Math.min(this.v + 1.5 + lv, this.speedTop * BOOST); // the kick you feel when you let go
+    } else if (lv) this.events.push('mt-lost');
+    this.drift = 0; this.charge = 0; this.lvPrev = 0; this.driftT = 0;
   }
 
   step(dt) {
@@ -89,33 +114,33 @@ export class Kart {
       this.pos.set(p.x, p.y + Math.max(0, this.respawnT) * 5, p.z);
       this.yaw = t.heading(k); this.v = 0; this.vy = 0; this.drift = 0; this.charge = 0; this.glide = false;
       this.hint = k; this.locate();
-      if (this.respawnT <= 0) { this.ground = true; this.events.push('dropped'); }
+      if (this.respawnT <= 0) { this.ground = true; this.safeT = 1.5; this.events.push('dropped'); }
       return;
     }
     const spin = this.spinT > 0;
     if (spin) this.spinT -= dt;
-    if (this.boostT > 0) this.boostT -= dt;
-    if (this.starT > 0) this.starT -= dt;
-    if (this.shieldT > 0) this.shieldT -= dt;
-    if (this.padT > 0) this.padT -= dt;
-    const gas = !spin && inp.gas, brake = !spin && inp.brake;
-    const steer = spin ? 0 : inp.steer;
+    for (const f of ['boostT', 'starT', 'shieldT', 'padT', 'safeT']) if (this[f] > 0) this[f] -= dt;
+    const stalled = this.stallT > 0;
+    if (stalled) this.stallT -= dt;
+    const gas = !spin && !stalled && inp.gas, brake = !spin && inp.brake;
+    const steer = spin ? 0 : Math.max(-1, Math.min(1, inp.steer));
+    const s = this.drift ? steer * this.drift : 0; // in a drift: +1 = steering into it (tight), -1 = against it (wide)
     // ---- speed
     let top = this.speedTop;
     const off = this.ground && Math.abs(L.d) > L.hw + t.curb * 0.7 && !L.gap;
     this.offroad = off;
     if (off && !this.boosting) top *= this.offK;
-    if (this.boosting) top *= this.starT > 0 ? 1.28 : 1.32;
-    if (this.drift) top *= 0.985;
+    if (this.boosting) top *= this.starT > 0 ? 1.28 : this.boostPow;
+    if (this.drift) top *= 0.995 - 0.02 * Math.max(0, s) - (brake ? 0.08 : 0);
     if (this.ground) {
       if (gas && this.v >= 0) {
         if (this.v < top) this.v = Math.min(top, this.v + this.acc * Math.max(0.12, 1 - this.v / top) * (this.boosting ? 3 : 1) * dt);
         else this.v = damp(this.v, top, off ? 2.5 : 1.0, dt);
-      } else if (brake) {
+      } else if (brake && !this.drift) {
         if (this.v > 0.5) this.v = Math.max(0, this.v - 26 * dt);
         else this.v = Math.max(-8, this.v - 9 * dt);
       } else {
-        this.v = damp(this.v, 0, this.boosting ? 0.05 : 0.45, dt);
+        this.v = damp(this.v, 0, this.boosting ? 0.05 : this.drift ? 0.25 : 0.45, dt);
         if (this.boosting) this.v = Math.min(top, this.v + this.acc * 2 * dt);
         if (Math.abs(this.v) < 0.3) this.v = 0;
       }
@@ -124,40 +149,49 @@ export class Kart {
       this.v = damp(this.v, Math.max(top * 0.95, 18), 0.4, dt);
     }
     if (spin) this.v = damp(this.v, 0, 2.4, dt);
-    // ---- drifting: press to hop; hold and steer when landing to slide; let go for the boost
+    if (stalled) this.v = 0;
+    // ---- drift button: press to hop (or to trick off a ramp), hold and steer to drift, let go for the boost
     const press = inp.drift && !this.prevDrift;
     this.prevDrift = inp.drift;
-    if (press && this.ground && !spin && this.v > 4) { this.vy = 3.4; this.ground = false; this.hopT = 0.3; this.wantDrift = true; this.events.push('hop'); }
-    if (press && !this.ground && this.launchT > 0 && !this.trick) { this.trick = 1; this.trickT = 0; this.events.push('trick'); }
-    if (!inp.drift) {
-      if (this.drift) {
-        const lv = this.driftLevel;
-        if (lv) this.boost(BOOST_LV[lv] * this.turboK, 'mt' + lv);
-        this.drift = 0; this.charge = 0;
-      }
-      this.wantDrift = false;
+    if (press && this.ground && !spin && !stalled && this.v > 4) {
+      this.vy = 3.6; this.ground = false; this.hopT = 0.3; this.wantDrift = true; this.events.push('hop');
+    } else if (press && !this.ground && this.launchT > 0 && !this.trick) {
+      this.trick = 1; this.trickT = 0; this.trickKind = Math.floor(Math.random() * 3); this.events.push('trick');
     }
-    if (this.wantDrift && !this.drift && this.ground && this.v > 9 && Math.abs(steer) > 0.25) { this.drift = Math.sign(steer); this.charge = 0; this.wantDrift = false; }
-    if (this.drift && (this.v < 7 || spin)) { this.drift = 0; this.charge = 0; }
+    if (!inp.drift) { this.endDrift(true); this.wantDrift = false; }
+    // landing from the hop (or any air) while holding drift and steering starts the slide
+    if (inp.drift && this.wantDrift && !this.drift && this.ground && this.v > 8 && Math.abs(steer) > 0.2 && !spin) {
+      this.drift = Math.sign(steer); this.driftT = 0; this.driftK = 0; this.charge = 0; this.lvPrev = 0;
+      this.driftAngV = this.drift * 4.5; // the tail kicks out
+      this.events.push('drift');
+    }
+    if (this.drift && (this.v < 6 || spin)) this.endDrift(false);
     // ---- steering
     const sp = Math.abs(this.v), topN = Math.max(1, this.top0);
     const turnK = Math.min(1, sp / 6) * (1 - 0.28 * Math.min(1, sp / topN));
-    let yawRate;
+    let yawRate, angT = 0;
     if (this.drift) {
-      const s = steer * this.drift; // -1 = wide, +1 = tight
-      yawRate = -this.drift * this.turn * (0.62 + 0.42 * (s + 1)) * Math.min(1, sp / 10);
-      if (this.ground) this.charge += dt * (0.75 + 0.55 * Math.max(0, s)) * this.turboK;
-      this.driftAng = damp(this.driftAng, this.drift * (0.42 + 0.14 * s), 8, dt);
+      this.driftT += dt; this.driftK = Math.min(1, this.driftK + dt / 0.22);
+      const tight = 0.32 + 0.59 * (s + 1); // steering against it: a wide arc (0.32) .. into it: tight (1.5)
+      yawRate = -this.drift * this.turn * tight * Math.min(1, sp / 10) * (0.45 + 0.55 * this.driftK) * (brake ? 1.22 : 1);
+      if (this.ground && (!off || this.boosting)) this.charge += dt * (0.72 + 0.62 * Math.max(0, s)) * this.turboK * (brake ? 0.85 : 1);
+      const lv = this.driftLevel;
+      if (lv > this.lvPrev) { this.lvPrev = lv; this.events.push('lv' + lv); }
+      angT = this.drift * (0.46 + 0.2 * s); // 15-37 degrees: more when you steer into it
+    } else if (!this.ground && this.hopT > 0) {
+      yawRate = -steer * this.turn * 0.95 * Math.min(1, sp / 6); // a hop lets you turn a little in the air
     } else {
-      yawRate = -steer * this.turn * turnK * Math.sign(this.v || 1) * (this.glide ? 0.75 : this.ground ? 1 : 0.55);
-      this.driftAng = damp(this.driftAng, 0, 7, dt);
+      yawRate = -steer * this.turn * turnK * Math.sign(this.v || 1) * (this.glide ? 0.75 : this.ground ? 1 : 0.5);
     }
     if (spin) yawRate = 0;
     this.yaw = wrapA(this.yaw + yawRate * dt);
-    this.steerVis = damp(this.steerVis, steer, 12, dt);
-    // ---- move
+    // the body's angle on a spring: swings out when the drift starts, settles, follows your steering
+    this.driftAngV += ((angT - this.driftAng) * 95 - this.driftAngV * 13) * dt;
+    this.driftAng += this.driftAngV * dt;
+    this.steerVis = damp(this.steerVis, this.drift ? -this.drift * 0.6 + steer * 0.4 : steer, 12, dt);
+    // ---- move (a drift slides you a little to the outside, more when it's wide)
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), rx = -fz, rz = fx;
-    const slide = this.drift ? -this.drift * Math.abs(this.v) * 0.09 : 0;
+    const slide = this.drift ? -this.drift * sp * (0.05 + 0.03 * (1 - s)) * this.driftK : 0;
     this.pos.x += (fx * this.v + rx * slide + this.push.x) * dt;
     this.pos.z += (fz * this.v + rz * slide + this.push.y) * dt;
     this.push.multiplyScalar(Math.exp(-5 * dt));
@@ -172,7 +206,7 @@ export class Kart {
         this.ground = false;
         this.vy = glider ? 6 + this.v * 0.06 : 4.2 + this.v * 0.16;
         this.launchT = 0.5; this.trick = 0;
-        if (glider) { this.glide = true; this.events.push('glide'); } else this.events.push('jump');
+        if (glider) { this.glide = true; this.endDrift(true); this.events.push('glide'); } else this.events.push('jump');
       } else if (groundY < this.pos.y - 1.2) {
         this.ground = false; this.vy = 0; // drove off an edge
       } else this.pos.y = groundY;
@@ -187,18 +221,19 @@ export class Kart {
       if (this.trick) this.trickT += dt;
       if (this.pos.y <= groundY && this.vy <= 0) {
         this.pos.y = groundY; this.ground = true;
-        if (this.trick) { this.boost(0.75 * this.turboK, 'trickboost'); this.trick = 0; }
+        if (this.trick) { this.boost(0.8 * this.turboK, 'trickboost'); this.trick = 0; }
         if (this.air > 0.35) this.events.push(this.glide ? 'glide-land' : 'land');
-        this.landed = Math.min(1, -this.vy / 12);
+        this.landed = Math.min(1, -this.vy / (this.hopT > 0 ? 9 : 12));
         this.glide = false; this.air = 0; this.vy = 0;
+        if (this.drift === 0 && inp.drift && this.air === 0) this.wantDrift = true; // holding drift as you land from a jump
       }
     }
     if (this.hopT > 0) this.hopT -= dt;
     // ---- walls
     const edge = t.wallAt(L) - 0.85;
     if (!L.gap && Math.abs(L.d) > edge && this.pos.y < groundY + 2.5) {
-      const s = Math.sign(L.d), over = Math.abs(L.d) - edge;
-      const nx = -L.tz * s, nz = L.tx * s; // outward
+      const sg = Math.sign(L.d), over = Math.abs(L.d) - edge;
+      const nx = -L.tz * sg, nz = L.tx * sg; // outward
       this.pos.x -= nx * over; this.pos.z -= nz * over;
       const into = (fx * nx + fz * nz) * Math.sign(this.v || 1);
       if (into > 0.02) {
@@ -207,7 +242,7 @@ export class Kart {
         const tang = Math.atan2(L.tx, L.tz) + (Math.abs(wrapA(this.yaw - Math.atan2(L.tx, L.tz))) > Math.PI / 2 ? Math.PI : 0);
         this.yaw = wrapA(this.yaw + wrapA(tang - this.yaw) * Math.min(1, into * 1.4));
         this.push.x -= nx * Math.min(6, hard * 0.5); this.push.y -= nz * Math.min(6, hard * 0.5);
-        if (hard > 5) { this.wallHit = hard; this.events.push('wall'); if (hard > 9) { this.drift = 0; this.charge = 0; } }
+        if (hard > 5) { this.wallHit = hard; this.events.push('wall'); if (hard > 9) this.endDrift(false); }
       }
       L = this.locate();
     }
@@ -222,7 +257,7 @@ export class Kart {
       const lost = Math.min(this.coins, 3); this.coins -= lost;
       // over the glide gap you are put down on the far side; anywhere else back where you were safe
       if (t.glide && (L.gap || this.glide)) this.lastSafe = t.w(t.glide.land + 6);
-      this.glide = false; this.drift = 0; this.boostT = 0;
+      this.glide = false; this.drift = 0; this.charge = 0; this.boostT = 0; this.trail = null;
       return;
     }
     if (this.ground && !L.gap && Math.abs(L.d) < L.hw) this.lastSafe = t.w(L.k - 3);
@@ -231,30 +266,33 @@ export class Kart {
     if (ds < -t.N / 2) ds += t.N; else if (ds > t.N / 2) ds -= t.N;
     this.total += ds; this.lastS = L.s;
     this.lap = Math.max(1, Math.floor(this.total / t.N) + 1);
-    // ---- tilt with the road (or the jump)
+    // ---- tilt with the road (or the jump); a drifting kart leans out of the turn
     const k = L.k, ahead = t.w(k + 2), back = t.w(k - 2);
     const slope = (t.Y[ahead] + t.RAMP[ahead] - t.Y[back] - t.RAMP[back]) / 4;
     const along = fx * L.tx + fz * L.tz;
     const tp = this.ground ? -Math.atan(slope) * along : Math.max(-0.5, Math.min(0.4, -Math.atan2(this.vy, Math.max(8, Math.abs(this.v))) * 0.6));
     const tr = this.ground ? -Math.atan(L.bank) * along : 0;
-    this.pitch = damp(this.pitch, tp, this.ground ? 14 : 4, dt);
-    this.roll = damp(this.roll, tr + (this.drift ? this.drift * 0.06 : 0), 10, dt);
+    this.pitch = damp(this.pitch, tp + (this.boosting && this.ground ? -0.035 : 0), this.ground ? 14 : 4, dt);
+    this.roll = damp(this.roll, tr - (this.drift ? this.drift * (0.05 + 0.03 * Math.max(0, s)) : steer * 0.03 * Math.min(1, sp / topN)), 10, dt);
   }
 
   /** Put the model where the kart is. */
   sync(mesh, dt, time) {
     const u = mesh.userData;
     mesh.position.copy(this.pos);
-    let spinA = 0, flip = 0;
+    let spinA = 0, fx = 0, fy = 0, fz = 0;
     if (this.spinT > 0) { const k = 1 - this.spinT / this.spinMax; spinA = this.spinDir * (1 - Math.pow(1 - k, 2)) * Math.PI * 4; }
-    if (this.trick && !this.ground) flip = Math.min(1, this.trickT / 0.45) * Math.PI * 2;
+    if (this.trick && !this.ground) { // three tricks: a barrel roll, a front flip, a flat spin
+      const a = (1 - Math.pow(1 - Math.min(1, this.trickT / 0.5), 2)) * Math.PI * 2, sg = this.id % 2 ? 1 : -1;
+      if (this.trickKind === 0) fz = a * sg; else if (this.trickKind === 1) fx = -a; else fy = a * sg;
+    }
+    if (this.stallT > 0) fy += Math.sin(time * 40) * 0.03; // burnout shudder
     mesh.rotation.order = 'YXZ';
-    mesh.rotation.set(this.pitch - (this.trick ? 0 : 0), this.yaw + this.driftAng + spinA, this.roll + (this.trick ? flip * (this.id % 2 ? 1 : -1) : 0));
+    mesh.rotation.set(this.pitch + fx, this.yaw + this.driftAng + spinA + fy, this.roll + fz);
     // a little squash when landing
-    if (this.landed > 0) { this.landed = Math.max(0, this.landed - dt * 4); }
+    if (this.landed > 0) this.landed = Math.max(0, this.landed - dt * 4);
     u.body.scale.set(1 + this.landed * 0.08, 1 - this.landed * 0.14, 1);
-    u.body.position.x = 0;
-    u.spin(dt, this.v, this.steerVis);
+    u.spin(dt, this.stallT > 0 ? 30 : this.v, this.steerVis);
     // glider opens with a little overshoot
     const g = u.glider, want = this.glide ? 1 : 0;
     g.userData.k = damp(g.userData.k || 0, want, this.glide ? 7 : 10, dt);
@@ -262,6 +300,7 @@ export class Kart {
     g.visible = gk > 0.02;
     g.scale.setScalar(Math.max(0.001, gk * (1 + Math.sin(Math.min(1, gk) * Math.PI) * 0.12)));
     g.rotation.x = this.glide ? Math.sin(time * 3) * 0.04 - 0.08 : 0;
+    g.rotation.z = this.glide ? -this.steerVis * 0.25 : 0;
     // shadow on the road
     if (u.shadow) {
       const L = this.loc;
@@ -270,11 +309,11 @@ export class Kart {
       if (gy != null) {
         const h = Math.max(0, this.pos.y - gy);
         u.shadow.position.set(this.pos.x, gy + 0.05, this.pos.z);
-        u.shadow.rotation.set(-Math.PI / 2, 0, this.yaw);
+        u.shadow.rotation.set(-Math.PI / 2, 0, this.yaw + this.driftAng);
         u.shadow.material.opacity = 0.85 * Math.max(0.15, 1 - h / 8);
         u.shadow.scale.setScalar(1 + h * 0.06);
       }
     }
-    mesh.visible = !(this.respawnT > 1.2);
+    mesh.visible = !(this.respawnT > 1.2) && !(this.safeT > 0 && Math.floor(time * 14) % 2);
   }
 }

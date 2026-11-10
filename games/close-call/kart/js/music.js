@@ -7,6 +7,7 @@ const SONGS = {
   0: { bpm: 152, root: 60, chords: [[0, 'M'], [7, 'M'], [9, 'm'], [5, 'M']], lead: 'sq', seed: 11, drums: 1, arp: 'sq' },
   1: { bpm: 140, root: 57, chords: [[0, 'm'], [10, 'M'], [8, 'M'], [10, 'M']], lead: 'saw', seed: 23, drums: 1, arp: 'sq' },
   2: { bpm: 126, root: 54, chords: [[0, 'm'], [8, 'M'], [3, 'M'], [10, 'M']], lead: 'saw', seed: 37, drums: 1, arp: 'saw' },
+  title: { bpm: 146, root: 62, chords: [[0, 'M'], [5, 'M'], [9, 'm'], [7, 'M']], lead: 'sq', seed: 77, drums: 1, arp: 'sq' },
   win: { bpm: 132, root: 60, chords: [[0, 'M'], [5, 'M'], [7, 'M'], [0, 'M']], lead: 'sq', seed: 5, drums: 0.8, arp: 'tri' },
 };
 const TRIAD = { M: [0, 4, 7], m: [0, 3, 7] };
@@ -127,5 +128,7 @@ export class Music {
   trick() { this.sfx((t, d) => { [784, 988, 1175].forEach((f, i) => this.note('sq', f, t + i * 0.05, 0.12, 0.1, d)); }); }
   fanfare(win) { this.sfx((t, d) => { const ns = win ? [72, 76, 79, 84, 79, 84] : [72, 74, 76, 72]; ns.forEach((m, i) => this.note('sq', hz(m), t + i * 0.13, i === ns.length - 1 ? 0.8 : 0.16, 0.16, d)); }); }
   finalLap() { this.sfx((t, d) => { [67, 72, 76, 79].forEach((m, i) => this.note('sq', hz(m), t + i * 0.1, 0.18, 0.15, d)); this.note('sq', hz(84), t + 0.42, 0.6, 0.15, d); }); }
+  /** Pressed L + R on the title: a bright rising run. */
+  go() { this.sfx((t, d) => { [67, 71, 74, 79, 83, 86].forEach((m, i) => this.note('sq', hz(m), t + i * 0.045, 0.22, 0.14, d)); this.note('tri', hz(91), t + 0.27, 0.6, 0.3, d); this.hit(t, 0.3, 3000, 0.4, d); }); }
   unlock() { this.sfx((t, d) => { [76, 79, 83, 88].forEach((m, i) => this.note('tri', hz(m), t + i * 0.08, 0.3, 0.3, d)); }); }
 }

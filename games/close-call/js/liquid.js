@@ -7,7 +7,8 @@
 const VERT = 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }';
 const FRAG = `
 precision highp float;
-uniform vec2 uRes; uniform float uT, uLevel, uSlosh, uRip, uDir;
+uniform vec2 uRes; uniform float uT, uLevel, uSlosh, uRip, uDir, uHasScene;
+uniform sampler2D uScene;
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float caustic(vec2 p, float t){
   // three warped sine layers; the thin bright ridges where they line up look like light on a pool floor
@@ -41,6 +42,17 @@ void main(){
     vec3 shallow = vec3(0.16, 0.78, 0.98), deep = vec3(0.012, 0.07, 0.2);
     vec3 c = mix(shallow, deep, smoothstep(0.0, 0.55, depth));
     c = mix(c, vec3(0.0, 0.03, 0.1), smoothstep(0.5, 1.2, depth) * 0.7);
+    if (uHasScene > 0.5) {
+      // liquid glass: the picture behind, bent by the waves (most just under the surface, where it also
+      // magnifies like a lens), split a little into colours at the edge, and tinted more the deeper it is
+      float lens = exp(-depth * 10.0);
+      vec2 wob = vec2(sin(P.y * 16.0 + t * 2.1 + P.x * 5.0) + 0.6 * sin(P.y * 37.0 - t * 3.3), cos(P.x * 13.0 - t * 1.8) + 0.5 * cos(P.x * 29.0 + P.y * 9.0 + t * 2.7));
+      vec2 off = wob * (0.004 + 0.011 * lens) + vec2(0.0, -0.06 * lens);
+      vec2 su = clamp(uv + off, 0.002, 0.998);
+      vec3 sc = vec3(texture2D(uScene, su + vec2(0.003 * lens, 0.0)).r, texture2D(uScene, su).g, texture2D(uScene, su - vec2(0.003 * lens, 0.0)).b);
+      float tint = 0.22 + 0.62 * smoothstep(0.03, 0.75, depth);
+      c = mix(sc * vec3(0.72, 0.95, 1.08) + vec3(0.0, 0.03, 0.06), c, tint);
+    }
     // light from the surface: caustic net, brighter near the top
     vec2 cp = P * 7.0 + vec2(0.0, t * 0.25);
     float cs = caustic(cp, t * 1.3);
@@ -76,7 +88,7 @@ void main(){
     vec2 e = abs(uv - 0.5) * 2.0;
     float edge = pow(max(e.x, e.y), 10.0);
     c = mix(c, c * 0.55 + vec3(0.25, 0.6, 0.8) * 0.25, edge);
-    float a = 0.94 - 0.12 * exp(-depth * 18.0);
+    float a = uHasScene > 0.5 ? 1.0 : 0.94 - 0.12 * exp(-depth * 18.0);
     col = vec4(c * a, a);
   } else {
     // spray: droplets thrown just above a moving surface
@@ -117,7 +129,8 @@ export class Liquid {
     const loc = gl.getAttribLocation(pr, 'p');
     gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     this.u = {};
-    for (const n of ['uRes', 'uT', 'uLevel', 'uSlosh', 'uRip', 'uDir']) this.u[n] = gl.getUniformLocation(pr, n);
+    for (const n of ['uRes', 'uT', 'uLevel', 'uSlosh', 'uRip', 'uDir', 'uHasScene', 'uScene']) this.u[n] = gl.getUniformLocation(pr, n);
+    this.hasScene = 0;
     this.resize = () => {
       const k = Math.min(devicePixelRatio || 1, 1.25) * 0.75; // a soft picture is fine for water, and it keeps phones fast
       c.width = Math.max(2, Math.round(innerWidth * k)); c.height = Math.max(2, Math.round(innerHeight * k));
@@ -128,6 +141,25 @@ export class Liquid {
   }
 
   get busy() { return !!this.anim; }
+  get showing() { return this.canvas.style.display !== 'none'; }
+
+  /**
+   * Show the page's 3D view through the water (call right after the game draws a frame, while the water is up).
+   * Without it the water is a plain glossy blue.
+   */
+  grab(src) {
+    const gl = this.gl;
+    if (!gl || !this.showing || this.noGrab) return;
+    if (!this.tex) {
+      this.tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, this.tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src); this.hasScene = 1; } catch { this.hasScene = 0; this.noGrab = true; }
+  }
 
   _draw() {
     const gl = this.gl;
@@ -138,6 +170,8 @@ export class Liquid {
     gl.uniform1f(this.u.uSlosh, this.slosh);
     gl.uniform1f(this.u.uRip, this.rip);
     gl.uniform1f(this.u.uDir, this.dir);
+    gl.uniform1f(this.u.uHasScene, this.hasScene);
+    if (this.tex) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tex); gl.uniform1i(this.u.uScene, 0); }
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
@@ -153,7 +187,7 @@ export class Liquid {
         if (k >= 1) { this.anim = null; a.done(); }
       }
       this._draw();
-      if (this.level <= -0.19 && !this.anim) { this.canvas.style.display = 'none'; return; }
+      if (this.level <= -0.19 && !this.anim) { this.canvas.style.display = 'none'; this.hasScene = 0; return; }
       this.raf = requestAnimationFrame(tick);
     };
     this.raf = requestAnimationFrame(tick);

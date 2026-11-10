@@ -848,6 +848,7 @@ function frame() {
   const rev = now < revUntil ? Math.sin(Math.PI * (1 - (revUntil - now) / 800)) : 0;
   sound.engine(playing ? sim.rpm : 1500 + rev * 5200, playing ? sim.load : rev > 0.05 ? 1 : 0, playing ? sim.v : 0, (mode === 'play' && !wreck) || rev > 0.05, sim.boosting);
   if (composer) composer.render(dt); else renderer.render(scene, camera);
+  if (liquid.showing) liquid.grab(renderer.domElement); // the kart button's water shows this view through it
 }
 // ---------------- two lives ----------------
 let wreckScale = 1, wreckOff = 0;
