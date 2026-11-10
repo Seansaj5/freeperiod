@@ -20,6 +20,7 @@ export function mountHelp(el, cx) {
   let showAll = false;
   let seq = 0;
   let fetchedAt = 0;
+  let loading = null; // the refresh setTarget started, until it settles: a question typed meanwhile waits for it
 
   const botAvatar = () => { const b = cx.bot(); return b ? avatar(b, { size: 30, frame: false }) : h('span', { class: 'cx-av cx-help-bot', style: '--av:30px', 'aria-hidden': 'true' }, icon('sparkle')); };
 
@@ -57,7 +58,15 @@ export function mountHelp(el, cx) {
   const api = {
     el,
     // key: the conversation the helper is for ('c:7', 'd:<id>'), or null when the open conversation isn't a help one.
-    setTarget(k) { const changed = k !== key; if (changed) { key = k; card = null; showAll = false; seq++; } draw(); if (k && changed) cx.refresh().then(() => { fetchedAt = Date.now(); if (key === k) draw(); }, () => {}); },
+    setTarget(k) {
+      const changed = k !== key;
+      if (changed) { key = k; card = null; showAll = false; seq++; }
+      draw();
+      if (!k || !changed) return;
+      const p = Promise.resolve().then(() => cx.refresh()).then(() => { fetchedAt = Date.now(); if (key === k) draw(); }, () => {});
+      loading = p;
+      p.finally(() => { if (loading === p) loading = null; });
+    },
     redraw: draw,
     pick(item) { card = { question: item.question, answer: item.answer, kind: 'faq' }; draw(); const c = el.querySelector('.cx-help-card'); if (c && c.scrollIntoView) c.scrollIntoView({ block: 'nearest' }); },
     clear() { card = null; draw(); },
@@ -65,6 +74,9 @@ export function mountHelp(el, cx) {
     // 'post': chatter, not a question, so it is just a normal message (no bot card); 'gone': the conversation changed meanwhile.
     async ask(text) {
       const mine = seq;
+      // Opening #help (or the Hallpass DM) reloads the FAQ and the AI switch: a question typed before that answer is back
+      // would otherwise be matched against the old copy (up to 30 s old: an edited answer, AI just switched on).
+      if (loading) { await loading; if (mine !== seq) return 'gone'; }
       let fresh = { faq: cx.faq(), aiOn: cx.aiOn() };
       if (Date.now() - fetchedAt >= REFETCH_MS) {
         fetchedAt = Date.now(); // set first so a failed or slow fetch still counts as the one try in this window
