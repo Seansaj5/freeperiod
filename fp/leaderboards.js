@@ -4,8 +4,8 @@
 // Built with DOM calls (ui.js h()), never innerHTML: names come from other players.
 import * as session from './session.js';
 import { h, toast, openSheet, errText } from './ui.js';
-import { mountAccount, openAuthSheet } from './account-ui.js';
-import { mountChatButton } from './chat/button.js';
+import { openAuthSheet } from './account-ui.js';
+import { mountShell } from './shell.js';
 import { CHAT } from './chat/config.js';
 import {
   TABS, TIERS, tabById, boardById, formatValue, record, boardView, readState, stateQuery, weekLabel, nameHue,
@@ -357,8 +357,7 @@ session.onChange(() => {
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && current && Date.now() - (current.at || 0) > 120000) load({ force: true }); });
 
-mountAccount($('account'));
-mountChatButton($('chat-btn'));
+mountShell(); // the shared header: accent, account chip, Messages, clock, search (opens the home page filtered), ambient background
 roving($('tabs'), (id) => { const t = tabById(id); if (t) go({ tab: t.id, board: t.boards[0].id }, { push: true }); });
 roving($('chips'), (id) => { if (boardById(id)) go({ board: id }); });
 paint();

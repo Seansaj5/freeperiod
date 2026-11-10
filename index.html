@@ -74,14 +74,15 @@
       <div class="recent-row" id="recent-row"></div>
     </section>
 
-    <!-- Home panels: one row of cards that share the width (each hidden panel takes no room). -->
+    <!-- Home panels: one row of cards that share the width (each hidden panel takes no room). Another small panel can
+         join with <section class="hp ..."> here; .hp gives the card look. -->
     <div class="home-row" id="home-row">
       <section class="hp hp-new" id="whatsnew" aria-labelledby="whatsnew-h"></section>
       <section class="hp hp-trophies" id="trophy-teaser" aria-labelledby="trophy-teaser-h" hidden></section>
-      <!-- TOP PLAYERS WIDGET GOES HERE (leaderboards branch): add
-             <section class="hp hp-top" id="top-players" aria-labelledby="top-players-h"></section>
-           and mount it from its own module. .hp gives the card look; the row makes room for a third panel by itself. -->
     </div>
+
+    <!-- Top players (fp/top-players.js, the leaderboards branch): every game's top 3, full width under the panels -->
+    <section class="tops" id="tops" aria-label="Top players" hidden></section>
 
     <section class="fp-suggest-section" id="suggest" aria-label="Tell Sean"></section>
 
@@ -95,9 +96,6 @@
       <p class="empty" id="empty" hidden>No games match that. Yet.</p>
     </section>
 
-    <section class="tops" id="tops" aria-label="Top players" hidden></section>
-
-    <section class="board" id="board" aria-labelledby="board-h"></section>
   </main>
 
   <footer class="wrap foot">

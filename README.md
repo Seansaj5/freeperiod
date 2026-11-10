@@ -46,8 +46,20 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
 Shared libraries for games go in `lib/` (Three.js r170 is there, plus the post-processing addons it needs for bloom in `lib/addons/`, mapped as `three/addons/`).
 
 ## Files
-- `index.html` + `fp/home.js`: the home page (featured banner with live server status, Jump back in, Tell Sean bar,
-  game grid with favorites / play time / hover previews, Top players card, ranked leaderboard, search with `/`)
+- `index.html` + `fp/home.js`: the home page (the banner carousel of every game with live server status, the live strip,
+  Jump back in, What's new, the trophies teaser, Top players, Tell Sean bar, game grid with favorites / play time / hover
+  previews, search with `/`)
+- Every hub page (home, leaderboards, trophies, profile) shares one header: copy the `<header class="top">` block from
+  `index.html` and put `aria-current="page"` on its own nav link; `fp/shell.js` wires it (account chip, Messages, clock,
+  search, accent, ambient background), and `fp/theme-boot.js` in `<head>` puts the saved accent on before the first paint.
+- `trophies.html` + `fp/trophies-page.js`: 22 trophies worked out on the device (`fp/trophies.js` = the list and rules,
+  `fp/trophy-data.js` = the facts, the per-account record that celebrates each unlock once, the home teaser)
+- `profile.html?u=<name>` + `fp/profile-page.js`: a player card from the public Bing Ball career card, plus the chat
+  profile look for chat members, plus (your own) games, play time and trophies
+- `fp/whatsnew.js`: the What's new list (add a line at the top: it shows on the home page and in the live strip)
+- `fp/ticker.js` (live strip), `fp/carousel.js` (banner), `fp/ambient.js` (background canvas), `fp/theme.js` (five
+  accents; `--lime` is the accent and `--cyan` the second color in every stylesheet), `fp/account-model.js` (the account
+  card's statuses), `fp/chat-profile.js` (chat profiles on hub pages, read without a Realtime socket), `fp/icons.js`
 - `leaderboards.html` + `fp/leaderboards.js`: every game's leaderboards (a tab per game, a chip per board, podium + top 50,
   your row pinned when you are further down, This week for the counters, a Friends filter from chat, the owner's hide switch).
   `fp/boards.js` is the catalog (tabs, boards, number formats) and the checks shared with the home card (`fp/top-players.js`);
@@ -58,7 +70,8 @@ Shared libraries for games go in `lib/` (Three.js r170 is there, plus the post-p
 - `fp/`: the hub's modules. `api.js` (Bing Ball server calls, `?api=` test override), `store.js` (safe localStorage),
   `session.js` (log in / out), `meta.js` (favorites, recent, play time), `saves.js` + `sync.js` (cloud saves),
   `status.js` (live server status), `ui.js` (elements, sheets, toasts), `account-ui.js`, `profile.js`, `inbox.js`, `suggest.js`
-- `style.css` (page look), `ui.css` (account chip, sheets, suggest bar, toasts), `assets/`: pictures, fonts
+- `style.css` (page look), `ui.css` (account chip + card, sheets, suggest bar, toasts), `hub.css` (live strip, carousel,
+  home panels, trophies, profile page, ambient background), `assets/`: pictures, fonts
   (Bungee + Outfit, both SIL Open Font License)
 - `tests/`: `node --test tests/`
 - `tools/posters/`: makes each game's card poster, banner poster and hover preview from real gameplay (see its README)

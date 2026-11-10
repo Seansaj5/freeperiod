@@ -1,15 +1,14 @@
-// Home page entry: featured banner, Jump back in, game grid (live status, favorites, play time, hover previews),
-// ranked leaderboard, search, clock, account chip and the suggest bar.
+// Home page entry: the banner carousel, live strip, Jump back in, What's new + trophies, Top players, game grid (live
+// status, favorites, play time, hover previews), search, and the suggest bar. The header (account chip, Messages, clock,
+// accent, ambient background) is fp/shell.js.
 // Everything is built with DOM calls (ui.js h() / createElementNS): no innerHTML, so server or user text never becomes markup.
 import * as session from './session.js';
-import { call } from './api.js';
 import { getMeta, toggleFav, pullMerge } from './meta.js';
 import { syncAll } from './saves.js';
 import { watchStatus, resolveGame } from './status.js';
 import { h, fmtTime } from './ui.js';
 import { icon } from './icons.js';
 import { mountCarousel } from './carousel.js';
-import { TIERS, RANKED_MODES } from './tiers.js';
 import { openAuthSheet } from './account-ui.js';
 import { mountShell } from './shell.js';
 import { mountTicker } from './ticker.js';
@@ -309,140 +308,6 @@ function wirePreview(el, thumb, g) {
   el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget)) stop(); });
 }
 
-// ---------- ranked leaderboard (Bing Ball) ----------
-const MODES = RANKED_MODES;
-const board = { mode: MODES[0], cache: new Map(), seq: 0, retry: null, slow: null };
-const bingBall = GAMES.find((g) => g.apiGame) || null;
-
-function tierChip(key) {
-  const t = TIERS[key] || [String(key || ''), '#8b95a7'];
-  return t[0] ? h('span', { class: 'tier', style: '--tier:' + t[1], text: t[0] }) : null;
-}
-const record = (e) => `${e.w || 0}W ${e.l || 0}L` + (e.d ? ` ${e.d}D` : '');
-const num = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)).toLocaleString() : '-');
-
-function mountBoard() {
-  const root = $('board');
-  if (!bingBall) { root.hidden = true; return; }
-  const tabs = h('div', { class: 'seg', role: 'tablist', 'aria-label': 'Ranked mode' });
-  root.replaceChildren(
-    h('div', { class: 'board-head' },
-      h('span', { class: 'board-icon', 'aria-hidden': 'true' }, icon('trophy')),
-      h('div', { class: 'board-title' },
-        h('h2', { id: 'board-h', text: 'Ranked leaderboard' }),
-        h('p', { class: 'board-sub', id: 'board-sub', text: bingBall.title + ' · top 10' })),
-      tabs),
-    h('div', { class: 'board-body', id: 'board-body', role: 'tabpanel', 'aria-labelledby': 'board-h' }),
-    h('div', { class: 'board-foot', id: 'board-foot' }));
-  paintTabs();
-}
-function paintTabs() {
-  const tabs = document.querySelector('#board .seg');
-  if (!tabs) return;
-  tabs.replaceChildren(...MODES.map((m) => h('button', {
-    type: 'button', role: 'tab', class: 'seg-btn' + (m === board.mode ? ' on' : ''), 'aria-selected': m === board.mode ? 'true' : 'false',
-    tabindex: m === board.mode ? '0' : '-1', 'aria-controls': 'board-body', onclick: () => loadBoard(m),
-    onkeydown: (e) => {
-      const i = MODES.indexOf(m), step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
-      if (!step) return;
-      e.preventDefault();
-      loadBoard(MODES[(i + step + MODES.length) % MODES.length]);
-      const on = tabs.querySelector('.on');
-      if (on) on.focus();
-    },
-  }, m)));
-}
-
-async function loadBoard(mode, { force = false } = {}) {
-  if (!bingBall) return;
-  board.mode = mode;
-  paintTabs();
-  const seq = ++board.seq;
-  clearTimeout(board.retry);
-  clearTimeout(board.slow);
-  const cached = board.cache.get(mode);
-  if (cached && !force) { drawBoard(cached); return; }
-  if (!force) drawSkeleton(false);
-  board.slow = setTimeout(() => { if (seq === board.seq) drawSkeleton(true); }, 6000);
-  try {
-    const d = await call('/api/leaderboard?mode=' + encodeURIComponent(mode), { auth: true, timeout: 75000 });
-    clearTimeout(board.slow);
-    if (seq !== board.seq) return;
-    board.cache.set(mode, d);
-    drawBoard(d);
-  } catch (e) {
-    clearTimeout(board.slow);
-    if (seq !== board.seq) return;
-    if (e && (e.waking || !e.status || e.status >= 500)) { // asleep or still booting: keep waiting, never an error
-      drawSkeleton(true);
-      board.retry = setTimeout(() => loadBoard(mode, { force: true }), 15000);
-    } else {
-      $('board-body').replaceChildren(h('p', { class: 'board-note', text: 'The leaderboard is taking a break. Try again in a bit.' }));
-      $('board-foot').replaceChildren();
-    }
-  }
-}
-
-function drawSkeleton(waking) {
-  const body = $('board-body');
-  body.classList.add('loading');
-  body.setAttribute('aria-busy', 'true');
-  body.replaceChildren(
-    h('div', { class: 'podium' }, [1, 2, 3].map((p) => h('div', { class: 'pod sk p' + p }, h('span', { class: 'medal', text: String(p) }), h('i', { class: 'bar w1' }), h('i', { class: 'bar w2' }), h('span', { class: 'step', 'aria-hidden': 'true' })))),
-    h('ol', { class: 'board-list', start: '4' }, [4, 5, 6, 7, 8, 9, 10].map((p) => h('li', { class: 'row sk' }, h('span', { class: 'pos', text: String(p) }), h('i', { class: 'bar' })))));
-  $('board-foot').replaceChildren(waking
-    ? h('p', { class: 'board-wake' }, h('i', { class: 'dot' }), 'Waking up the Bing Ball server. The first answer can take a minute.')
-    : h('p', { class: 'board-wake quiet' }, 'Loading the board...'));
-}
-
-function drawBoard(d) {
-  const body = $('board-body');
-  body.classList.remove('loading');
-  body.removeAttribute('aria-busy');
-  const mode = d.mode || board.mode;
-  const top = (Array.isArray(d.top) ? d.top : []).slice(0, 10);
-  const me = d.me && typeof d.me === 'object' ? d.me : null;
-  const user = session.getUser();
-  const isMe = (e) => !!(me && me.pos && e.pos === me.pos);
-  const pod = (p) => {
-    const e = top[p - 1];
-    const step = h('span', { class: 'step', 'aria-hidden': 'true', text: String(p) });
-    if (!e) return h('div', { class: 'pod open p' + p }, h('span', { class: 'medal', text: String(p) }), h('strong', { class: 'name', text: 'Open spot' }), h('span', { class: 'pod-sub', text: 'Play Ranked ' + mode }), step);
-    return h('div', { class: 'pod p' + p + (isMe(e) ? ' me' : '') },
-      h('span', { class: 'medal', text: String(p) }),
-      h('strong', { class: 'name', text: e.name || '?' }),
-      tierChip(e.tier),
-      h('span', { class: 'rating' }, h('b', { text: num(e.r) }), h('small', { text: 'rating' })),
-      h('span', { class: 'pod-sub', text: record(e) }),
-      step);
-  };
-  const rows = [];
-  for (let p = 4; p <= 10; p++) {
-    const e = top[p - 1];
-    rows.push(e
-      ? h('li', { class: 'row' + (isMe(e) ? ' me' : '') },
-        h('span', { class: 'pos', text: String(p) }), h('span', { class: 'name', text: e.name || '?' }), tierChip(e.tier),
-        h('span', { class: 'rec', text: record(e) }), h('span', { class: 'r', text: num(e.r) }))
-      : h('li', { class: 'row open' }, h('span', { class: 'pos', text: String(p) }), h('span', { class: 'name', text: 'Open spot' })));
-  }
-  body.replaceChildren(h('div', { class: 'podium' }, [1, 2, 3].map(pod)), h('ol', { class: 'board-list', start: '4' }, rows));
-  $('board-sub').textContent = `${bingBall.title} · top 10 of ${num(d.total || top.length)} in ${mode}`;
-
-  const play = h('a', { class: 'board-play', href: playLink(bingBall) }, 'Play ranked', icon('arrow'));
-  let line;
-  if (!user) {
-    line = h('p', { class: 'board-me' }, 'Log in to see where you rank. ',
-      h('button', { type: 'button', class: 'link-btn', onclick: () => openAuthSheet('login') }, 'Log in'));
-  } else if (me && me.pos && me.pos <= 10) {
-    line = h('p', { class: 'board-me' }, h('b', { text: `You are #${me.pos}` }), ` on the ${mode} board. Defend it.`);
-  } else if (me && me.pos) {
-    line = h('p', { class: 'board-me' }, h('b', { text: `You: #${me.pos}` }), ` · ${num(me.r)} rating · `, tierChip(me.tier));
-  } else {
-    line = h('p', { class: 'board-me' }, `You are not on the ${mode} board yet. Win a Ranked ${mode} match to get on it.`);
-  }
-  $('board-foot').replaceChildren(line, play);
-}
-
 // ---------- search, keys ----------
 searchBox.addEventListener('input', renderGrid);
 { // another page's search box sends you here with ?q=
@@ -459,7 +324,7 @@ addEventListener('keydown', (e) => {
 });
 
 // ---------- account: cloud saves + meta, once per sign-in (not on every render) ----------
-let syncedToken = null, boardToken = session.getToken();
+let syncedToken = null;
 function syncAccount() {
   const t = session.getToken();
   if (!t) { syncedToken = null; return; }
@@ -471,8 +336,6 @@ function syncAccount() {
 session.onChange(() => {
   syncAccount();
   refreshMeta(); // meta belongs to an account: logout clears it, another account reads as empty until its copy arrives
-  const t = session.getToken();
-  if (t !== boardToken) { boardToken = t; board.cache.clear(); loadBoard(board.mode); } // `me` on the board changed
 });
 addEventListener('storage', (e) => { if (e.key === 'fp.meta') refreshMeta(); });
 
@@ -494,8 +357,6 @@ startTrophies({ sync: false }); // evaluates now, then as the streak, the career
 renderChips();
 renderGrid();
 mountTopPlayers($('tops'), { games: GAMES }); // every game's top 3, linking to leaderboards.html
-mountBoard();
-loadBoard(board.mode);
 $('foot-count').textContent = `${GAMES.length} game${GAMES.length === 1 ? '' : 's'} and counting`;
 
 for (const g of GAMES) if (g.status) watchStatus(g, (st) => onStatus(g, st));
