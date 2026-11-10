@@ -258,6 +258,7 @@ function loftBody(B, b) {
   const sill = b.sill != null ? new THREE.Color(b.sill) : null;
   const pillar = b.pillar != null ? new THREE.Color(b.pillar) : null;
   const roofCol = b.roofCol != null ? new THREE.Color(b.roofCol) : null;
+  const tone = b.twoTone ? new THREE.Color(b.twoTone.color) : null;
   for (let i = 1; i < secs.length; i++) {
     const A = secs[i - 1], C = secs[i];
     const tm = (A.t + C.t) / 2;
@@ -277,6 +278,7 @@ function loftBody(B, b) {
         else if (rearRamp) { col = plastic; slot = TRIM; } // engine cover louvres
         else if (roofCol) { col = roofCol; slot = b.roofCol === GLASSC ? GLASS : TRIM; }
       }
+      if (tone && slot === PAINT && tm > b.twoTone.t + (k >= 5 ? 0.04 : 0)) col = tone;
       const ctr = [0, (A.yb + A.yt) / 2, (A.z + C.z) / 2];
       for (const sx of [1, -1]) {
         B.quad([A.pts[k][0] * sx, A.pts[k][1], A.z], [A.pts[k + 1][0] * sx, A.pts[k + 1][1], A.z], [C.pts[k + 1][0] * sx, C.pts[k + 1][1], C.z], [C.pts[k][0] * sx, C.pts[k][1], C.z], col, ctr, slot);
@@ -322,6 +324,38 @@ function endStrip(B, sh, dir, x0, x1, y0, y1, hex, slot, out = 0.012, mirror = t
       const cur = [[x * sx, y0, surfZ(sh, dir, x, y0) + dir * out], [x * sx, y1, surfZ(sh, dir, x, y1) + dir * out]];
       if (prev) B.quad(prev[0], cur[0], cur[1], prev[1], col, [x * sx * 0.5, (y0 + y1) / 2, cur[0][2] - dir], slot);
       prev = cur;
+    }
+  }
+}
+
+/** A quad [[x, y] x4] stuck onto the front (dir 1) or rear (dir -1), subdivided so it follows the surface. */
+function endQuad(B, sh, dir, q, hex, slot, out = 0.012, mirror = true) {
+  const col = new THREE.Color(hex);
+  const span = Math.max(Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]), Math.hypot(q[2][0] - q[3][0], q[2][1] - q[3][1]));
+  const nu = Math.max(1, Math.ceil(span / 0.05)), nv = Math.max(1, Math.ceil(Math.hypot(q[3][0] - q[0][0], q[3][1] - q[0][1]) / 0.08));
+  const at = (u, v) => { const x0 = q[0][0] + (q[1][0] - q[0][0]) * u, y0 = q[0][1] + (q[1][1] - q[0][1]) * u, x1 = q[3][0] + (q[2][0] - q[3][0]) * u, y1 = q[3][1] + (q[2][1] - q[3][1]) * u; return [x0 + (x1 - x0) * v, y0 + (y1 - y0) * v]; };
+  for (const sx of mirror ? [1, -1] : [1]) {
+    const P = (u, v) => { const [x, y] = at(u, v); return [x * sx, y, surfZ(sh, dir, Math.abs(x), y) + dir * out]; };
+    for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+      const a = P(i / nu, j / nv), b2 = P((i + 1) / nu, j / nv), c = P((i + 1) / nu, (j + 1) / nv), d = P(i / nu, (j + 1) / nv);
+      B.quad(a, b2, c, d, col, [(a[0] + c[0]) / 2 * 0.5, (a[1] + c[1]) / 2, a[2] - dir], slot);
+    }
+  }
+}
+/** Grow a quad by m metres round its middle (for housings round a light). */
+const growQuad = (q, m) => { const cx = q.reduce((a, p) => a + p[0], 0) / 4, cy = q.reduce((a, p) => a + p[1], 0) / 4; return q.map(([x, y]) => { const dx = x - cx, dy = y - cy, l = Math.hypot(dx, dy) || 1; return [x + (dx / l) * m, y + (dy / l) * m]; }); };
+const quadMid = (q) => [q.reduce((a, p) => a + p[0], 0) / 4, q.reduce((a, p) => a + p[1], 0) / 4];
+
+/** A strip of width w along a path [[t, y], ...] on both sides of the body. */
+function sideStrip(B, sh, path, w, hex, slot, out = 0.01) {
+  const col = new THREE.Color(hex);
+  for (const sx of [1, -1]) {
+    const P = (t, y) => [sx * (sh.halfAt(t, y) + out), y, -sh.hl + t * sh.L];
+    for (let i = 0; i < path.length - 1; i++) {
+      const [ta, ya] = path[i], [tb, yb] = path[i + 1];
+      const dz = (tb - ta) * sh.L, dy = yb - ya, l = Math.hypot(dz, dy) || 1, nz = (-dy / l) * w / 2, ny = (dz / l) * w / 2;
+      const ntz = nz / sh.L;
+      B.quad(P(ta - ntz, ya - ny), P(tb - ntz, yb - ny), P(tb + ntz, yb + ny), P(ta + ntz, ya + ny), col, [0, (ya + yb) / 2, -sh.hl + ((ta + tb) / 2) * sh.L], slot);
     }
   }
 }
@@ -403,20 +437,56 @@ export function carGeometry(b, { detail = true, bakeWheels = false } = {}) {
 
   // ---- front: lights, grille, intakes, splitter
   const hlx = b.hlx ?? [hw * 0.42, hw * 0.84], hly = b.hly ?? [yF - 0.15, yF - 0.06];
-  endStrip(B, sh, 1, Math.max(0, hlx[0] - 0.03), hlx[1] + 0.015, hly[0] - 0.03, hly[1] + 0.025, DARK, TRIM, 0.006); // housing
-  endStrip(head, sh, 1, hlx[0], hlx[1], hly[0], hly[1], HEAD, 0, 0.012);
+  if (b.lamps) { // shaped lights: dark lenses with lit shapes (Y-shapes, slashes, LED dots) inside
+    for (const q of b.lamps.lens) { endQuad(B, sh, 1, growQuad(q, 0.02), DARK, TRIM, 0.006); endQuad(B, sh, 1, q, 0x1a2230, GLASS, 0.01); }
+    for (const q of b.lamps.lit) endQuad(head, sh, 1, q, HEAD, 0, 0.014);
+  } else if (b.roundLights) { // round lamps with a chrome ring
+    const { x, y, r } = b.roundLights;
+    for (const sx of [-1, 1]) {
+      const z = surfZ(sh, 1, x, y);
+      B.lathe(sx * x, y, z, 'z', [[r * 1.28, -0.02], [r * 1.22, 0.025], [r * 1.02, 0.03]], detail ? 18 : 10, 0xc8ccd4, METAL);
+      head.lathe(sx * x, y, z, 'z', [[r, 0.012], [r * 0.55, 0.026], [0, 0.03]], detail ? 18 : 10, HEAD, 0);
+    }
+  } else {
+    endStrip(B, sh, 1, Math.max(0, hlx[0] - 0.03), hlx[1] + 0.015, hly[0] - 0.03, hly[1] + 0.025, DARK, TRIM, 0.006); // housing
+    endStrip(head, sh, 1, hlx[0], hlx[1], hly[0], hly[1], HEAD, 0, 0.012);
+    endStrip(head, sh, 1, hlx[1] + 0.003, hlx[1] + 0.03, hly[0], hly[1], AMBER, 0, 0.013); // corner markers
+  }
   if (b.drl) endStrip(head, sh, 1, b.drl[0], b.drl[1], b.drl[2], b.drl[2] + 0.022, HEAD, 0, 0.016);
-  endStrip(head, sh, 1, hlx[1] + 0.003, hlx[1] + 0.03, hly[0], hly[1], AMBER, 0, 0.013); // corner markers
   const gr = b.grille === false ? null : (b.grille ?? [hw * 0.36, b.clear + 0.12, Math.min(hly[0] - 0.04, b.clear + 0.34)]);
   if (gr) endStrip(B, sh, 1, 0, gr[0], gr[1], gr[2], PLASTIC, TRIM, 0.008);
+  if (gr && b.grilleBars) for (let i = 0; i < b.grilleBars; i++) { // vertical chrome slats
+    const x = (i / (b.grilleBars - 1) - 0.5) * 2 * gr[0] * 0.86;
+    endQuad(B, sh, 1, [[x - 0.007, gr[1] + 0.01], [x + 0.007, gr[1] + 0.01], [x + 0.007, gr[2] - 0.01], [x - 0.007, gr[2] - 0.01]], 0xc8ccd4, METAL, 0.016, false);
+  }
+  if (b.horseshoe) { // horseshoe grille: dark mesh inside a chrome U
+    const { w, y0, y1 } = b.horseshoe, n = 10, top = [];
+    for (let i = 0; i <= n; i++) { const a = Math.PI * (1 - i / n); top.push([Math.cos(a) * w, y1 - 0.09 + Math.sin(a) * 0.09]); }
+    const bx = (u) => -w + 2 * w * u, C = 0xd5d9e0;
+    for (let i = 0; i < n; i++) endQuad(B, sh, 1, [[bx(i / n), y0], [bx((i + 1) / n), y0], top[i + 1], top[i]], PLASTIC, TRIM, 0.01, false);
+    for (let i = 0; i < n; i++) { const a = top[i], c = top[i + 1]; endQuad(B, sh, 1, [a, c, [c[0], c[1] + 0.028], [a[0], a[1] + 0.028]], C, METAL, 0.016, false); }
+    for (const sx of [-1, 1]) endQuad(B, sh, 1, [[sx * w, y0], [sx * (w + 0.028), y0], [sx * (w + 0.028), y1 - 0.09], [sx * w, y1 - 0.09]], C, METAL, 0.016, false);
+  }
   if (b.intakeF) endStrip(B, sh, 1, b.intakeF[0], b.intakeF[1], b.clear + 0.07, b.clear + b.intakeF[2], PLASTIC, TRIM, 0.008);
   if (b.splitter) B.box(0, b.clear + 0.015, hl - 0.08, sh.planW(0.97) * 2 - 0.08, 0.03, 0.34, PLASTIC, TRIM);
 
   // ---- rear: tail lights, plate, diffuser, exhausts
   const tlx = b.tlx ?? [hw * 0.5, hw * 0.9], tly = b.tly ?? [yR - 0.16, yR - 0.06];
-  endStrip(B, sh, -1, b.tailBar ? 0 : Math.max(0, tlx[0] - 0.03), tlx[1] + 0.015, tly[0] - 0.03, tly[1] + 0.025, DARK, TRIM, 0.006);
-  if (b.tailBar) endStrip(tail, sh, -1, 0, tlx[0], tly[1] - 0.04, tly[1] - 0.01, TAIL, 0, 0.012);
-  endStrip(tail, sh, -1, tlx[0], tlx[1], tly[0], tly[1], TAIL, 0, 0.012);
+  if (b.tails) {
+    for (const q of b.tails.lens) endQuad(B, sh, -1, growQuad(q, 0.02), DARK, TRIM, 0.006);
+    for (const q of b.tails.lit) endQuad(tail, sh, -1, q, TAIL, 0, 0.012);
+  } else if (b.roundTails) {
+    const { xs, y, r } = b.roundTails;
+    for (const x of xs) for (const sx of [-1, 1]) {
+      const z = surfZ(sh, -1, x, y);
+      B.lathe(sx * x, y, z, 'z', [[r * 1.3, 0.02], [r * 1.25, -0.02], [r * 1.02, -0.022]], detail ? 16 : 10, DARK, TRIM);
+      tail.lathe(sx * x, y, z, 'z', [[r, -0.012], [r * 0.4, -0.024], [0, -0.026]], detail ? 16 : 10, TAIL, 0);
+    }
+  } else {
+    endStrip(B, sh, -1, b.tailBar ? 0 : Math.max(0, tlx[0] - 0.03), tlx[1] + 0.015, tly[0] - 0.03, tly[1] + 0.025, DARK, TRIM, 0.006);
+    endStrip(tail, sh, -1, tlx[0], tlx[1], tly[0], tly[1], TAIL, 0, 0.012);
+  }
+  if (b.tailBar) endStrip(tail, sh, -1, 0, b.tails || b.roundTails ? tlx[1] : tlx[0], tly[1] - 0.04, tly[1] - 0.01, TAIL, 0, 0.012);
   if (b.rearVent) endStrip(B, sh, -1, 0, tlx[0] - 0.04, tly[0] - b.rearVent, tly[0] - 0.03, PLASTIC, TRIM, 0.008);
   const plateY = b.plateY ?? Math.max(b.clear + 0.24, tly[0] - 0.2);
   endStrip(B, sh, -1, 0, 0.25, plateY - 0.055, plateY + 0.055, 0xd9dde4, TRIM, 0.01);
@@ -424,12 +494,13 @@ export function carGeometry(b, { detail = true, bakeWheels = false } = {}) {
     endStrip(B, sh, -1, 0, hw * 0.78, b.clear + 0.01, b.clear + 0.15, PLASTIC, TRIM, 0.01);
     for (const x of [-0.5, -0.17, 0.17, 0.5]) B.box(x * hw * 1.3, b.clear + 0.07, -hl + 0.06, 0.025, 0.13, 0.36, PLASTIC, TRIM);
   }
-  const exX = { dual: [-0.6, 0.6], quad: [-0.68, -0.5, 0.5, 0.68], center: [-0.07, 0.07], single: [0.55], twin: [0.42, 0.56] }[b.exhaust ?? 'single'];
+  const exX = { dual: [-0.6, 0.6], quad: [-0.68, -0.5, 0.5, 0.68], center: [-0.07, 0.07], single: [0.55], twin: [0.42, 0.56], quadc: [-0.2, -0.07, 0.07, 0.2], hex: [0] }[b.exhaust ?? 'single'];
+  const exN = b.exSides ?? (detail ? 12 : 8);
   const exhausts = [], exR = b.exR ?? 0.042, exY = b.exY ?? b.clear + 0.1;
   for (const f of exX) {
     const x = f * hw, ez = -hl + 0.02;
-    B.lathe(x, exY, ez, 'z', [[exR, 0.3], [exR, -0.06], [exR * 0.74, -0.06]], detail ? 12 : 8, 0xb8bcc6, METAL);
-    B.lathe(x, exY, ez, 'z', [[exR * 0.75, -0.035], [0, -0.035]], 8, 0x050505, TRIM);
+    B.lathe(x, exY, ez, 'z', [[exR, 0.3], [exR, -0.06], [exR * 0.74, -0.06]], exN, 0xb8bcc6, METAL);
+    B.lathe(x, exY, ez, 'z', [[exR * 0.75, -0.035], [0, -0.035]], exN, 0x050505, TRIM);
     exhausts.push([x, exY, ez - 0.07]);
   }
 
@@ -447,6 +518,15 @@ export function carGeometry(b, { detail = true, bakeWheels = false } = {}) {
   if (b.roofSpoiler) {
     const z = tZ(b.cab.r1 + 0.015), y = b.cab.h - 0.03, rx = hw * b.cab.w * 0.95;
     B.hexa([[-rx, y, z - 0.2], [rx, y, z - 0.2], [rx, y, z + 0.05], [-rx, y, z + 0.05], [-rx, y + 0.045, z - 0.25], [rx, y + 0.045, z - 0.25], [rx, y + 0.045, z + 0.05], [-rx, y + 0.045, z + 0.05]], WHITE, PAINT);
+  }
+  if (b.ducktail) { // a kicked-up lip on the rear deck
+    const t0 = 0.05, t1 = 0.13, z0 = tZ(t0), z1 = tZ(t1), y0 = sh.topAt(t0, 0), y1 = sh.topAt(t1, 0), rx = sh.planW(0.09) * 0.8, k = b.ducktail;
+    B.hexa([[-rx, y0 - 0.03, z0], [rx, y0 - 0.03, z0], [rx, y1 - 0.02, z1], [-rx, y1 - 0.02, z1], [-rx, y0 + k, z0 - 0.02], [rx, y0 + k, z0 - 0.02], [rx, y1 + 0.005, z1], [-rx, y1 + 0.005, z1]], WHITE, PAINT);
+  }
+  if (b.cline) { // a polished C sweeping round behind the front doors
+    const { t, rt, y, ry } = b.cline, path = [];
+    for (let i = 0; i <= 16; i++) { const a = -Math.PI / 2 + Math.PI * (i / 16); path.push([t - rt * Math.cos(a), y + ry * Math.sin(a)]); }
+    sideStrip(B, sh, path, 0.045, 0xd5d9e0, METAL, 0.012);
   }
   if (b.scoop) { // hood scoop
     const [t0, t1, sw] = b.scoop, z0 = tZ(t0), z1 = tZ(t1), y0 = sh.topAt(t0, 0) - 0.02, y1 = sh.topAt(t1, 0) - 0.02;
@@ -508,11 +588,15 @@ export function carGeometry(b, { detail = true, bakeWheels = false } = {}) {
   axZ.forEach((az, i) => { for (const sx of [-1, 1]) at.push([sx * wx, wr, az, i === axZ.length - 1]); });
   if (bakeWheels) for (const [x, y, z] of at) bake(B, wb, x, y, z);
 
-  const hx = (hlx[0] + hlx[1]) / 2, tx = (tlx[0] + tlx[1]) / 2;
+  let hx = (hlx[0] + hlx[1]) / 2, tx = (tlx[0] + tlx[1]) / 2, hy = (hly[0] + hly[1]) / 2, ty = (tly[0] + tly[1]) / 2;
+  if (b.lamps) [hx, hy] = quadMid(b.lamps.lens[0]);
+  if (b.roundLights) { hx = b.roundLights.x; hy = b.roundLights.y; }
+  if (b.tails) [tx, ty] = quadMid(b.tails.lens[0]);
+  if (b.roundTails) { tx = b.roundTails.xs[b.roundTails.xs.length - 1]; ty = b.roundTails.y; }
   return {
-    parts: B.geometries(), head: head.geometry(), tail: tail.geometry(),
-    headGlow: flareQuads(1, [-hx, hx], (hly[0] + hly[1]) / 2, 0.5, 0xffe6b8, hl),
-    tailGlow: flareQuads(-1, [-tx, tx], (tly[0] + tly[1]) / 2, 0.4, 0xff2a3a, hl),
+    parts: B.geometries(b.crease ?? 38), head: head.geometry(), tail: tail.geometry(),
+    headGlow: flareQuads(1, [-hx, hx], hy, 0.5, 0xffe6b8, hl),
+    tailGlow: flareQuads(-1, [-tx, tx], ty, 0.4, 0xff2a3a, hl),
     wheel: bakeWheels ? null : { parts: wb.geometries(), r: wr, at },
     exhausts, hl, hw, roofH: b.cab ? b.cab.h : sh.top(0.5),
   };

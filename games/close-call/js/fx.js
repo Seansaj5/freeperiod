@@ -8,6 +8,7 @@ export class Fx {
   constructor(scene, camera, hi) {
     this.hi = hi;
     // sparks: short line segments from each spark back along its velocity, fading as they cool
+    this.floorY = 0; // road height under the player (sparks bounce off it)
     this.pos = new Float32Array(SPARKS * 6);
     this.col = new Float32Array(SPARKS * 6);
     this.vel = new Float32Array(SPARKS * 3);
@@ -106,7 +107,7 @@ export class Fx {
       this.pos[o + 4] = this.pos[o + 1] - this.vel[v + 1] * 0.025;
       this.pos[o + 5] = this.pos[o + 2] - (this.vel[v + 2] - carVel.z * 0.85) * 0.025;
       this.pos[o] += this.vel[v] * dt; this.pos[o + 1] += this.vel[v + 1] * dt; this.pos[o + 2] += this.vel[v + 2] * dt;
-      if (this.pos[o + 1] < 0.02) { this.pos[o + 1] = 0.02; this.vel[v + 1] *= -0.35; this.vel[v] *= 0.7; this.vel[v + 2] *= 0.7; }
+      if (this.pos[o + 1] < this.floorY + 0.02) { this.pos[o + 1] = this.floorY + 0.02; this.vel[v + 1] *= -0.35; this.vel[v] *= 0.7; this.vel[v + 2] *= 0.7; }
       const f = Math.min(1, this.life[i] * 2.5) * k;
       for (let e = 0; e < 2; e++) { const q = o + e * 3, w = e ? 0.25 : 1; this.col[q] = this.tint[v] * f * w; this.col[q + 1] = this.tint[v + 1] * f * w; this.col[q + 2] = this.tint[v + 2] * f * w; }
     }

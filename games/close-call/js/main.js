@@ -12,8 +12,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { laneCenter } from './road.js';
-import { trafficNear, LANE_KMH } from './traffic.js';
+import { trafficNear, laneKmh } from './traffic.js';
+import { MAPS, MAP_LIST, LANE_MODES, CASH_MULT, mapById } from './maps.js';
 import { clamp, damp, fmt } from './util.js';
 import { SERVER_URL } from './config.js';
 
@@ -26,7 +26,9 @@ const httpUrl = serverUrl.replace(/^ws/, 'http');
 const KEY = 'closecall.v1';
 let stored = {};
 try { stored = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { stored = {}; }
-const save = Object.assign({ cash: 0, owned: ['pocket'], car: 'pocket', paint: {}, best: 0, total: 0, name: '' }, stored);
+const save = Object.assign({ cash: 0, owned: ['pocket'], car: 'pocket', paint: {}, best: 0, total: 0, name: '', route: { map: 'city', lanes: 4 }, bests: {} }, stored);
+if (!MAPS[save.route?.map] || !LANE_MODES.includes(save.route?.lanes)) save.route = { map: 'city', lanes: 4 };
+const routeKey = (map, lanes) => `${map}-${lanes}`;
 const weak = (navigator.hardwareConcurrency || 4) <= 4 || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent);
 save.settings = Object.assign({ vol: 0.7, quality: weak ? 'low' : 'high', units: 'kmh', density: 1 }, stored.settings || {});
 if (!save.owned.includes('pocket')) save.owned.unshift('pocket');
@@ -94,6 +96,7 @@ function setCarModel(s, paint) {
   headlight.target = hlTarget;
   fx.attachFlames(carMesh);
   scene.add(carMesh);
+  sound.setEngine(s.engine?.voice || 'i4', s.engine?.pitch || 1);
 }
 setCarModel(spec, paintOf(spec.id));
 
@@ -104,13 +107,16 @@ let wt = 600; // world clock (seconds): traffic positions are a function of it
 const scorer = new Scorer();
 const remotes = new Map(); // player id -> { mesh, tag, car, color }
 let camLift = 0, camMode = 0, camD = 0, fov = 66, shake = 0, menuAng = 0.6, lastV = 0, aLong = 0, playTime = 0;
+let revUntil = 0, lastGear = 0, lastBoost = false, prevS = 0, draftT = 0;
 const MENU_SEED = 20261107;
 
+/** The menus show the chosen route with the car cruising in the second lane. */
 function enterMenuWorld() {
-  world.setSeed(MENU_SEED, 1);
-  sim.reset(420, laneCenter(1), LANE_KMH[1] / 3.6);
+  const before = world.mapId;
+  world.setRoute({ map: save.route.map, lanes: save.route.lanes, seed: MENU_SEED, density: 1 });
+  sim.reset(420, world.road.laneCenter(1), laneKmh(world.road.lanes, 1) / 3.6);
+  if (before !== world.mapId) setCarModel(mode === 'garage' ? CARS[gIdx] : spec, mode === 'garage' ? gPaint : paintOf(spec.id)); // pick up the new reflections
 }
-enterMenuWorld();
 
 // ---------------- input ----------------
 const keys = new Set();
@@ -123,7 +129,7 @@ addEventListener('keydown', (e) => {
     if (mode === 'play') pause(true);
     else if (mode === 'pause') pause(false);
     else if (mode === 'garage') closeGarage();
-    else if (mode === 'mp' || mode === 'settings') show('menu');
+    else if (mode === 'mp' || mode === 'settings' || mode === 'route') show('menu');
   }
   if (e.code === 'KeyC' && mode === 'play') camMode = (camMode + 1) % 2;
   if (mode === 'garage') { if (e.code === 'ArrowLeft' || e.code === 'KeyA') browse(-1); if (e.code === 'ArrowRight' || e.code === 'KeyD') browse(1); }
@@ -161,7 +167,7 @@ function readInput() {
 }
 
 // ---------------- screens ----------------
-const SCREENS = ['menu', 'garage', 'mp', 'settings', 'pause'];
+const SCREENS = ['menu', 'garage', 'mp', 'settings', 'pause', 'route'];
 function show(name) {
   mode = name;
   for (const s of SCREENS) $(s).classList.toggle('hidden', s !== name);
@@ -170,7 +176,7 @@ function show(name) {
   $('wallet').classList.toggle('hidden', inGame);
   $('keys').classList.toggle('hidden', name !== 'menu' || isTouch);
   $('touch').classList.toggle('hidden', !(isTouch && name === 'play'));
-  if (name === 'menu') { refreshWallet(); pollOnline(); }
+  if (name === 'menu') { refreshWallet(); pollOnline(); $('b-route').textContent = `${mapById(save.route.map).name} · ${save.route.lanes} lanes`; }
 }
 function refreshWallet() {
   $('w-cash').textContent = `$${fmt(save.cash)}`;
@@ -178,8 +184,8 @@ function refreshWallet() {
   $('garage-count').textContent = `${save.owned.length} / ${CARS.length} cars`;
 }
 
-$('b-solo').onclick = () => startSolo();
-$('b-mp').onclick = () => { show('mp'); $('mp-name').value = save.name || `Driver${100 + Math.floor(Math.random() * 900)}`; $('mp-status').textContent = ''; $('mp-status').className = 'status'; };
+$('b-solo').onclick = () => { show('route'); paintRoute(); };
+$('b-mp').onclick = () => { show('mp'); paintMpRoute(); $('mp-name').value = save.name || `Driver${100 + Math.floor(Math.random() * 900)}`; $('mp-status').textContent = ''; $('mp-status').className = 'status'; };
 $('b-garage').onclick = () => openGarage();
 $('b-settings').onclick = () => { show('settings'); paintSettings(); };
 $('mp-back').onclick = () => show('menu');
@@ -188,6 +194,33 @@ $('p-resume').onclick = () => pause(false);
 $('p-quit').onclick = () => quitToMenu();
 $('p-regroup').onclick = () => { regroup(); pause(false); };
 for (const b of document.querySelectorAll('.btn')) b.addEventListener('click', () => sound.click());
+
+// ---------------- route: map + lanes ----------------
+function setRoute(map, lanes) {
+  save.route = { map: map ?? save.route.map, lanes: lanes ?? save.route.lanes };
+  persist();
+  enterMenuWorld();
+  $('b-route').textContent = `${mapById(save.route.map).name} · ${save.route.lanes} lanes`;
+}
+function paintRoute() {
+  const L = save.route.lanes;
+  $('r-maps').innerHTML = MAP_LIST.map((id) => {
+    const m = MAPS[id], best = save.bests[routeKey(id, L)] || 0;
+    return `<button class="mapc${id === save.route.map ? ' on' : ''}" data-m="${id}"><b>${m.name}</b><span>${m.blurb}</span><small>${best ? `Best combo here (${L} lanes): ${fmt(best)}` : `No combo banked here on ${L} lanes yet`}</small></button>`;
+  }).join('');
+  for (const b of document.querySelectorAll('[data-l]')) b.classList.toggle('primary', +b.dataset.l === L);
+  $('r-note').textContent = L === 2 ? 'Two lanes: tight gaps, half again the cash for every bank.' : L === 3 ? 'Three lanes: a quarter more cash for every bank.' : 'Four lanes: the most room to weave.';
+}
+$('r-maps').onclick = (e) => { const b = e.target.closest('.mapc'); if (!b) return; sound.click(); setRoute(b.dataset.m, null); paintRoute(); };
+for (const b of document.querySelectorAll('[data-l]')) b.onclick = () => { setRoute(null, +b.dataset.l); paintRoute(); };
+$('r-go').onclick = () => startSolo();
+$('r-back').onclick = () => show('menu');
+function paintMpRoute() {
+  for (const b of document.querySelectorAll('[data-mm]')) b.classList.toggle('primary', b.dataset.mm === save.route.map);
+  for (const b of document.querySelectorAll('[data-ml]')) b.classList.toggle('primary', +b.dataset.ml === save.route.lanes);
+}
+for (const b of document.querySelectorAll('[data-mm]')) b.onclick = () => { setRoute(b.dataset.mm, null); paintMpRoute(); };
+for (const b of document.querySelectorAll('[data-ml]')) b.onclick = () => { setRoute(null, +b.dataset.ml); paintMpRoute(); };
 
 // ---------------- settings ----------------
 function paintSettings() {
@@ -210,7 +243,7 @@ for (const b of document.querySelectorAll('[data-t]')) b.onclick = () => { save.
 let gIdx = 0, gPaint = 0;
 function openGarage() { gIdx = Math.max(0, CARS.findIndex((c) => c.id === save.car)); gPaint = paintOf(CARS[gIdx].id); show('garage'); paintGarage(true); }
 function closeGarage() { setCarModel(spec, paintOf(spec.id)); sim.setSpec(spec); show('menu'); }
-function browse(dir) { gIdx = (gIdx + dir + CARS.length) % CARS.length; gPaint = paintOf(CARS[gIdx].id); paintGarage(true); }
+function browse(dir) { gIdx = (gIdx + dir + CARS.length) % CARS.length; gPaint = paintOf(CARS[gIdx].id); paintGarage(true); revUntil = performance.now() + 800; }
 function paintGarage(rebuild) {
   const c = CARS[gIdx];
   const owned = save.owned.includes(c.id);
@@ -218,8 +251,8 @@ function paintGarage(rebuild) {
   $('g-name').textContent = c.name;
   $('g-cls').textContent = owned ? c.cls : `${c.cls} · $${fmt(c.price)}`;
   const top = save.settings.units === 'mph' ? `${Math.round(c.top * 0.6214)} mph` : `${c.top} km/h`;
-  $('g-top').style.width = `${(c.top / 360) * 100}%`; $('g-topv').textContent = top;
-  $('g-acc').style.width = `${(c.accel / 15) * 100}%`; $('g-accv').textContent = `${(100 / 3.6 / c.accel * 1.35).toFixed(1)}s`;
+  $('g-top').style.width = `${(c.top / 420) * 100}%`; $('g-topv').textContent = top;
+  $('g-acc').style.width = `${(c.accel / 15.5) * 100}%`; $('g-accv').textContent = `${(100 / 3.6 / c.accel * 1.35).toFixed(1)}s`;
   $('g-han').style.width = `${(c.grip / 1.4) * 100}%`; $('g-hanv').textContent = `${Math.round((c.grip / 1.4) * 100)}`;
   $('g-sw').innerHTML = PAINT_SWATCHES.map((h) => `<button class="sw${h === gPaint ? ' on' : ''}" data-c="${h}" style="background:#${h.toString(16).padStart(6, '0')}" aria-label="paint"></button>`).join('');
   const act = $('g-act');
@@ -253,11 +286,13 @@ $('g-act').onclick = () => {
   refreshWallet(); paintGarage(false);
 };
 
+enterMenuWorld();
+
 // ---------------- starting, spawning, quitting ----------------
 function freeLane(s, t) {
-  const tmp = [];
-  for (const L of [1, 2, 0, 3]) {
-    const n = trafficNear(world.seed, world.density, t, s - 20, s + 70, tmp);
+  const tmp = [], lanes = world.road.lanes;
+  for (const L of [1, 2, 0, 3].filter((l) => l < lanes)) {
+    const n = trafficNear(world.road, world.density, t, s - 20, s + 70, tmp);
     let clear = true;
     for (let i = 0; i < n; i++) if (tmp[i].lane === L) clear = false;
     if (clear) return L;
@@ -265,25 +300,29 @@ function freeLane(s, t) {
   return 1;
 }
 function spawn(s, v) {
-  sim.reset(s, laneCenter(freeLane(s, wt)), v);
+  sim.reset(s, world.road.laneCenter(freeLane(s, wt)), v);
   sim.ghost = 2;
   camD = sim.d;
+  prevS = s;
 }
 function beginPlay() {
   scorer.reset();
+  scorer.cashMult = CASH_MULT[world.road.lanes] || 1;
   setCarModel(spec, paintOf(spec.id)); sim.setSpec(spec);
   show('play');
   playTime = 0;
   $('h-hint').style.opacity = 1;
-  banner('GO', '', '#ffb020');
+  const m = world.map, L = world.road.lanes;
+  $('h-route').textContent = `${m.name} · ${L} lanes${scorer.cashMult > 1 ? ` · cash x${scorer.cashMult}` : ''}`;
+  banner('GO', `${m.name} · ${L} lanes`, '#ffb020');
 }
 function startSolo() {
-  world.setSeed(Math.floor(Math.random() * 1e9), save.settings.density);
+  world.setRoute({ map: save.route.map, lanes: save.route.lanes, seed: Math.floor(Math.random() * 1e9), density: save.settings.density });
   wt = 300 + Math.random() * 3000;
   spawn(300, 100 / 3.6);
   $('h-mp').classList.add('hidden');
   $('p-regroup').classList.add('hidden');
-  $('p-room').textContent = 'Solo run';
+  $('p-room').textContent = `Solo run · ${world.map.name} · ${world.road.lanes} lanes`;
   beginPlay();
 }
 function pause(on) {
@@ -310,11 +349,11 @@ async function joinMp(how, code) {
   leaveNet();
   const n = new Net(serverUrl);
   try {
-    const w = await n.connect({ name, car: spec.id, color: paintOf(spec.id), mode: how, code });
+    const w = await n.connect({ name, car: spec.id, color: paintOf(spec.id), mode: how, code, map: save.route.map, lanes: save.route.lanes });
     if (mode !== 'mp') { n.close(); return; } // backed out while waiting
     net = n;
     wireNet();
-    world.setSeed(w.seed, w.density);
+    world.setRoute({ map: w.map || 'city', lanes: w.lanes || 4, seed: w.seed, density: w.density });
     mpStart = w.start;
     wt = (net.serverNow() - mpStart) / 1000;
     spawn(300, 100 / 3.6);
@@ -322,7 +361,8 @@ async function joinMp(how, code) {
     $('h-mp').classList.remove('hidden');
     $('h-code').textContent = w.code;
     $('p-regroup').classList.remove('hidden');
-    $('p-room').innerHTML = w.public ? `Public room <b>${w.code}</b>` : `Room code <b>${w.code}</b> · send it to your friends`;
+    const where = `${world.map.name} · ${world.road.lanes} lanes`;
+    $('p-room').innerHTML = w.public ? `Public room <b>${w.code}</b> · ${where}` : `Room code <b>${w.code}</b> · ${where} · send it to your friends`;
     beginPlay();
     if (!w.public) banner(`ROOM ${w.code}`, 'Friends join with this code', '#3de0ff');
   } catch (err) {
@@ -419,10 +459,10 @@ function updateRemotes(dt) {
     r.mesh.visible = r.tag.visible = vis;
     if (!vis) continue;
     world.road.toWorld(smp.s, smp.d, RP);
-    r.mesh.position.set(RP.x, 0, RP.z);
-    r.mesh.rotation.set(0, RP.h + smp.y, 0);
+    r.mesh.position.set(RP.x, RP.y, RP.z);
+    r.mesh.rotation.set(-Math.atan(world.road.grade(smp.s)), RP.h + smp.y, 0);
     r.mesh.userData.spin(dt, smp.v, 0);
-    r.tag.position.set(RP.x, 2.3, RP.z);
+    r.tag.position.set(RP.x, RP.y + 2.3, RP.z);
   }
 }
 
@@ -456,10 +496,19 @@ const TIER_COL = ['#ff5a3d', '#ffb020', '#ffffff'];
 function handleEvents(ev) {
   for (const e of ev) {
     switch (e.type) {
-      case 'near': pop(e.name, `+${fmt(e.pts)}`, TIER_COL[e.tier], e.tier === 0); sound.whoosh(e.side, e.tier); sound.near(e.tier); break;
+      case 'near':
+        pop(e.name, `+${fmt(e.pts)}`, TIER_COL[e.tier], e.tier === 0); sound.whoosh(e.side, e.tier, sim.v * 3.6); sound.near(e.tier);
+        if (e.tier === 0 && Math.random() < 0.35) sound.horn(e.side); // they didn't like that
+        break;
+      case 'trap':
+        if (e.pts > 0) { pop('SPEED TRAP', `${Math.round(save.settings.units === 'mph' ? e.kmh * 0.6214 : e.kmh)} ${save.settings.units === 'mph' ? 'mph' : 'km/h'} · +${fmt(e.pts)}`, '#ffd27a', true); sound.trap(); }
+        else pop('SPEED TRAP', 'too slow · 140+ km/h pays', '#9aa3bd', false);
+        break;
       case 'split': pop(e.name, `+${fmt(e.pts)}`, '#3de0ff', true); sound.split(); if (net) net.send({ t: 'ev', k: 'split', p: e.pts }); break;
       case 'bank':
-        save.cash += e.cash; save.total += e.pts; save.best = Math.max(save.best, e.pts); persist();
+        save.cash += e.cash; save.total += e.pts; save.best = Math.max(save.best, e.pts);
+        { const k = routeKey(world.map.id, world.road.lanes); save.bests[k] = Math.max(save.bests[k] || 0, e.pts); }
+        persist();
         banner(`+${fmt(e.pts)}`, `BANKED · +$${fmt(e.cash)}`, '#6dff8a'); sound.bank();
         $('h-hint').style.opacity = 0;
         if (net && e.pts >= 2000) net.send({ t: 'ev', k: 'bank', p: e.pts });
@@ -490,6 +539,13 @@ function updateHud(now) {
   setText('h-unit', mph ? 'MPH' : 'KM/H');
   setText('h-gear', sim.v < 0.5 ? 'N' : String(sim.gear + 1));
   $('h-nitro').style.width = `${sim.nitro * 100}%`;
+  // the next speed trap, once it is close
+  const next = world.road.trapsIn(sim.s, sim.s + 700)[0], tEl = $('h-trap');
+  tEl.classList.toggle('on', next != null);
+  if (next != null) {
+    const d = Math.round((next - sim.s) / 10) * 10, html = `<small>SPEED TRAP</small>${mph ? `${Math.round(d * 1.094)} yd` : `${d} m`}`;
+    if (hudCache.trap !== html) { hudCache.trap = html; tEl.innerHTML = html; }
+  }
   if (net && now - boardAt > 250) {
     boardAt = now;
     const rows = [{ name: save.name || 'You', sc: scorer.run, pd: scorer.pending, me: true, dist: 0 }];
@@ -536,9 +592,9 @@ function updateCamera(dt) {
     menuAng += dt * (g ? 0.3 : 0.16);
     const a = 1.5 + Math.sin(menuAng) * (g ? 1.1 : 0.9);
     const r = g ? 6.4 : 9;
-    road.toWorld(sim.s + r * Math.cos(a), sim.d - Math.min(6.3, r * Math.sin(a)), P2);
-    camera.position.set(P2.x, g ? 1.6 : 2.4, P2.z);
-    look.set(P.x, g ? 0.75 : 0.7, P.z);
+    road.toWorld(sim.s + r * Math.cos(a), sim.d - Math.min(road.wall - 0.6 + sim.d, r * Math.sin(a)), P2);
+    camera.position.set(P2.x, P2.y + (g ? 1.6 : 2.4), P2.z);
+    look.set(P.x, P.y + (g ? 0.75 : 0.7), P.z);
     // push the car to the right of the screen (menus and the garage card sit on the left)
     fwd.subVectors(look, camera.position).normalize();
     right.crossVectors(fwd, UP).normalize();
@@ -556,16 +612,16 @@ function updateCamera(dt) {
       if (Math.abs(c.s - (sim.s - dist)) < c.hl + 1.4 && Math.abs(c.d - camD) < c.hw + 1) lift = Math.max(lift, (c.hl > 4 ? 3.7 : 2.1) + 0.8 - h);
     }
     camLift = damp(camLift, lift, lift > camLift ? 9 : 3, dt);
-    camera.position.set(P2.x, h + camLift, P2.z);
+    camera.position.set(P2.x, P2.y + h + camLift, P2.z);
     road.toWorld(sim.s + 14, sim.d * 0.55 + camD * 0.45, P2);
-    camera.lookAt(P2.x, 0.85, P2.z);
+    camera.lookAt(P2.x, P2.y + 0.85, P2.z);
     const target = 64 + clamp((kmh - 60) / 260, 0, 1) * 22 + (sim.boosting ? 7 : 0);
     fov = damp(fov, target, 3, dt);
   } else {
     const hd = P.h + sim.yaw;
     fwd.set(Math.sin(hd), 0, Math.cos(hd));
-    camera.position.set(P.x + fwd.x * 0.2, carMesh.userData.roofH - 0.22, P.z + fwd.z * 0.2);
-    camera.lookAt(P.x + fwd.x * 30, 0.9, P.z + fwd.z * 30);
+    camera.position.set(P.x + fwd.x * 0.2, P.y + carMesh.userData.roofH - 0.22, P.z + fwd.z * 0.2);
+    camera.lookAt(P.x + fwd.x * 30, road.center(sim.s + 30, P2).y + 0.9, P.z + fwd.z * 30);
     fov = damp(fov, 72 + clamp((kmh - 60) / 260, 0, 1) * 14 + (sim.boosting ? 6 : 0), 3, dt);
   }
   // shake: crashes, plus a little at very high speed
@@ -604,11 +660,20 @@ function frame() {
         sound.crash(e.impact); shake = 1; flash();
         // sparks where the cars touched
         world.road.toWorld(sim.s + (e.side ? 0 : Math.sign(e.ds) * sim.hl), sim.d + (e.side ? -Math.sign(e.dd) * sim.hw : 0), FP);
-        FV.set(FP.x, 0.5, FP.z);
+        FV.set(FP.x, FP.y + 0.5, FP.z);
         fx.burst(FV, FD.set(0, 0.5, 0), 26 + Math.min(40, e.impact * 2), 10, BV.copy(CV).multiplyScalar(0.6));
         if (net) net.send({ t: 'ev', k: 'crash', p: 0 });
       } else if (e.type === 'wall') { scorer.scrape(); sound.wall(e.impact); shake = Math.max(shake, 0.3); if (scorer.timer > 0) pop('WALL', '-1.5s', '#ff8a95'); }
     }
+    // speed traps between last frame and this one
+    if (sim.s > prevS && world.road.trapsIn(prevS, sim.s).length) scorer.trap(sim.v * 3.6, ev);
+    prevS = sim.s;
+    // slipstream: tuck in close behind a car for a moment to pull harder and refill nitro
+    let behind = false;
+    for (let i = 0; i < n; i++) { const c = traffic[i], gap = c.s - sim.s - sim.hl - c.hl; if (gap > 0.5 && gap < 16 && Math.abs(c.d - sim.d) < 1.1) behind = true; }
+    draftT = behind && sim.v > 22 && sim.ghost <= 0 ? draftT + dt : 0;
+    sim.draft = draftT > 0.4;
+    if (sim.draft) sim.nitro = Math.min(1, sim.nitro + dt * 0.08);
     scorer.update(dt, sim, traffic, n, ev);
     handleEvents(ev);
     if (net) {
@@ -621,16 +686,17 @@ function frame() {
     if (playTime > 25) $('h-hint').style.opacity = 0;
   } else if (!playing) {
     // menu: the car cruises in lane 2 with the two left lanes cleared for the camera
-    sim.s += sim.v * dt; sim.d = laneCenter(1); sim.yaw = 0; sim.ghost = 0;
+    sim.s += sim.v * dt; sim.d = world.road.laneCenter(1); sim.yaw = 0; sim.ghost = 0; sim.draft = false;
   }
   world.updateChunks(sim.s);
 
   // place the player's car
   world.road.toWorld(sim.s, sim.d, P);
-  carMesh.position.set(P.x, 0, P.z);
+  carMesh.position.set(P.x, P.y, P.z);
+  fx.floorY = P.y;
   const acc = (sim.v - lastV) / Math.max(dt, 1e-3); lastV = sim.v;
   aLong = damp(aLong, acc, 6, dt);
-  carMesh.rotation.set(clamp(-aLong * 0.0035, -0.035, 0.035), P.h + sim.yaw, sim.steer * clamp(sim.v / 70, 0, 1) * 0.045);
+  carMesh.rotation.set(clamp(-aLong * 0.0035, -0.035, 0.035) - Math.atan(world.road.grade(sim.s)), P.h + sim.yaw, sim.steer * clamp(sim.v / 70, 0, 1) * 0.045);
   carMesh.visible = !(playing && sim.ghost > 0 && Math.floor(now / 90) % 2 === 0);
   carMesh.userData.setBrake(sim.braking);
   carMesh.userData.spin(dt, frozen ? 0 : sim.v, sim.steer);
@@ -639,22 +705,34 @@ function frame() {
   if (playing && !frozen) {
     if (sim.scrape && sim.v > 8) {
       world.road.toWorld(sim.s + (Math.random() - 0.3) * sim.hl, sim.scrape * (sim.d * sim.scrape + sim.hwEff), FP);
-      FV.set(FP.x, 0.35 + Math.random() * 0.25, FP.z); FD.set(0, 0.3, 0); BV.copy(CV).multiplyScalar(0.72);
+      FV.set(FP.x, FP.y + 0.35 + Math.random() * 0.25, FP.z); FD.set(0, 0.3, 0); BV.copy(CV).multiplyScalar(0.72);
       fx.burst(FV, FD, 2 + Math.floor(sim.v / 25), 6, BV);
     }
     const lifting = !inputNow.gas && lastGas && sim.rpm > 5200;
     if (lifting && Math.random() < 0.75) { fx.pop(); sound.pop(); }
     lastGas = inputNow.gas;
-  }
+    // gear changes dip the engine note (and sometimes crackle); nitro kicks in with a rush
+    if (sim.gear !== lastGear) { if (sim.gear > lastGear && sim.v > 3) { sound.shift(); if (Math.random() < 0.35) { fx.pop(); sound.pop(); } } lastGear = sim.gear; }
+    if (sim.boosting && !lastBoost) sound.nitro();
+    lastBoost = sim.boosting;
+    // tyres squeal when the car is pointed well off the road's line at speed or braking hard
+    const slide = clamp((Math.abs(sim.yaw) - 0.12) / 0.12, 0, 1) * clamp((sim.v - 25) / 20, 0, 1) * 0.8 + (sim.braking && sim.v > 30 ? 0.45 : 0);
+    sound.tires(mode === 'play' ? Math.min(1, slide) : 0);
+    sound.scrape(sim.scrape && sim.v > 5 ? Math.min(1, sim.v / 30) : 0);
+  } else { sound.tires(0); sound.scrape(0); }
+  sound.setTunnel(world.tunnelK);
+  $('h-slip').classList.toggle('on', playing && sim.draft);
   fx.update(dt, sim.v * 3.6, sim.boosting, CV, playing);
 
   updateRemotes(dt);
   updateCamera(dt);
   world.follow(camera);
-  world.tick(sim.s, now / 1000);
+  world.tick(sim.s, now / 1000, dt);
   if (playing) updateHud(now);
   if (mode === 'play') adaptResolution(dt);
-  sound.engine(playing ? sim.rpm : 1800, playing ? sim.load : 0.1, playing ? sim.v : 0, mode === 'play', sim.boosting);
+  // in the garage, switching cars gives a quick rev so you hear each engine
+  const rev = now < revUntil ? Math.sin(Math.PI * (1 - (revUntil - now) / 800)) : 0;
+  sound.engine(playing ? sim.rpm : 1500 + rev * 5200, playing ? sim.load : rev > 0.05 ? 1 : 0, playing ? sim.v : 0, mode === 'play' || rev > 0.05, sim.boosting);
   if (composer) composer.render(dt); else renderer.render(scene, camera);
 }
 function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
@@ -663,4 +741,4 @@ show('menu');
 renderer.setAnimationLoop(frame);
 
 // handy for testing in the console
-window.__cc = { sim, scorer, world, save, persist, get fps() { return fpsAvg; }, get mode() { return mode; }, startSolo, quitToMenu, get net() { return net; } };
+window.__cc = { sim, scorer, world, save, persist, sound, setRoute, get fps() { return fpsAvg; }, get mode() { return mode; }, startSolo, quitToMenu, get net() { return net; } };

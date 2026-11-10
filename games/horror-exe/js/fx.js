@@ -33,12 +33,30 @@ export const GlitchShader = {
     }`,
 };
 
+/**
+ * The 16-bit pass (last, after tone mapping): a small color palette per channel with ordered dithering,
+ * like an old console. Runs on the low-resolution buffer, so the dither pattern shows as big pixels.
+ */
+export const RetroShader = {
+  uniforms: { tDiffuse: { value: null }, levels: { value: 7 }, amount: { value: 0.8 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float levels, amount; varying vec2 vUv;
+    float b2(vec2 p){ return mod(2.0 * p.x + 3.0 * p.y, 4.0); }
+    float bayer(vec2 p){ p = floor(mod(p, 4.0)); return (4.0 * b2(mod(p, 2.0)) + b2(floor(p / 2.0)) + 0.5) / 16.0 - 0.5; }
+    void main(){
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      vec3 q = floor(c * levels + 0.5 + bayer(gl_FragCoord.xy) * amount) / levels;
+      gl_FragColor = vec4(clamp(q, 0.0, 1.0), 1.0);
+    }`,
+};
+
 const WHISPERS = ['BEHIND YOU', "DON'T STOP RUNNING", 'IT SEES YOU', 'STAY', 'YOU CAN\'T HIDE HERE', 'WHY ARE YOU STILL HERE', 'NOT FAST ENOUGH', 'LOOK UP', 'COME BACK', 'I FOUND YOU'];
 
 export class Fx {
   constructor(pass) {
     this.u = pass.uniforms;
-    this.terror = 0; this.base = { noise: 0.03, aberr: 0.0015, red: 0.08, vignette: 0.35 };
+    this.terror = 0; this.base = { noise: 0.012, aberr: 0, red: 0.05, vignette: 0.2 }; this.corrupt = 1;
     this.kick = { noise: 0, aberr: 0, tear: 0, pixel: 0, flash: 0 };
     this.time = 0; this.whisperT = 18;
     this.scare = document.getElementById('scare');
@@ -59,13 +77,19 @@ export class Fx {
       case 'exits': K.flash = 0.5; u.flashColor.value.setRGB(1, 1, 1); K.aberr = 0.015; break;
       case 'escape': K.flash = 0.9; u.flashColor.value.setRGB(1, 1, 1); break;
       case 'sense': K.flash = 0.35; u.flashColor.value.setRGB(0.5, 0, 0.05); K.aberr = 0.03; K.tear = 0.4; break;
+      case 'portal': K.flash = 0.85; u.flashColor.value.setRGB(1, 1, 1); K.aberr = 0.03; K.tear = 0.5; K.pixel = 0.3; break;
+      case 'pop': K.flash = 0.5; u.flashColor.value.setRGB(0.5, 0, 0); K.noise = 0.6; K.tear = 0.8; K.pixel = 0.4; K.aberr = 0.03; break;
     }
   }
 
   jumpscare() {
+    // drawn tiny and blown up: a chunky pixel face, with static over it
     const c = this.scareCanvas;
-    c.width = innerWidth; c.height = innerHeight;
-    drawScareFace(c.getContext('2d'), c.width, c.height);
+    c.width = 200; c.height = Math.max(90, Math.round((200 * innerHeight) / Math.max(1, innerWidth)));
+    const g = c.getContext('2d');
+    drawScareFace(g, c.width, c.height);
+    for (let i = 0; i < 700; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.35)'; g.fillRect(Math.random() * c.width, Math.random() * c.height, 1 + Math.random() * 3, 1); }
+    for (let y = 0; y < c.height; y += 2) { g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, y, c.width, 1); }
     this.scare.classList.remove('on'); void this.scare.offsetWidth; this.scare.classList.add('on');
     this.pulse('down');
     clearTimeout(this.scareTimer);
@@ -79,24 +103,25 @@ export class Fx {
     w.classList.remove('on'); void w.offsetWidth; w.classList.add('on');
   }
 
-  /** terror: 0 (calm) .. 1 (EXE right on you). playing: whispers only during rounds. */
-  update(dt, terror, playing) {
+  /** terror: 0 (calm) .. 1 (EXE right on you). playing: whispers only during rounds. corrupt: which world you see. */
+  update(dt, terror, playing, corrupt = this.corrupt) {
     this.time += dt;
+    this.corrupt = corrupt;
     this.terror = damp(this.terror, terror, 4, dt);
-    const T = this.terror, K = this.kick, u = this.u, b = this.base;
-    for (const k in K) K[k] = Math.max(0, K[k] - dt * (k === 'flash' ? 2.2 : 1.6));
-    const flick = Math.random() < T * 0.08 ? 1 : 0;
+    const T = this.terror, K = this.kick, u = this.u, b = this.base, c = corrupt ? 1 : 0;
+    for (const k in K) K[k] = Math.max(0, K[k] - dt * (k === 'flash' ? 2.2 : 1.8));
+    const flick = c && Math.random() < T * 0.05 ? 1 : 0;
     u.time.value = this.time;
-    u.noise.value = b.noise + T * 0.16 + K.noise + flick * 0.2;
-    u.aberr.value = b.aberr + T * 0.006 + K.aberr;
-    u.tear.value = T * 0.12 + K.tear + flick * 0.3;
-    u.pixel.value = K.pixel + (T > 0.75 ? (T - 0.75) * 0.6 : 0);
-    u.red.value = (this.exeView ? 0.2 : b.red) + T * 0.35;
-    u.vignette.value = b.vignette + T * 0.9;
+    u.noise.value = b.noise * c + T * 0.07 + K.noise + flick * 0.12;
+    u.aberr.value = b.aberr + T * 0.0035 + K.aberr;
+    u.tear.value = T * 0.05 + K.tear + flick * 0.2;
+    u.pixel.value = K.pixel + (T > 0.85 ? (T - 0.85) * 0.5 : 0);
+    u.red.value = (this.exeView ? 0.12 : b.red) * c + T * 0.22;
+    u.vignette.value = b.vignette + T * 0.6 + c * 0.1;
     u.flash.value = Math.min(1, K.flash);
-    if (playing) {
-      this.whisperT -= dt * (1 + T * 3);
-      if (this.whisperT <= 0) { this.whisperT = 20 + Math.random() * 25; this.say(); this.pulse('static', 0.6); }
+    if (playing && c) {
+      this.whisperT -= dt * (1 + T * 2);
+      if (this.whisperT <= 0) { this.whisperT = 30 + Math.random() * 30; this.say(); this.pulse('static', 0.4); }
     }
   }
 }

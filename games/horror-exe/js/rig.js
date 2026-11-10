@@ -414,7 +414,7 @@ export function drawScareFace(g, w, h) {
   cg.fillStyle = '#151a2e'; cg.fillRect(0, 0, 160, 128);
   drawFace(cg, 'exe', 160, 128);
   g.restore();
-  const s = Math.min(w / 160, h / 128) * 1.15;
+  const s = Math.min(w / 160, h / 128) * 1.02;
   g.imageSmoothingEnabled = true;
   g.drawImage(c, (w - 160 * s) / 2, (h - 128 * s) / 2, 160 * s, 128 * s);
 }

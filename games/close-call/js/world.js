@@ -1,19 +1,19 @@
-// Everything you see except the player cars: sky, skyline, elevated highway, city, street lights, traffic.
+// Everything you see except the player cars: sky, the road and its barriers, tunnels, speed traps,
+// street lights and traffic. Map-specific scenery (city, coast, canyon) lives in scenery.js.
 // The road is built in 160 m chunks ahead of the player and recycled behind.
 import * as THREE from 'three';
-import { Road, WALL, ROAD_HALF, LANE_W, LANES } from './road.js';
+import { Road } from './road.js';
 import { trafficNear, KINDS } from './traffic.js';
 import { trafficGeometry, slotMaterials, lightMaterial, glowMaterial, setCarLook, PAINT } from './models.js';
 import { rng } from './util.js';
+import { mapById } from './maps.js';
+import { Scenery } from './scenery.js';
+import { CHUNK, NCH, Pool, triMesh, mergeGeos, radialTexture } from './gfx.js';
 
-const CHUNK = 160;
-const NCH = 8; // chunks alive at once: 1 behind, 7 ahead
 const STEP = 4; // metres between road mesh rows
-const DECK_Y = 0; // road surface height
-const GROUND_Y = -34;
-const LAMP_GAP = 20; // a street light every 20 m, alternating sides (left on multiples of 40)
-const LAMP_IN = 2.6; // how far the lamp head reaches in over the road from the barrier
-const LAMP_Y = 11.6;
+const LAMP_IN = 2.6; // how far a lamp head reaches in over the road from the barrier
+export const LAMP_Y = 11.6;
+
 
 export class World {
   constructor(renderer, quality) {
@@ -27,76 +27,78 @@ export class World {
     this.chunks = new Map();
     this.traffic = [];
     this.trafficCount = 0;
-    this._v = {};
-    this.env = this.hi ? buildEnv(renderer) : null;
-    setCarLook(this.env, this.hi);
+    this.tunnelK = 0;
+    this._v = {}; this._p = {};
+    this.envCache = {};
+    this.roadTexCache = {};
+    this.mapId = null; this.lanes = 0;
     this.buildLights();
     this.buildSky();
-    this.buildMaterials();
-    this.buildInstanced();
+    this.buildCommon();
     this.buildTraffic();
   }
 
-  /** Start (or restart) on a road. Same seed = same road and traffic. */
-  setSeed(seed, density = 1) {
-    if (this.road && this.road.seed === seed) { this.density = density; return; }
+  /** Start (or restart) on a route. Same seed + map + lanes = same road and traffic for everyone. */
+  setRoute({ map, lanes, seed, density = 1 }) {
+    const m = mapById(map);
+    const mapChanged = this.mapId !== m.id;
+    if (mapChanged) this.applyMap(m);
+    if (mapChanged || this.lanes !== lanes) { this.lanes = lanes; this.applyRoadLook(); }
+    this.density = density;
+    if (this.road && this.road.seed === seed && this.road.map === m && this.road.lanes === lanes) return;
     for (const c of this.chunks.values()) this.freeChunk(c);
     this.chunks.clear();
     this.seed = seed;
-    this.density = density;
-    this.road = new Road(seed);
+    this.road = new Road(seed, m, lanes);
   }
 
+  // ---------- one-time setup ----------
+
   buildLights() {
-    this.scene.add(new THREE.HemisphereLight(0x7a8fcc, 0x2a1e16, 1.15));
-    const moon = new THREE.DirectionalLight(0xa8bcff, 0.5);
-    moon.position.set(-60, 120, -40);
-    this.scene.add(moon);
-    // three warm lights that ride along the street lights nearest the player, so cars and road
-    // brighten as they pass under each lamp (high quality only: every light costs every pixel)
+    this.hemi = new THREE.HemisphereLight(0x7a8fcc, 0x2a1e16, 1.15);
+    this.scene.add(this.hemi);
+    this.dirLight = new THREE.DirectionalLight(0xa8bcff, 0.5);
+    this.scene.add(this.dirLight);
+    // three warm lights that ride along the street lights (or tunnel lights) nearest the player, so
+    // cars and road brighten as they pass under each one (high quality only: every light costs every pixel)
     this.lamps = [];
     if (this.hi) for (let i = 0; i < 3; i++) { const l = new THREE.PointLight(0xffc27a, 24, 30, 1.3); this.scene.add(l); this.lamps.push(l); }
   }
 
   buildSky() {
-    // gradient dome: warm city glow at the horizon, thin clouds lit from below, stars up high
+    // gradient dome with a horizon glow, clouds, stars and (on the coast) the setting sun
     const geo = new THREE.SphereGeometry(1500, 32, 16);
+    const v3 = () => ({ value: new THREE.Vector3() });
     this.skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
-      uniforms: { uT: { value: 0 } },
+      uniforms: { uT: { value: 0 }, uTop: v3(), uMid: v3(), uGlow: v3(), uCloud: v3(), uStars: { value: 1 }, uSunDir: { value: new THREE.Vector3(0, -1, 0) }, uSunCol: v3(), uSun: { value: 0 } },
       vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: `varying vec3 vP; uniform float uT;
+      fragmentShader: `varying vec3 vP; uniform float uT, uStars, uSun; uniform vec3 uTop, uMid, uGlow, uCloud, uSunDir, uSunCol;
         float h(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,45.164))) * 43758.5453); }
         float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
         float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
           return mix(mix(h2(i), h2(i+vec2(1,0)), f.x), mix(h2(i+vec2(0,1)), h2(i+vec2(1,1)), f.x), f.y); }
         void main(){
           float y = vP.y;
-          vec3 top = vec3(0.012,0.02,0.06), mid = vec3(0.045,0.06,0.15), glow = vec3(0.36,0.18,0.2);
-          vec3 c = mix(mid, top, smoothstep(0.02, 0.55, y));
-          c = mix(c, glow, smoothstep(0.18, -0.02, y) * 0.8);
-          // clouds: noise on a flat layer above, brightest near the horizon where the city lights them
+          float toSun = uSun > 0.0 ? max(dot(vP, uSunDir), 0.0) : 0.0;
+          vec3 c = mix(uMid, uTop, smoothstep(0.02, 0.55, y));
+          c = mix(c, uGlow * (1.0 + toSun * toSun * 0.8 * uSun), smoothstep(0.2 + toSun * 0.15 * uSun, -0.02, y) * 0.85);
           vec2 q = vP.xz / max(y + 0.08, 0.05) * 1.6 + vec2(uT * 0.004, 0.0);
           float cl = n2(q) * 0.55 + n2(q * 2.3) * 0.3 + n2(q * 5.1) * 0.15;
           cl = smoothstep(0.52, 0.85, cl) * smoothstep(0.0, 0.12, y) * (1.0 - smoothstep(0.35, 0.8, y));
-          c = mix(c, vec3(0.22,0.14,0.18) + glow * 0.25, cl * 0.55);
+          c = mix(c, uCloud * (0.7 + toSun * 0.9 * uSun) + uGlow * 0.2, cl * 0.6);
           vec3 s = floor(vP * 420.0);
-          float st = step(0.9975, h(s)) * smoothstep(0.14, 0.5, y) * (1.0 - cl);
+          float st = step(0.9975, h(s)) * smoothstep(0.14, 0.5, y) * (1.0 - cl) * uStars;
           c += st * vec3(0.8,0.85,1.0) * (0.5 + 0.5 * h(s + 3.0));
+          if (uSun > 0.0) { float d = dot(vP, uSunDir); c += uSunCol * (smoothstep(0.9982, 0.9988, d) * 2.2 + pow(max(d, 0.0), 48.0) * 0.6 + pow(max(d, 0.0), 6.0) * 0.12); }
           gl_FragColor = vec4(c, 1.0);
+          #include <colorspace_fragment>
         }`,
     });
     this.sky = new THREE.Mesh(geo, this.skyMat);
     this.sky.renderOrder = -2;
     this.scene.add(this.sky);
-    // far skyline: a ring of building silhouettes with lit windows, just inside the sky
-    const sk = skylineTexture();
-    sk.wrapS = THREE.RepeatWrapping; sk.repeat.x = 3;
-    this.skyline = new THREE.Mesh(new THREE.CylinderGeometry(1300, 1300, 300, 64, 1, true),
-      new THREE.MeshBasicMaterial({ map: sk, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false }));
-    this.skyline.renderOrder = -1;
-    this.scene.add(this.skyline);
-    // moon with a soft halo
+    // moon with a soft halo (night maps)
     const moon = new THREE.Group();
     moon.add(new THREE.Mesh(new THREE.CircleGeometry(24, 32), new THREE.MeshBasicMaterial({ color: 0xe8ecff, fog: false })));
     const halo = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), new THREE.MeshBasicMaterial({ map: radialTexture('rgba(150,170,255,0.35)'), transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
@@ -104,32 +106,23 @@ export class World {
     moon.add(halo);
     this.moon = moon;
     this.scene.add(moon);
-    // far ground under the elevated road
-    this.ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshLambertMaterial({ color: 0x07090f }));
-    this.ground.rotation.x = -Math.PI / 2;
-    this.ground.position.y = GROUND_Y;
-    this.scene.add(this.ground);
   }
 
-  buildMaterials() {
-    const aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
-    const { map, glow } = roadTextures();
-    for (const t of [map, glow]) { t.wrapT = THREE.RepeatWrapping; t.anisotropy = aniso; t.colorSpace = THREE.SRGBColorSpace; }
-    this.roadTex = map;
-    this.matRoad = this.hi
-      ? new THREE.MeshStandardMaterial({ map, roughness: 0.62, metalness: 0, emissive: 0xffffff, emissiveMap: glow, emissiveIntensity: 1.6 })
-      : new THREE.MeshLambertMaterial({ map, emissive: 0xffffff, emissiveMap: glow, emissiveIntensity: 1.2 });
+  buildCommon() {
+    this.aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
     this.matConcrete = new THREE.MeshLambertMaterial({ color: 0x6b6f78, side: THREE.DoubleSide });
     this.matDeck = new THREE.MeshLambertMaterial({ color: 0x2c3039 });
     this.matRail = new THREE.MeshBasicMaterial({ color: this.hi ? new THREE.Color(1.15, 0.62, 0.22) : 0xffb347 });
-  }
-
-  buildInstanced() {
-    const per = Math.ceil(CHUNK / 40) + 1; // things every 40 m
-    const cap = (k) => NCH * per * k;
-    const mk = (geo, mat, n) => { const m = new THREE.InstancedMesh(geo, mat, n); m.count = n; m.frustumCulled = false; this.scene.add(m); hideAll(m); return m; };
-    // pillars under the deck
-    this.pillars = mk(new THREE.BoxGeometry(3.2, 1, 2.2), this.matDeck, cap(1));
+    this.matGuard = this.hi ? new THREE.MeshStandardMaterial({ color: 0xa4aab4, metalness: 0.35, roughness: 0.55, side: THREE.DoubleSide }) : new THREE.MeshLambertMaterial({ color: 0x9aa0aa, side: THREE.DoubleSide });
+    this.matFrame = new THREE.MeshLambertMaterial({ color: 0x4a505c });
+    this.trapTex = trapTexture();
+    this.matTrap = new THREE.MeshBasicMaterial({ map: this.trapTex, color: this.hi ? new THREE.Color(1.25, 1.25, 1.25) : 0xffffff });
+    this.matTrapLed = new THREE.MeshBasicMaterial({ color: this.hi ? new THREE.Color(3, 0.15, 0.1) : 0xff2a20 });
+    // tunnel: inside walls, outside shell, light strips
+    this.matTunnelIn = new THREE.MeshLambertMaterial({ color: 0x8c8f96, side: THREE.DoubleSide });
+    this.matTunnelOut = new THREE.MeshLambertMaterial({ color: 0x5c5248, side: THREE.DoubleSide });
+    this.matTunnelLight = new THREE.MeshBasicMaterial({ color: 0xfff4dc, side: THREE.DoubleSide });
+    this.matTunnelBand = new THREE.MeshBasicMaterial({ color: this.hi ? new THREE.Color(0.15, 0.85, 1.15) : 0x3de0ff, side: THREE.DoubleSide });
     // street lights: pole with an arm reaching over the road (+x), a glowing head, and a pool of light on the road
     const poleGeo = mergeGeos([
       new THREE.CylinderGeometry(0.11, 0.17, LAMP_Y + 0.4, 8).translate(0, (LAMP_Y + 0.4) / 2, 0),
@@ -137,34 +130,22 @@ export class World {
       new THREE.BoxGeometry(1.1, 0.22, 0.5).translate(LAMP_IN, LAMP_Y + 0.12, 0),
       new THREE.BoxGeometry(0.6, 0.5, 0.6).translate(0, 0.25, 0),
     ]);
-    this.poles = mk(poleGeo, new THREE.MeshLambertMaterial({ color: 0x3a3f4a }), cap(2));
-    this.heads = mk(new THREE.BoxGeometry(0.95, 0.06, 0.4).translate(LAMP_IN, LAMP_Y - 0.01, 0), new THREE.MeshBasicMaterial({ color: this.hi ? new THREE.Color(3, 2.3, 1.4) : 0xffd28a }), cap(2));
-    const poolTex = radialTexture('rgba(255,190,110,0.5)');
-    this.pools = mk(new THREE.PlaneGeometry(13, 17).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), cap(2));
-    // a soft glow round each lamp head, seen from below
-    this.halos = mk(new THREE.PlaneGeometry(4.2, 4.2).rotateX(Math.PI / 2).translate(LAMP_IN, LAMP_Y - 0.08, 0),
-      new THREE.MeshBasicMaterial({ map: radialTexture('rgba(255,200,130,0.55)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), cap(2));
-    // buildings: three shapes sharing one lit-window texture, red beacons on the tall ones
-    const winTex = windowTexture();
-    winTex.anisotropy = 4;
-    const bmat = new THREE.MeshLambertMaterial({ color: 0x121722, emissive: 0xffffff, emissiveMap: winTex, emissiveIntensity: this.hi ? 1.0 : 0.95 });
-    const nb = this.quality === 'low' ? 4 : 7;
-    this.bPer = nb;
-    this.bShapes = [[22, 70, 22], [34, 46, 26], [16, 110, 18]];
-    this.buildings = this.bShapes.map(([w, h, d]) => mk(boxWithTiledUV(w, h, d), bmat, NCH * nb * 2));
-    this.beaconMat = new THREE.MeshBasicMaterial({ color: 0xff2020, fog: false });
-    this.beacons = mk(new THREE.BoxGeometry(1.4, 1.4, 1.4), this.beaconMat, NCH * nb * 2);
-    // overhead sign gantries: one every other chunk, sign faces chosen from a few prebuilt textures
-    this.signTex = ['HARBOR', 'AIRPORT', 'DOWNTOWN', 'BAYSIDE', 'TUNNEL 2', 'NORTH LOOP', 'STADIUM', 'OLD TOWN'].map((t, i) => signTexture(t, 10 + i * 3));
-    this.signMats = this.signTex.map((t) => new THREE.MeshBasicMaterial({ map: t, color: 0xc8d0c8 }));
-    this.matSignFrame = new THREE.MeshLambertMaterial({ color: 0x4a505c });
-    this.matSignLamp = new THREE.MeshBasicMaterial({ color: this.hi ? new THREE.Color(2.2, 2.0, 1.6) : 0xfff0d0 });
+    const g = (this.common = new THREE.Group());
+    this.scene.add(g);
+    const per = 10;
+    this.poles = new Pool(g, poleGeo, new THREE.MeshLambertMaterial({ color: 0x3a3f4a }), per);
+    this.heads = new Pool(g, new THREE.BoxGeometry(0.95, 0.06, 0.4).translate(LAMP_IN, LAMP_Y - 0.01, 0), new THREE.MeshBasicMaterial({ color: this.hi ? new THREE.Color(3, 2.3, 1.4) : 0xffd28a }), per);
+    this.pools = new Pool(g, new THREE.PlaneGeometry(13, 17).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture('rgba(255,190,110,0.5)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), per);
+    this.halos = new Pool(g, new THREE.PlaneGeometry(4.2, 4.2).rotateX(Math.PI / 2).translate(LAMP_IN, LAMP_Y - 0.08, 0),
+      new THREE.MeshBasicMaterial({ map: radialTexture('rgba(255,200,130,0.55)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), per);
+    // guard rail posts (coast, canyon)
+    this.posts = new Pool(g, new THREE.BoxGeometry(0.14, 0.95, 0.12).translate(0, 0.47, 0), new THREE.MeshLambertMaterial({ color: 0x7c828c }), 90);
   }
 
   buildTraffic() {
     this.tGroup = new THREE.Group();
     this.scene.add(this.tGroup);
-    const mats = slotMaterials(null, true);
+    const mats = (this.tMats = slotMaterials(null, true));
     const head = lightMaterial(this.hi ? 2.2 : 1), tail = lightMaterial(this.hi ? 1.5 : 0.9);
     const headGlow = glowMaterial(0.55), tailGlow = glowMaterial(this.hi ? 0.5 : 0.75);
     this.tMeshes = KINDS.map((k) => {
@@ -187,6 +168,53 @@ export class World {
     this.tShadow = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture('rgba(0,0,0,0.85)'), transparent: true, depthWrite: false }), 240);
     this.tShadow.count = 0; this.tShadow.frustumCulled = false;
     this.tGroup.add(this.tShadow);
+    // indicator lights for cars changing lanes
+    this.blinkers = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.11, 0.07), new THREE.MeshBasicMaterial({ color: this.hi ? new THREE.Color(3.2, 1.5, 0.15) : 0xffa020 }), 80);
+    this.blinkers.count = 0; this.blinkers.frustumCulled = false;
+    this.tGroup.add(this.blinkers);
+  }
+
+  // ---------- per map ----------
+
+  applyMap(m) {
+    this.mapId = m.id;
+    this.map = m;
+    this.scene.fog.color.setHex(m.fog[0]); this.scene.fog.near = m.fog[1]; this.scene.fog.far = m.fog[2];
+    this.scene.background.setHex(m.bg);
+    this.hemi.color.setHex(m.hemi[0]); this.hemi.groundColor.setHex(m.hemi[1]); this.hemiBase = m.hemi[2];
+    this.dirLight.color.setHex(m.light[0]); this.dirLight.intensity = m.light[1]; this.dirLight.position.set(...m.light[2]);
+    const u = this.skyMat.uniforms, sk = m.sky;
+    u.uTop.value.set(...sk.top); u.uMid.value.set(...sk.mid); u.uGlow.value.set(...sk.glow); u.uCloud.value.set(...sk.cloud); u.uStars.value = sk.stars;
+    u.uSun.value = sk.sun ? 1 : 0;
+    if (sk.sun) { u.uSunDir.value.set(...sk.sun.dir).normalize(); u.uSunCol.value.set(...sk.sun.col); }
+    this.moon.visible = !sk.sun;
+    // reflections for paint and glass
+    if (this.hi) {
+      const env = this.envCache[m.id] || (this.envCache[m.id] = buildEnv(this.renderer, m));
+      setCarLook(env, true);
+      for (const mt of this.tMats) { mt.envMap = env; mt.needsUpdate = true; }
+    } else setCarLook(null, false);
+    this.matTunnelIn.color.setHex(m.id === 'city' ? 0x5d6878 : 0x9a958c);
+    this.matTunnelOut.color.setHex(m.id === 'city' ? 0x262b35 : m.id === 'coast' ? 0x8c7c68 : 0x8e4a2c);
+    this.matTunnelLight.color.set(this.hi ? (m.id === 'city' ? new THREE.Color(1.15, 1.3, 1.45) : new THREE.Color(1.5, 1.05, 0.5)) : (m.id === 'city' ? 0xdfeeff : 0xffcf86));
+    if (this.scenery) this.scenery.dispose();
+    this.scenery = new Scenery(this, m);
+  }
+
+  applyRoadLook() {
+    const key = `${this.lanes}-${this.map.paint}`;
+    let t = this.roadTexCache[key];
+    if (!t) {
+      t = this.roadTexCache[key] = roadTextures(this.lanes, this.map.paint);
+      for (const x of [t.map, t.glow]) { x.wrapT = THREE.RepeatWrapping; x.anisotropy = this.aniso; x.colorSpace = THREE.SRGBColorSpace; }
+    }
+    if (!this.matRoad) {
+      this.matRoad = this.hi
+        ? new THREE.MeshStandardMaterial({ map: t.map, roughness: 0.62, metalness: 0, emissive: 0xffffff, emissiveMap: t.glow, emissiveIntensity: 1.6 })
+        : new THREE.MeshLambertMaterial({ map: t.map, emissive: 0xffffff, emissiveMap: t.glow, emissiveIntensity: 1.2 });
+    } else { this.matRoad.map = t.map; this.matRoad.emissiveMap = t.glow; this.matRoad.needsUpdate = true; }
+    // the daylight coast needs less glow from the studs and paint
+    this.matRoad.emissiveIntensity = this.map.id === 'coast' ? 0.5 : this.hi ? 1.6 : 1.2;
   }
 
   // ---------- chunks ----------
@@ -199,33 +227,33 @@ export class World {
   }
 
   freeChunk(c) {
-    for (const m of c.meshes) { this.scene.remove(m); m.geometry.dispose(); }
-    const slot = c.slot;
-    const per = Math.ceil(CHUNK / 40) + 1;
-    for (let j = 0; j < per; j++) hideOne(this.pillars, slot * per + j);
-    for (let j = 0; j < per * 2; j++) for (const m of [this.poles, this.heads, this.pools, this.halos]) hideOne(m, slot * per * 2 + j);
-    for (const b of [...this.buildings, this.beacons]) for (let j = 0; j < this.bPer * 2; j++) hideOne(b, slot * this.bPer * 2 + j);
-    for (const m of [this.pillars, this.poles, this.heads, this.pools, this.halos, this.beacons, ...this.buildings]) m.instanceMatrix.needsUpdate = true;
+    for (const m of c.meshes) { m.parent?.remove(m); m.geometry.dispose(); }
+    for (const p of [this.poles, this.heads, this.pools, this.halos, this.posts]) p.clear(c.slot);
+    this.scenery.clearSlot(c.slot);
   }
 
   makeChunk(i) {
-    const road = this.road;
+    const road = this.road, m = this.map;
     const s0 = i * CHUNK, s1 = s0 + CHUNK;
     road.ensure(s1 + 2);
     const base = road.center(s0, {});
     const meshes = [];
     const rows = CHUNK / STEP + 1;
     const p = {};
+    const W = road.wall;
+    const feats = road.featuresIn(s0 - 100, s1 + 100); // a little beyond, for hills rising round tunnel mouths
+    const tunnelAt = (s) => feats.some((f) => f.kind === 'tunnel' && s >= f.a - 4 && s <= f.b + 4);
+    const local = (s, d, dy = 0) => { road.toWorld(s, d, p); return [p.x - base.x, p.y + dy, p.z - base.z]; };
     // --- road surface ---
     {
       const pos = new Float32Array(rows * 2 * 3), uv = new Float32Array(rows * 2 * 2), idx = [];
-      const edge = WALL + 0.3;
+      const edge = W + 0.3;
       for (let r = 0; r < rows; r++) {
         const s = s0 + r * STEP;
         for (let k = 0; k < 2; k++) {
-          road.toWorld(s, k ? edge : -edge, p);
+          const v = local(s, k ? edge : -edge);
           const o = (r * 2 + k) * 3;
-          pos[o] = p.x - base.x; pos[o + 1] = DECK_Y; pos[o + 2] = p.z - base.z;
+          pos[o] = v[0]; pos[o + 1] = v[1]; pos[o + 2] = v[2];
           uv[(r * 2 + k) * 2] = k; uv[(r * 2 + k) * 2 + 1] = s / 12;
         }
         if (r) { const a = (r - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
@@ -238,128 +266,174 @@ export class World {
       fixUp(g);
       meshes.push(new THREE.Mesh(g, this.matRoad));
     }
-    // --- jersey barriers, deck edge and amber rail lights (both sides) ---
-    {
-      // cross-section (d offset from the barrier face outward, y), barrier then deck underside
+    // --- barriers ---
+    if (m.rail === 'jersey') {
+      // jersey barriers, deck edge and underside, amber rail lights (both sides)
       const prof = [[0, 0], [0.18, 0.32], [0.26, 1.0], [0.55, 1.0], [0.6, -1.6]];
-      const bar = [], railPts = [];
+      const bar = [], rail = [];
       for (const side of [-1, 1]) {
-        const ring = [];
+        const ring = [], rp = [];
         for (let r = 0; r < rows; r++) {
           const s = s0 + r * STEP;
-          const pts = prof.map(([dd, y]) => { road.toWorld(s, side * (WALL + dd), p); return [p.x - base.x, DECK_Y + y, p.z - base.z]; });
-          ring.push(pts);
-          road.toWorld(s, side * (WALL + 0.27), p);
-          railPts.push([p.x - base.x, DECK_Y + 1.02, p.z - base.z, side]);
+          ring.push(prof.map(([dd, y]) => local(s, side * (W + dd), y)));
+          rp.push(local(s, side * (W + 0.27), 1.02));
         }
         for (let r = 1; r < rows; r++) for (let k = 0; k < prof.length - 1; k++) {
           const a = ring[r - 1][k], b = ring[r][k], c = ring[r][k + 1], d = ring[r - 1][k + 1];
           if (side > 0) bar.push(a, b, c, a, c, d); else bar.push(a, c, b, a, d, c);
         }
-      }
-      meshes.push(triMesh(bar, this.matConcrete));
-      // thin glowing strip on top of each barrier
-      const rail = [];
-      for (const side of [-1, 1]) {
-        const pts = railPts.filter((q) => q[3] === side);
-        for (let r = 1; r < pts.length; r++) {
-          const a = pts[r - 1], b = pts[r];
-          const a2 = [a[0], a[1] + 0.06, a[2]], b2 = [b[0], b[1] + 0.06, b[2]];
+        for (let r = 1; r < rp.length; r++) {
+          const a = rp[r - 1], b = rp[r], a2 = [a[0], a[1] + 0.06, a[2]], b2 = [b[0], b[1] + 0.06, b[2]];
           rail.push(a, b, b2, a, b2, a2, a, b2, b, a, a2, b2);
         }
       }
-      meshes.push(triMesh(rail.map((q) => q.slice(0, 3)), this.matRail));
-    }
-    // --- overhead sign gantry every other chunk ---
-    if (i % 2 === 1) {
-      const s = s0 + CHUNK * 0.5;
-      road.center(s, p);
-      const g = new THREE.Group();
-      const frame = this.matSignFrame;
-      const span = WALL * 2 + 1.4;
-      const add = (geo, mat, x, y, z, ry = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.y = ry; g.add(m); };
-      add(new THREE.BoxGeometry(span, 0.5, 0.5), frame, 0, 7.4, 0);
-      add(new THREE.BoxGeometry(span, 0.25, 0.25), frame, 0, 8.6, 0.1);
-      for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.45, 8.8, 0.45), frame, sx * span / 2, 4.4, 0);
-      const which = Math.floor(rng(i * 13 + this.seed)() * this.signMats.length);
-      for (const [sx, m] of [[-3.8, which], [3.8, (which + 1) % this.signMats.length]]) {
-        add(new THREE.PlaneGeometry(6, 2.6), this.signMats[m], sx, 7.6, -0.3, Math.PI);
-        add(new THREE.BoxGeometry(5.6, 0.08, 0.18), this.matSignLamp, sx, 6.2, -0.55); // lamps lighting the sign
+      meshes.push(triMesh(bar, this.matConcrete), triMesh(rail, this.matRail));
+      // deck underside
+      const under = [];
+      for (let r = 1; r < rows; r++) {
+        const sa = s0 + (r - 1) * STEP, sb = s0 + r * STEP;
+        const a = local(sa, -(W + 0.6), -1.6), b = local(sb, -(W + 0.6), -1.6), c = local(sb, W + 0.6, -1.6), d = local(sa, W + 0.6, -1.6);
+        under.push(a, b, c, a, c, d, a, c, b, a, d, c);
       }
-      g.position.set(p.x - base.x, DECK_Y, p.z - base.z);
-      g.rotation.y = p.h;
-      g.updateMatrixWorld(true);
-      g.children.slice().forEach((m) => { m.geometry = m.geometry.clone().applyMatrix4(m.matrixWorld); m.position.set(0, 0, 0); m.rotation.set(0, 0, 0); m.updateMatrix(); meshes.push(m); });
-    }
-    for (const m of meshes) { m.position.set(base.x, 0, base.z); m.matrixAutoUpdate = false; m.updateMatrix(); this.scene.add(m); }
-
-    // --- instanced scenery in this chunk's ring slot ---
-    const slot = ((i % NCH) + NCH) % NCH;
-    const per = Math.ceil(CHUNK / 40) + 1;
-    const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new THREE.Vector3(), V = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0);
-    const put = (mesh, j, x, y, z, rotY, sx, sy, sz) => { Q.setFromAxisAngle(Y, rotY); V.set(x, y, z); S.set(sx, sy, sz); M.compose(V, Q, S); mesh.setMatrixAt(j, M); };
-    for (let j = 0; j < per; j++) {
-      const s = s0 + j * 40 + 10;
-      if (s >= s1) { hideOne(this.pillars, slot * per + j); continue; }
-      road.center(s, p);
-      put(this.pillars, slot * per + j, p.x, (GROUND_Y + DECK_Y - 1.6) / 2, p.z, p.h, 1, -(GROUND_Y) - 1.6, 1);
-    }
-    for (let j = 0; j < per; j++) {
+      meshes.push(triMesh(under, this.matDeck));
+    } else {
+      // steel guard rail on posts, both sides
+      const rail = [];
       for (const side of [-1, 1]) {
-        const k = slot * per * 2 + j * 2 + (side > 0 ? 1 : 0);
-        const s = s0 + j * 40 + (side > 0 ? 20 : 0);
-        if (s >= s1) { for (const m of [this.poles, this.heads, this.pools, this.halos]) hideOne(m, k); continue; }
-        // the arm points along local +x; turn it to reach in over the road
-        road.toWorld(s, side * (WALL + 0.45), p);
+        let prev = null;
+        for (let r = 0; r < rows; r++) {
+          const s = s0 + r * STEP;
+          const cur = [local(s, side * (W + 0.32), 0.48), local(s, side * (W + 0.37), 0.64), local(s, side * (W + 0.32), 0.8), local(s, side * (W + 0.4), 0.83)];
+          if (prev) for (let k = 0; k < 3; k++) rail.push(prev[k], cur[k], cur[k + 1], prev[k], cur[k + 1], prev[k + 1]);
+          prev = cur;
+        }
+      }
+      meshes.push(triMesh(rail, this.matGuard));
+    }
+    // --- tunnels ---
+    for (const f of feats) if (f.kind === 'tunnel' && f.b > s0 && f.a < s1) this.buildTunnel(f, Math.max(s0, f.a), Math.min(s1, f.b), local, meshes);
+    // --- speed traps ---
+    for (const s of road.trapsIn(s0, s1)) this.buildTrap(s, base, meshes);
+    // --- map scenery (terrain, buildings, signs...) ---
+    const slot = ((i % NCH) + NCH) % NCH;
+    for (const pl of [this.poles, this.heads, this.pools, this.halos, this.posts]) pl.clear(slot);
+    this.scenery.clearSlot(slot);
+    this.scenery.fillChunk(i, slot, s0, s1, base, meshes, feats);
+    for (const mesh of meshes) { mesh.position.set(base.x, 0, base.z); mesh.matrixAutoUpdate = false; mesh.updateMatrix(); this.scene.add(mesh); }
+
+    // --- instanced: street lights and rail posts ---
+    if (m.lamps) {
+      const gap = m.lamps.gap;
+      for (let k = Math.ceil(s0 / gap); k * gap < s1; k++) {
+        const s = k * gap;
+        if (tunnelAt(s)) continue;
+        const side = m.lamps.both ? (k % 2 === 0 ? -1 : 1) : 1;
+        road.toWorld(s, side * (W + 0.45), p);
         const rot = p.h + (side > 0 ? 0 : Math.PI);
-        for (const m of [this.poles, this.heads, this.halos]) put(m, k, p.x, DECK_Y, p.z, rot, 1, 1, 1);
-        road.toWorld(s, side * (WALL + 0.45 - LAMP_IN), p);
-        put(this.pools, k, p.x, DECK_Y + 0.03, p.z, p.h, 1, 1, 1);
+        for (const pl of [this.poles, this.heads, this.halos]) pl.add(slot, p.x, p.y, p.z, rot);
+        road.toWorld(s, side * (W + 0.45 - LAMP_IN), p);
+        this.pools.add(slot, p.x, p.y + 0.03, p.z, p.h);
       }
     }
-    const r = rng(i * 7919 + this.seed * 31);
-    this.buildings.forEach((mesh, bi) => {
-      for (let j = 0; j < this.bPer * 2; j++) {
-        const k = slot * this.bPer * 2 + j;
-        if (r() < 0.45) { hideOne(mesh, k); if (bi === 2) hideOne(this.beacons, k); continue; }
-        const side = j % 2 ? 1 : -1;
-        const s = s0 + r() * CHUNK;
-        road.toWorld(s, side * (52 + r() * 140), p);
-        const rot = p.h + (r() - 0.5) * 0.4, sx = 0.8 + r() * 0.5, sy = 0.6 + r() * 0.8, sz = 0.8 + r() * 0.5;
-        put(mesh, k, p.x, GROUND_Y, p.z, rot, sx, sy, sz);
-        if (bi === 2) put(this.beacons, k, p.x, GROUND_Y + this.bShapes[2][1] * sy + 0.7, p.z, rot, 1, 1, 1);
-      }
-    });
-    for (const m of [this.pillars, this.poles, this.heads, this.pools, this.halos, this.beacons, ...this.buildings]) m.instanceMatrix.needsUpdate = true;
+    if (m.rail !== 'jersey') for (let s = s0; s < s1; s += 4) for (const side of [-1, 1]) {
+      road.toWorld(s, side * (W + 0.45), p);
+      this.posts.add(slot, p.x, p.y - 0.1, p.z, p.h);
+    }
     return { meshes, slot };
+  }
+
+  /** Tunnel shell between sa and sb (part of tunnel f): inner walls and arch, light strips, outer shell, portals. */
+  buildTunnel(f, sa, sb, local, meshes) {
+    const W = this.road.wall + 0.5, rock = this.map.tube === 'rock';
+    const inner = [[W, -0.1], [W, 4.6], [W * 0.82, 6.3], [W * 0.5, 7.1], [0, 7.35]];
+    const outer = rock ? [[W + 17, -3], [W + 17, 12], [W + 12, 15.5], [0, 16.5]] : [[W + 0.6, -0.1], [W + 0.6, 5.0], [W * 0.84, 6.9], [W * 0.5, 7.8], [0, 8.1]];
+    const full = (prof) => [...prof, ...prof.slice(0, -1).reverse().map(([d, y]) => [-d, y])];
+    const pin = full(inner), pout = full(outer);
+    const n = Math.max(1, Math.ceil((sb - sa) / STEP));
+    const sAt = (r) => sa + ((sb - sa) * r) / n;
+    const shell = (prof) => {
+      const tris = [];
+      for (let r = 0; r < n; r++) for (let k = 0; k < prof.length - 1; k++) {
+        const a = local(sAt(r), prof[k][0], prof[k][1]), b = local(sAt(r + 1), prof[k][0], prof[k][1]), c = local(sAt(r + 1), prof[k + 1][0], prof[k + 1][1]), d = local(sAt(r), prof[k + 1][0], prof[k + 1][1]);
+        tris.push(a, b, c, a, c, d);
+      }
+      return tris;
+    };
+    meshes.push(triMesh(shell(pin), this.matTunnelIn), triMesh(shell(pout), this.matTunnelOut));
+    // light strips along the ceiling, and a band along each wall
+    const quadStrip = (d0, y0, d1, y1, out, on = 1) => {
+      for (let r = 0; r < n; r++) {
+        const a0 = sAt(r), b0 = a0 + (sAt(r + 1) - a0) * on;
+        const a = local(a0, d0, y0), b = local(b0, d0, y0), c = local(b0, d1, y1), d = local(a0, d1, y1);
+        out.push(a, b, c, a, c, d);
+      }
+    };
+    const strips = [], band = [];
+    for (const sx of [-1, 1]) quadStrip(sx * W * 0.4, 7.1, sx * W * 0.34, 7.16, strips, 0.4); // a light fitting every 4 m
+    for (const sx of [-1, 1]) quadStrip(sx * (W - 0.03), 1.0, sx * (W - 0.03), 1.1, band);
+    meshes.push(triMesh(strips, this.matTunnelLight), triMesh(band, this.map.id === 'city' ? this.matTunnelBand : this.matTunnelLight));
+    // portals: a face joining the inner and outer profiles at each open end
+    const at = (prof, u) => { const x = u * (prof.length - 1), i = Math.min(prof.length - 2, Math.floor(x)), t = x - i; return [prof[i][0] + (prof[i + 1][0] - prof[i][0]) * t, prof[i][1] + (prof[i + 1][1] - prof[i][1]) * t]; };
+    for (const s of [f.a, f.b]) {
+      if (s < sa - 0.01 || s > sb + 0.01) continue;
+      const tris = [], k = 24;
+      for (let j = 0; j < k; j++) {
+        const a = at(pin, j / k), b = at(pin, (j + 1) / k), c = at(pout, (j + 1) / k), d = at(pout, j / k);
+        tris.push(local(s, a[0], a[1]), local(s, b[0], b[1]), local(s, c[0], c[1]), local(s, a[0], a[1]), local(s, c[0], c[1]), local(s, d[0], d[1]));
+      }
+      meshes.push(triMesh(tris, this.matTunnelOut));
+    }
+  }
+
+  /** Speed trap: a gantry with a camera and a sign over the road at s. */
+  buildTrap(s, base, meshes) {
+    const p = this.road.center(s, {});
+    const g = new THREE.Group();
+    const span = this.road.wall * 2 + 1.4;
+    const add = (geo, mat, x, y, z, ry = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.y = ry; g.add(m); };
+    add(new THREE.BoxGeometry(span, 0.45, 0.45), this.matFrame, 0, 7.0, 0);
+    for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.4, 7.4, 0.4), this.matFrame, sx * span / 2, 3.7, 0);
+    add(new THREE.BoxGeometry(7.4, 2.5, 0.2), this.matFrame, 0, 8.3, 0);
+    add(new THREE.PlaneGeometry(7.2, 2.36), this.matTrap, 0, 8.3, -0.12, Math.PI);
+    add(new THREE.BoxGeometry(7.4, 0.1, 0.1), this.matTrapLed, 0, 9.6, -0.1);
+    for (const x of [-4.4, 4.4]) { add(new THREE.BoxGeometry(0.6, 0.5, 0.9), this.matFrame, x, 6.5, -0.2); add(new THREE.BoxGeometry(0.26, 0.26, 0.05), this.matTrapLed, x, 6.5, -0.67); }
+    g.position.set(p.x - base.x, p.y, p.z - base.z);
+    g.rotation.y = p.h;
+    g.updateMatrixWorld(true);
+    for (const m of g.children.slice()) { m.geometry = m.geometry.clone().applyMatrix4(m.matrixWorld); m.position.set(0, 0, 0); m.rotation.set(0, 0, 0); m.updateMatrix(); meshes.push(m); }
   }
 
   // ---------- traffic ----------
 
   /** Draw traffic near s at time t. Returns the list (also kept on this.traffic / this.trafficCount). */
   updateTraffic(t, s, skipMask = 0) {
-    const n = trafficNear(this.seed, this.density, t, s - 120, s + 560, this.traffic, skipMask);
+    const n = trafficNear(this.road, this.density, t, s - 120, s + 560, this.traffic, skipMask);
     this.trafficCount = n;
     // place instances relative to a local origin so far-away coordinates do not jitter
     const o = this.road.center(s, this._v);
-    const ox = o.x, oz = o.z;
-    this.tGroup.position.set(ox, 0, oz);
+    const ox = o.x, oy = o.y, oz = o.z;
+    this.tGroup.position.set(ox, oy, oz);
     for (const m of this.tMeshes) m.used = 0;
-    const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), S2 = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0), C = new THREE.Color();
-    const p = {};
-    let sh = 0;
+    const T = this._t || (this._t = { M: new THREE.Matrix4(), M2: new THREE.Matrix4(), Q: new THREE.Quaternion(), E: new THREE.Euler(0, 0, 0, 'YXZ'), V: new THREE.Vector3(), V2: new THREE.Vector3(), S1: new THREE.Vector3(1, 1, 1), S2: new THREE.Vector3(), C: new THREE.Color() });
+    const { M, M2, Q, E, V, V2, S1, S2, C } = T;
+    const p = this._p;
+    let sh = 0, bl = 0;
     for (let i = 0; i < n; i++) {
       const c = this.traffic[i];
       const m = this.tMeshes[c.kind];
       if (m.used >= m.n) continue;
       this.road.toWorld(c.s, c.d, p);
-      Q.setFromAxisAngle(Y, p.h);
-      V.set(p.x - ox, DECK_Y, p.z - oz);
+      Q.setFromEuler(E.set(-Math.atan(this.road.grade(c.s)), p.h, 0));
+      V.set(p.x - ox, p.y - oy, p.z - oz);
       M.compose(V, Q, S1);
       M.toArray(m.matrix.array, m.used * 16);
       m.paint.setColorAt(m.used, C.setHex(c.color));
       m.used++;
-      if (sh < 240) { V.y = DECK_Y + 0.02; M.compose(V, Q, S2.set(c.hw * 2 + 0.7, 1, c.hl * 2 + 0.9)); this.tShadow.setMatrixAt(sh++, M); }
+      if (sh < 240) { V.y += 0.02; M2.compose(V, Q, S2.set(c.hw * 2 + 0.7, 1, c.hl * 2 + 0.9)); this.tShadow.setMatrixAt(sh++, M2); }
+      if (c.blink && bl < 78) {
+        const yb = c.hl > 4 ? 1.0 : 0.72, x = (c.blink < 0 ? 1 : -1) * (c.hw - 0.04); // the car's left is local +x
+        for (const z of [c.hl - 0.15, -(c.hl - 0.15)]) { V2.set(x, yb, z).applyMatrix4(M); M2.copy(M).setPosition(V2); this.blinkers.setMatrixAt(bl++, M2); }
+      }
     }
     for (const m of this.tMeshes) {
       for (const im of m.list) im.count = m.used;
@@ -367,61 +441,51 @@ export class World {
       m.paint.instanceColor.needsUpdate = true;
     }
     this.tShadow.count = sh; this.tShadow.instanceMatrix.needsUpdate = true;
+    this.blinkers.count = bl; this.blinkers.instanceMatrix.needsUpdate = true;
     return this.traffic;
   }
 
-  /** Move the lamp lights to the street lights round s; animate the sky and beacons. */
-  tick(s, time) {
+  /** Per frame: sky clouds, lights that follow the player, darker inside tunnels, scenery animation. */
+  tick(s, time, dt = 0.016) {
     this.skyMat.uniforms.uT.value = time;
-    const on = Math.sin(time * 3.2) > 0.3 ? (this.hi ? 2.5 : 1) : 0.1;
-    this.beaconMat.color.setRGB(on, on * 0.06, on * 0.06);
-    if (!this.lamps.length || !this.road) return;
-    const k0 = Math.round(s / LAMP_GAP) - 1;
-    const p = this._v;
+    if (!this.road) return;
+    const f = this.road.featureAt(s), inT = !!f && f.kind === 'tunnel';
+    const deep = inT && s > f.a + 15 && s < f.b - 15;
+    this.tunnelK += ((deep ? 1 : 0) - this.tunnelK) * Math.min(1, dt * 2.5);
+    this.hemi.intensity = this.hemiBase * (1 - this.tunnelK * 0.45);
+    this.dirLight.intensity = this.map.light[1] * (1 - this.tunnelK * 0.8);
+    this.scenery.tick(time, s);
+    if (!this.lamps.length) return;
+    const p = this._v, m = this.map;
+    if (inT) {
+      // tunnel ceiling lights every 24 m
+      const k0 = Math.round(s / 24) - 1;
+      for (let i = 0; i < 3; i++) { this.road.toWorld((k0 + i) * 24, 0, p); this.lamps[i].position.set(p.x, p.y + 6.2, p.z); this.lamps[i].intensity = 20; this.lamps[i].color.setHex(m.id === 'city' ? 0xdff0ff : 0xffc27a); }
+      return;
+    }
+    if (!m.lamps) { for (const l of this.lamps) l.intensity = 0; return; }
+    const gap = m.lamps.gap, k0 = Math.round(s / gap) - 1;
     for (let i = 0; i < 3; i++) {
-      const k = k0 + i, side = k % 2 === 0 ? -1 : 1;
-      this.road.toWorld(k * LAMP_GAP, side * (WALL + 0.45 - LAMP_IN), p);
-      this.lamps[i].position.set(p.x, DECK_Y + LAMP_Y - 0.6, p.z);
+      const k = k0 + i, side = m.lamps.both ? (k % 2 === 0 ? -1 : 1) : 1;
+      this.road.toWorld(k * gap, side * (this.road.wall + 0.45 - LAMP_IN), p);
+      this.lamps[i].position.set(p.x, p.y + LAMP_Y - 0.6, p.z);
+      this.lamps[i].intensity = m.id === 'coast' ? 12 : 24;
+      this.lamps[i].color.setHex(m.lamps.color);
     }
   }
 
-  /** Keep sky, skyline, moon and ground centred on the camera. */
+  /** Keep sky and far scenery centred on the camera. */
   follow(cam) {
     this.sky.position.copy(cam.position);
-    this.skyline.position.set(cam.position.x, GROUND_Y + 128, cam.position.z);
     this.moon.position.set(cam.position.x + 300, cam.position.y + 560, cam.position.z + 850);
     this.moon.lookAt(cam.position);
-    this.ground.position.x = cam.position.x; this.ground.position.z = cam.position.z;
+    this.scenery.follow(cam);
   }
 }
 
 // ---------- helpers ----------
 
-function hideAll(m) { const z = new THREE.Matrix4().makeScale(0, 0, 0); for (let i = 0; i < m.count; i++) m.setMatrixAt(i, z); m.instanceMatrix.needsUpdate = true; }
-const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
-function hideOne(m, i) { if (i < m.count) m.setMatrixAt(i, ZERO); }
 
-function triMesh(tris, mat) {
-  const pos = new Float32Array(tris.length * 3);
-  tris.forEach((v, i) => { pos[i * 3] = v[0]; pos[i * 3 + 1] = v[1]; pos[i * 3 + 2] = v[2]; });
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.computeVertexNormals();
-  return new THREE.Mesh(g, mat);
-}
-
-/** Merge simple geometries (position + normal only). */
-function mergeGeos(list) {
-  const pos = [], nor = [];
-  for (let g of list) {
-    if (g.index) g = g.toNonIndexed();
-    pos.push(...g.getAttribute('position').array); nor.push(...g.getAttribute('normal').array);
-  }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  return out;
-}
 
 /** Make sure a flat road strip faces up (winding depends on the road's direction). */
 function fixUp(g) {
@@ -434,20 +498,13 @@ function fixUp(g) {
   }
 }
 
-function radialTexture(inner) {
-  const c = document.createElement('canvas'); c.width = c.height = 64;
-  const x = c.getContext('2d');
-  const g = x.createRadialGradient(32, 32, 2, 32, 32, 32);
-  g.addColorStop(0, inner); g.addColorStop(1, 'rgba(0,0,0,0)');
-  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(c);
-}
 
 /**
- * Asphalt with lane markings (u across the road, v along it, repeating every 12 m) plus a glow map:
- * faintly lit paint and bright reflective road studs (cat's eyes), which the bloom makes sparkle.
+ * Asphalt with lane markings for `lanes` lanes (u across the road, v along it, repeating every 12 m)
+ * plus a glow map: faintly lit paint and bright reflective road studs, which the bloom makes sparkle.
+ * paint 'yellow' gives a yellow line along the left edge (country roads).
  */
-function roadTextures() {
+function roadTextures(lanes, paint) {
   const W = 1024, H = 512;
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const x = c.getContext('2d');
@@ -456,146 +513,83 @@ function roadTextures() {
   gx.fillStyle = '#000'; gx.fillRect(0, 0, W, H);
   x.fillStyle = '#272a30'; x.fillRect(0, 0, W, H);
   const r = rng(7);
-  // aggregate speckle, then a few darker patch repairs and thin cracks
   for (let i = 0; i < 42000; i++) { const g = 26 + r() * 46; x.fillStyle = `rgba(${g},${g},${g + 5},0.55)`; x.fillRect(r() * W, r() * H, 1.6, 1.6); }
   for (let i = 0; i < 5; i++) { x.fillStyle = `rgba(14,15,18,${0.25 + r() * 0.2})`; x.fillRect(r() * W, r() * H, 60 + r() * 140, 30 + r() * 90); }
   x.strokeStyle = 'rgba(12,12,14,0.55)'; x.lineWidth = 1.2;
   for (let i = 0; i < 14; i++) { x.beginPath(); let px = r() * W, py = r() * H; x.moveTo(px, py); for (let k = 0; k < 6; k++) { px += (r() - 0.5) * 40; py += r() * 30; x.lineTo(px, py); } x.stroke(); }
-  const total = WALL * 2 + 0.6, px = (m) => ((m + WALL + 0.3) / total) * W;
+  const LW = 3.75, half = (lanes * LW) / 2, wall = half + 1.1;
+  const total = wall * 2 + 0.6, px = (m) => ((m + wall + 0.3) / total) * W, mpx = W / total;
   // wheel paths: darker oil-stained bands in each lane
-  for (let l = 0; l < LANES; l++) {
-    const cx = px(-ROAD_HALF + LANE_W * (l + 0.5));
-    for (const off of [-30, 22]) { const g = x.createLinearGradient(cx + off - 8, 0, cx + off + 16, 0); g.addColorStop(0, 'rgba(8,8,12,0)'); g.addColorStop(0.5, 'rgba(8,8,12,0.32)'); g.addColorStop(1, 'rgba(8,8,12,0)'); x.fillStyle = g; x.fillRect(cx + off - 8, 0, 24, H); }
+  for (let l = 0; l < lanes; l++) {
+    const cx = px(-half + LW * (l + 0.5));
+    for (const off of [-0.55, 0.42]) { const o = off * mpx; const g = x.createLinearGradient(cx + o - 8, 0, cx + o + 16, 0); g.addColorStop(0, 'rgba(8,8,12,0)'); g.addColorStop(0.5, 'rgba(8,8,12,0.32)'); g.addColorStop(1, 'rgba(8,8,12,0)'); x.fillStyle = g; x.fillRect(cx + o - 8, 0, 24, H); }
   }
-  const paint = (x0, w, y0, h) => {
-    x.fillStyle = '#e9e6da'; x.fillRect(x0, y0, w, h);
+  const WHITE = '#e9e6da', YELLOW = '#e8b923';
+  const line = (x0, w, y0, h, col) => {
+    x.fillStyle = col; x.fillRect(x0, y0, w, h);
     for (let i = 0; i < (w * h) / 14; i++) { x.fillStyle = 'rgba(40,42,46,0.5)'; x.fillRect(x0 + r() * w, y0 + r() * h, 1.5, 1.5); } // worn paint
-    gx.fillStyle = 'rgb(46,44,40)'; gx.fillRect(x0, y0, w, h);
+    gx.fillStyle = col === WHITE ? 'rgb(46,44,40)' : 'rgb(52,40,10)'; gx.fillRect(x0, y0, w, h);
   };
-  const ew = 7;
-  paint(px(-ROAD_HALF) - ew / 2, ew, 0, H); paint(px(ROAD_HALF) - ew / 2, ew, 0, H); // edge lines
-  for (let l = 1; l < LANES; l++) paint(px(-ROAD_HALF + LANE_W * l) - ew / 2, ew, 0, H / 3); // dashes: 4 m on, 8 m off
+  const ew = Math.max(5, 0.14 * mpx);
+  line(px(-half) - ew / 2, ew, 0, H, paint === 'yellow' ? YELLOW : WHITE);
+  line(px(half) - ew / 2, ew, 0, H, WHITE);
+  for (let l = 1; l < lanes; l++) line(px(-half + LW * l) - ew / 2, ew, 0, H / 3, WHITE); // dashes: 4 m on, 8 m off
   // road studs: white between lanes (in the gaps), amber just inside the edge lines
-  const stud = (cx, cy, col) => {
-    x.fillStyle = '#6b6e75'; x.fillRect(cx - 6, cy - 5, 12, 10);
-    gx.fillStyle = col; gx.fillRect(cx - 4, cy - 3, 8, 6);
-  };
-  for (let l = 1; l < LANES; l++) stud(px(-ROAD_HALF + LANE_W * l), H * 0.66, '#fff6e0');
-  for (const e of [-1, 1]) for (const v of [0.2, 0.7]) stud(px(e * (ROAD_HALF - 0.3)), H * v, '#ffa020');
-  const map = new THREE.CanvasTexture(c), glow = new THREE.CanvasTexture(gc);
-  return { map, glow };
+  const stud = (cx, cy, col) => { x.fillStyle = '#6b6e75'; x.fillRect(cx - 6, cy - 5, 12, 10); gx.fillStyle = col; gx.fillRect(cx - 4, cy - 3, 8, 6); };
+  for (let l = 1; l < lanes; l++) stud(px(-half + LW * l), H * 0.66, '#fff6e0');
+  for (const e of [-1, 1]) for (const v of [0.2, 0.7]) stud(px(e * (half - 0.3)), H * v, '#ffa020');
+  return { map: new THREE.CanvasTexture(c), glow: new THREE.CanvasTexture(gc) };
 }
 
-function windowTexture() {
-  const S = 256;
-  const c = document.createElement('canvas'); c.width = S; c.height = S;
+function trapTexture() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 84;
   const x = c.getContext('2d');
-  x.fillStyle = '#000'; x.fillRect(0, 0, S, S);
-  const r = rng(99);
-  const cols = ['#ffd58a', '#fff1c9', '#9fe7ff', '#ffb36b', '#e9f0ff', '#ffe2a8'];
-  // 12 bays x 16 floors per tile; some floors are dark, some lit floors share one colour (offices)
-  for (let gy = 0; gy < 16; gy++) {
-    const floorLit = 0.3 + r() * 0.7, office = r() < 0.3 ? cols[Math.floor(r() * cols.length)] : null;
-    for (let gx = 0; gx < 12; gx++) {
-      if (r() > floorLit * 0.95) continue;
-      x.globalAlpha = 0.3 + r() * 0.7;
-      x.fillStyle = office || cols[Math.floor(r() * cols.length)];
-      x.fillRect(gx * 21.33 + 4, gy * 16 + 4, 13, 9);
-      if (r() < 0.25) { x.globalAlpha *= 0.5; x.fillStyle = '#000'; x.fillRect(gx * 21.33 + 4, gy * 16 + 4, 13, 4); } // half-drawn blinds
-    }
-  }
-  x.globalAlpha = 1;
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-/** Box whose side UVs repeat with the wall size, so windows keep their size on any building. */
-function boxWithTiledUV(w, h, d) {
-  const g = new THREE.BoxGeometry(w, h, d);
-  g.translate(0, h / 2, 0);
-  const uv = g.getAttribute('uv');
-  // face order: +x, -x, +y, -y, +z, -z (4 verts each); a tile is 12 bays x 16 floors of 3.5 m
-  const dims = [[d, h], [d, h], [0, 0], [0, 0], [w, h], [w, h]];
-  for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) {
-    const i = f * 4 + v;
-    const [a, b] = dims[f];
-    uv.setXY(i, a ? uv.getX(i) * a / 42 : 0.01, b ? uv.getY(i) * b / 56 : 0.01);
-  }
-  return g;
-}
-
-/** Far skyline: dark towers with scattered lit windows and the odd red beacon; transparent sky above. */
-function skylineTexture() {
-  const W = 2048, H = 256;
-  const c = document.createElement('canvas'); c.width = W; c.height = H;
-  const x = c.getContext('2d');
-  const r = rng(4242);
-  const towers = [];
-  for (let px = 0; px < W;) { const w = 14 + r() * 46, h = 30 + r() ** 2 * 150; towers.push([px, w, h]); px += w * (0.6 + r() * 0.5); }
-  // a hazy back row, then the front row
-  for (const [row, shade, k] of [[0, '#0b1020', 1.25], [1, '#05070d', 1]]) {
-    for (const [tx, tw, th] of towers) {
-      const hh = th * k * (row ? 1 : 0.8 + r() * 0.4), off = row ? 0 : r() * 30;
-      x.fillStyle = shade; x.fillRect(tx + off, H - hh, tw, hh);
-      if (row) {
-        for (let wy = H - hh + 4; wy < H - 2; wy += 5) for (let wx = tx + 2; wx < tx + tw - 2; wx += 4) {
-          if (r() < 0.78) continue;
-          x.fillStyle = r() < 0.7 ? `rgba(255,${200 + r() * 40},${130 + r() * 60},${0.4 + r() * 0.5})` : `rgba(170,220,255,${0.4 + r() * 0.4})`;
-          x.fillRect(wx, wy, 2, 2);
-        }
-        if (th > 120 && r() < 0.6) { x.fillStyle = '#ff3030'; x.fillRect(tx + tw / 2 - 1.5, H - hh - 3, 3, 3); }
-      }
-    }
-  }
+  x.fillStyle = '#0d0f14'; x.fillRect(0, 0, 256, 84);
+  x.strokeStyle = '#ffb020'; x.lineWidth = 4; x.strokeRect(5, 5, 246, 74);
+  x.fillStyle = '#ffb020'; x.font = 'bold 30px system-ui, sans-serif'; x.textAlign = 'center';
+  x.fillText('SPEED TRAP', 128, 40);
+  x.fillStyle = '#e8ecf4'; x.font = 'bold 17px system-ui, sans-serif';
+  x.fillText('FASTER = MORE POINTS', 128, 66);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
 
-function signTexture(text, exit) {
-  const c = document.createElement('canvas'); c.width = 256; c.height = 112;
-  const x = c.getContext('2d');
-  x.fillStyle = '#0f6b3a'; x.fillRect(0, 0, 256, 112);
-  x.strokeStyle = '#e8f0e8'; x.lineWidth = 4; x.strokeRect(6, 6, 244, 100);
-  x.fillStyle = '#f4f7f2';
-  x.font = 'bold 34px system-ui, sans-serif'; x.textAlign = 'center';
-  x.fillText(text, 128, 62);
-  x.font = 'bold 18px system-ui, sans-serif';
-  x.fillText(`EXIT ${exit}  ↑`, 128, 92);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
-}
-
-/** A small night-city scene rendered once into a reflection map for the car paint and glass. */
-function buildEnv(renderer) {
+/** A small scene in the map's colours rendered once into a reflection map for car paint and glass. */
+function buildEnv(renderer, m) {
   const s = new THREE.Scene();
+  const sk = m.sky, sun = sk.sun;
+  const col = (a) => new THREE.Vector3(...a);
   s.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), new THREE.ShaderMaterial({
     side: THREE.BackSide,
+    uniforms: { uTop: { value: col(sk.top) }, uMid: { value: col(sk.mid) }, uGlow: { value: col(sk.glow) }, uGround: { value: col(m.id === 'coast' ? [0.05, 0.08, 0.14] : [0.03, 0.03, 0.04]) } },
     vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-    fragmentShader: `varying vec3 vP; void main(){
+    fragmentShader: `varying vec3 vP; uniform vec3 uTop, uMid, uGlow, uGround; void main(){
       float y = vP.y;
-      vec3 c = mix(vec3(0.05,0.07,0.16), vec3(0.015,0.02,0.06), smoothstep(0.0, 0.6, y));
-      c = mix(c, vec3(0.5,0.26,0.24), smoothstep(0.2, 0.0, y) * smoothstep(-0.12, 0.0, y));
-      c = mix(c, vec3(0.03,0.03,0.04), smoothstep(0.0, -0.15, y));
+      vec3 c = mix(uMid, uTop, smoothstep(0.0, 0.6, y));
+      c = mix(c, uGlow * 1.3, smoothstep(0.2, 0.0, y) * smoothstep(-0.12, 0.0, y));
+      c = mix(c, uGround, smoothstep(0.0, -0.15, y));
       gl_FragColor = vec4(c, 1.0); }`,
   })));
-  // street lights overhead, stretched into strips so they reflect as streaks rather than dots
-  const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.9, 1.15) });
-  for (const x of [-7, 7]) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 90), lamp); m.position.set(x, 11, 0); s.add(m); }
-  for (const z of [-30, 0, 30]) { const m = new THREE.Mesh(new THREE.BoxGeometry(30, 0.15, 0.6), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.1, 1.1, 1.2) })); m.position.set(0, 14, z); s.add(m); }
-  // city windows round the horizon, and a soft sky panel overhead for broad highlights
-  const r = rng(5);
-  const cols = [new THREE.Color(1.4, 1.0, 0.6), new THREE.Color(0.8, 1.1, 1.5), new THREE.Color(1.5, 0.8, 0.45)];
-  for (let i = 0; i < 220; i++) {
-    const a = r() * Math.PI * 2, d = 38 + r() * 8, h = -1 + r() * 9;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.6 + r() * 1.4, 0.3 + r() * 0.5), new THREE.MeshBasicMaterial({ color: cols[i % 3], side: THREE.DoubleSide }));
-    m.position.set(Math.cos(a) * d, h, Math.sin(a) * d); m.lookAt(0, h, 0); s.add(m);
+  if (m.lamps) { // street lights overhead, stretched into strips so they reflect as streaks rather than dots
+    const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.9, 1.15) });
+    for (const x of m.lamps.both ? [-7, 7] : [7]) { const mm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 90), lamp); mm.position.set(x, 11, 0); s.add(mm); }
   }
-  const panel = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.16, 0.18, 0.3), side: THREE.DoubleSide }));
+  if (m.id === 'city') { // city windows round the horizon
+    for (const z of [-30, 0, 30]) { const mm = new THREE.Mesh(new THREE.BoxGeometry(30, 0.15, 0.6), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.1, 1.1, 1.2) })); mm.position.set(0, 14, z); s.add(mm); }
+    const r = rng(5);
+    const cols = [new THREE.Color(1.4, 1.0, 0.6), new THREE.Color(0.8, 1.1, 1.5), new THREE.Color(1.5, 0.8, 0.45)];
+    for (let i = 0; i < 220; i++) {
+      const a = r() * Math.PI * 2, d = 38 + r() * 8, h = -1 + r() * 9;
+      const mm = new THREE.Mesh(new THREE.PlaneGeometry(0.6 + r() * 1.4, 0.3 + r() * 0.5), new THREE.MeshBasicMaterial({ color: cols[i % 3], side: THREE.DoubleSide }));
+      mm.position.set(Math.cos(a) * d, h, Math.sin(a) * d); mm.lookAt(0, h, 0); s.add(mm);
+    }
+  }
+  if (sun) { // the low sun
+    const mm = new THREE.Mesh(new THREE.SphereGeometry(4, 16, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(sun.col[0] * 3, sun.col[1] * 3, sun.col[2] * 3) }));
+    mm.position.set(...sun.dir.map((v) => v * 45)); s.add(mm);
+  }
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color: sun ? new THREE.Color(0.5, 0.45, 0.55) : new THREE.Color(0.16, 0.18, 0.3), side: THREE.DoubleSide }));
   panel.position.y = 30; panel.rotation.x = Math.PI / 2; s.add(panel);
   const pm = new THREE.PMREMGenerator(renderer);
   const env = pm.fromScene(s, 0.02).texture;
