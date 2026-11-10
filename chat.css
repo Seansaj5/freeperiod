@@ -1011,7 +1011,13 @@ body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex;
 @media (max-width: 400px) {
   .cx-top { gap: 8px; }
   .cx-top .fp-chip .fp-badge { display: none; } /* the owner's role tag: the chip stays on screen at 360 px */
+  .cx-top-sep { display: none; }
 }
+/* A long username (up to 16 characters) pushed the account chip past the screen edge on phones (360-450 px): the chip
+   shrinks instead and the name ends in an ellipsis (the full name is in the chat's own "me" bar). */
+.cx-top .account-slot, .cx-top .fp-account { flex: 0 1 auto; min-width: 0; }
+.cx-top .fp-chip { max-width: 100%; min-width: 0; }
+.cx-top .fp-name { flex: 0 1 auto; min-width: 0; }
 /* The profile effect plays over the banner and the card, under the name and text so they stay readable. */
 .cx-pc > .fp-effect { z-index: 1; }
 .cx-pc-top, .cx-pc-body { z-index: 2; }
