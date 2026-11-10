@@ -17,7 +17,7 @@ import { MAPS, MAP_LIST, LANE_MODES, CASH_MULT, mapById } from './maps.js';
 import { clamp, damp, fmt } from './util.js';
 import { SERVER_URL } from './config.js';
 import { Puffs, Wreck, blast } from './wreck.js';
-import { account, accountToken, initAccount, saved, logIn, logOut, saveNow } from './account.js';
+import { account, accountToken, initAccount, saved, logIn, logOut, saveNow, framed } from './account.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -1034,9 +1034,11 @@ show('menu');
 renderer.setAnimationLoop(frame);
 
 // A friend's Join button on Free Period: ?join=CODE opens Multiplayer and joins that room (solo play is unchanged).
-// It waits for the page to finish loading: a socket opened while the first frames compile can miss the server's pings.
+// Only inside Free Period's play page, which first checks that a chat friend is in that room: a bare game link with
+// ?join= just opens the menu. It waits for the page to finish loading: a socket opened while the first frames compile
+// can miss the server's pings.
 const joinCode = (params.get('join') || '').trim().toUpperCase();
-if (/^[A-Z]{4}$/.test(joinCode)) {
+if (framed && /^[A-Z]{4}$/.test(joinCode)) {
   const deepJoin = () => setTimeout(() => { if (mode !== 'menu' || net) return; $('b-mp').onclick(); $('mp-code').value = joinCode; joinMp('join', joinCode); }, 0);
   if (document.readyState === 'complete') deepJoin(); else addEventListener('load', deepJoin, { once: true });
 }

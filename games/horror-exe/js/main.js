@@ -1830,9 +1830,13 @@ requestAnimationFrame(frame);
   B && B.set(0.9, 'COMPILING SHADERS');
   try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 6000))]); } catch {}
   await finishBoot();
-  // A friend's Join button on Free Period: ?join=CODE goes straight into that room (solo play is unchanged)
+  // A friend's Join button on Free Period: ?join=CODE goes straight into that room (solo play is unchanged). Only inside
+  // Free Period's play page (same site), which first checks that a chat friend is in that room: a bare game link with
+  // ?join= just opens the title.
   const joinCode = (params.get('join') || '').trim().toUpperCase();
-  if (/^[A-Z]{4}$/.test(joinCode) && !net && !match) { title.setEvil(); $('code').value = joinCode; goOnline('join'); }
+  let fpFramed = false;
+  try { fpFramed = window.parent !== window && window.parent.location.origin === location.origin && /\/play\.html$/.test(window.parent.location.pathname); } catch { /* another site */ }
+  if (fpFramed && /^[A-Z]{4}$/.test(joinCode) && !net && !match) { title.setEvil(); $('code').value = joinCode; goOnline('join'); }
 })();
 
 // for testing from the console / headless browser
