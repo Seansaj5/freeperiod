@@ -243,7 +243,13 @@ function within(p, ms) {
   let t = 0;
   return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(fail('network', 'timeout')), ms); })]).finally(() => clearTimeout(t));
 }
-const timeoutSignal = (ms) => (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ms) : null);
+const timeoutSignal = (ms) => {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms);
+  if (typeof AbortController !== 'function') return null;
+  const c = new AbortController();      // (older Safari has no AbortSignal.timeout)
+  setTimeout(() => c.abort(new DOMException('The operation timed out.', 'TimeoutError')), ms);
+  return c.signal;
+};
 
 async function deliverOnce(job) {
   const gone = () => { if (job.cancelled || !queue.has(job.tempId)) throw fail('discarded'); };
@@ -335,17 +341,22 @@ export async function editMessage(id, body) {
 // deleting someone else's message leave the files (report evidence; the server's media cleanup takes them later).
 export async function deleteMessage(id) {
   const me = myId();
-  const cur = me ? check(await sb().from('messages').select('author_id, attachments').eq('id', id).maybeSingle()) : null;
+  // The attachments are read first (best effort) so the files can be freed after the delete; a failed read or file
+  // removal never fails the delete itself (the server's media cleanup takes leftover files later).
+  let cur = null;
+  if (me) { try { cur = (await sb().from('messages').select('author_id, attachments').eq('id', id).maybeSingle()).data || null; } catch { cur = null; } }
   await updateMessage(id, { deleted: true }, () => false);
   const out = { underReview: [] };
   if (!cur || cur.author_id !== me || !Array.isArray(cur.attachments)) return out;
   const byBucket = {};
   for (const a of cur.attachments) if (a && a.path && !a.expired && (a.bucket === 'public-media' || a.bucket === 'dm-media')) (byBucket[a.bucket] = byBucket[a.bucket] || []).push(a.path);
   for (const [b, paths] of Object.entries(byBucket)) {
-    const r = await sb().storage.from(b).remove(paths);
-    if (r.error) continue; // the message is deleted either way; the cleanup takes the files later
-    const gone = new Set((r.data || []).map((o) => o.name));
-    for (const p of paths) if (!gone.has(p)) out.underReview.push(p);
+    try {
+      const r = await sb().storage.from(b).remove(paths);
+      if (r.error) continue;
+      const gone = new Set((r.data || []).map((o) => o.name));
+      for (const p of paths) if (!gone.has(p)) out.underReview.push(p);
+    } catch { /* deleted either way */ }
   }
   return out;
 }
