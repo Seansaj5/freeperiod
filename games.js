@@ -1,7 +1,7 @@
 // Every game on Free Period. To add one, copy an entry, change the fields, and drop its pictures in assets/.
 //   id        short name used in the link: play.html?g=<id>
 //   url       where the game runs (it opens inside Free Period in a frame)
-//   thumb     card poster, 16:9 (assets/<id>.jpg, 1280x720)
+//   thumb     card poster, 16:9 (assets/<id>.jpg, 1280x720); tools/posters/ makes all three pictures from real gameplay
 //   hero      optional wide poster for the featured banner (assets/<id>-hero.jpg, 1920x820); falls back to thumb
 //   preview   optional hover video for the card (assets/<id>.webm: 6-8 s, 640x360, VP9, no audio, under 1.2 MB);
 //             plays after 250 ms of hover, never on touch screens or with reduced motion; a missing file just doesn't play
@@ -45,6 +45,7 @@ window.GAMES = [
     tagline: 'Weave through midnight highway traffic. Near misses build combos, combos buy cars.',
     url: 'games/close-call/',
     thumb: 'assets/close-call.jpg',
+    hero: 'assets/close-call-hero.jpg',
     preview: 'assets/close-call.webm',
     tags: ['3D', 'Multiplayer', 'Racing'],
     controls: 'W/S gas & brake · A/D steer · Shift nitro · C camera · Esc pause',

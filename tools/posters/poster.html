@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Poster template</title>
+<!--
+  Free Period poster template. capture.mjs opens this page at the poster's exact size (1280x720 card, 1920x820 banner),
+  calls window.renderPoster(cfg) and screenshots it. Layers, bottom to top:
+    art      the action shot on a canvas: cover-fit around cfg.focus, cfg.zoom, a CSS-filter grade, and an optional
+             zoom blur (cfg.speed) that leaves the middle sharp
+    tint     colour washes (soft-light shadows tint, screen-blended light glows), vignette, a scrim behind the title
+    copy     the title (Bungee, glow) and a small tag line (Outfit)
+  Open it in a browser with ?demo to see the layout on a placeholder.
+-->
+<style>
+  @font-face { font-family: 'Bungee'; src: url('../../assets/fonts/bungee.woff2') format('woff2'); font-display: block; }
+  @font-face { font-family: 'Outfit'; src: url('../../assets/fonts/outfit.woff2') format('woff2'); font-weight: 400 800; font-display: block; }
+  html, body { margin: 0; background: #05070c; }
+  #p { position: relative; overflow: hidden; width: 1280px; height: 720px; --accent: #c6ff3d; --accent2: #3de0ff; --u: 1px; background: #05070c; }
+  #p > * { position: absolute; inset: 0; }
+  #art { width: 100%; height: 100%; display: block; }
+  .wash { pointer-events: none; }
+  #shade { mix-blend-mode: soft-light; }
+  #light { mix-blend-mode: screen; }
+  #grain { mix-blend-mode: overlay; opacity: 0; background-size: 256px 256px; }
+  #copy { inset: auto; display: flex; flex-direction: column; gap: calc(16 * var(--u)); }
+  .title { margin: 0; font: 400 calc(var(--ts) * var(--u)) / 0.84 'Bungee', sans-serif; letter-spacing: 0.01em; white-space: nowrap; color: #fff;
+    background: linear-gradient(180deg, #ffffff 30%, color-mix(in srgb, var(--accent) 60%, #ffffff) 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 calc(6 * var(--u)) color-mix(in srgb, var(--accent) 85%, transparent)) drop-shadow(0 0 calc(26 * var(--u)) color-mix(in srgb, var(--accent) 60%, transparent)) drop-shadow(0 calc(5 * var(--u)) 0 rgba(0, 0, 0, 0.55)); }
+  .title span { display: block; }
+  .title .alt { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 35%, #ffffff), var(--accent)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .glitch .title { filter: drop-shadow(calc(-4 * var(--u)) 0 0 rgba(255, 30, 60, 0.85)) drop-shadow(calc(4 * var(--u)) 0 0 rgba(40, 230, 255, 0.55)) drop-shadow(0 0 calc(22 * var(--u)) color-mix(in srgb, var(--accent) 75%, transparent)) drop-shadow(0 calc(5 * var(--u)) 0 rgba(0, 0, 0, 0.6)); }
+  .tag { display: flex; align-items: center; gap: calc(14 * var(--u)); margin: 0; font: 800 calc(var(--tg) * var(--u)) / 1 'Outfit', sans-serif; letter-spacing: 0.2em; text-transform: uppercase; color: #f4f7ff;
+    text-shadow: 0 calc(2 * var(--u)) calc(10 * var(--u)) rgba(0, 0, 0, 0.85); white-space: nowrap; }
+  .tag::before { content: ''; flex: none; width: calc(46 * var(--u)); height: calc(6 * var(--u)); border-radius: calc(3 * var(--u)); background: linear-gradient(90deg, var(--accent), var(--accent2)); box-shadow: 0 0 calc(14 * var(--u)) var(--accent); }
+</style>
+</head>
+<body>
+<div id="p">
+  <canvas id="art"></canvas>
+  <div id="shade" class="wash"></div>
+  <div id="light" class="wash"></div>
+  <div id="vig" class="wash"></div>
+  <div id="scrim" class="wash"></div>
+  <div id="grain" class="wash"></div>
+  <div id="copy"></div>
+</div>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('image failed: ' + src)); i.src = src; });
+
+/** Draws `img` cover-fitted to w x h, keeping the source point `focus` (0..1, 0..1) at the same place, zoomed by `zoom` about it. */
+function drawCover(ctx, img, w, h, focus, zoom) {
+  const s = Math.max(w / img.naturalWidth, h / img.naturalHeight) * zoom;
+  const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
+  // like object-position: focus, the focus point of the source lands at (focus.x * w, focus.y * h); zoom keeps it there
+  const [fx, fy] = focus;
+  ctx.drawImage(img, fx * w - dw * fx, fy * h - dh * fy, dw, dh);
+}
+
+const noiseUrl = (() => {
+  let url = null;
+  return () => {
+    if (url) return url;
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const g = c.getContext('2d'), d = g.createImageData(256, 256);
+    let s = 1234567;
+    for (let i = 0; i < d.data.length; i += 4) { s = (s * 1103515245 + 12345) >>> 0; const v = 128 + ((s >>> 16) % 90) - 45; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; }
+    g.putImageData(d, 0, 0);
+    return (url = c.toDataURL());
+  };
+})();
+
+const pct = (v) => (v * 100).toFixed(2) + '%';
+
+/**
+ * cfg: {
+ *   w, h, src,
+ *   focus: [x, y] (0..1, default centre), zoom (1), subject: [x, y] the action in the shot (source fractions),
+ *   grade: CSS filter string for the shot ('contrast(1.1) saturate(1.15)'),
+ *   speed: { amount, at: [x, y], keep } zoom blur about `at` (poster fractions, default the subject); keep = radius left sharp (0..1)
+ *   shade: [{ color, at, r }] soft-light washes (at: [x, y] poster fractions, 'subject', or 'all' for a flat wash; r: radius / width)
+ *   light: [{ color, at, r }] screen-blended glows
+ *   vignette (0..1), scrim: { side: 'left' | 'bottom', a, reach } darkens behind the title
+ *   grain (0..1)
+ *   accent, accent2, title: ['LINE', ...] (a line starting with '~' gets the accent fill) or null, titleSize (px at 1280 wide),
+ *   tag, tagSize, copy: { left, bottom } (fractions), glitch (RGB split title)
+ * }
+ */
+window.renderPoster = async (cfg) => {
+  const W = cfg.w || 1280, H = cfg.h || 720, u = W / 1280;
+  const P = $('p');
+  P.style.width = W + 'px'; P.style.height = H + 'px';
+  P.style.setProperty('--u', u + 'px');
+  P.style.setProperty('--accent', cfg.accent || '#c6ff3d');
+  P.style.setProperty('--accent2', cfg.accent2 || '#3de0ff');
+  P.classList.toggle('glitch', !!cfg.glitch);
+  await document.fonts.load('400 100px Bungee'); await document.fonts.load('800 30px Outfit');
+
+  // ---- art
+  const img = await loadImg(cfg.src);
+  const cv = $('art'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const focus = cfg.focus || [0.5, 0.5], zoom = cfg.zoom || 1;
+  // where a point of the shot (source fractions) ends up on the poster: cfg.subject places the blur centre and 'subject' glows
+  const k = Math.max(W / img.naturalWidth, H / img.naturalHeight) * zoom;
+  const onPoster = (pt) => [focus[0] + ((pt[0] - focus[0]) * img.naturalWidth * k) / W, focus[1] + ((pt[1] - focus[1]) * img.naturalHeight * k) / H];
+  const subject = cfg.subject ? onPoster(cfg.subject) : [0.5, 0.5];
+  const where = (at) => (at === 'subject' ? subject : at);
+  const base = document.createElement('canvas'); base.width = W; base.height = H;
+  const bx = base.getContext('2d');
+  bx.filter = cfg.grade || 'none';
+  drawCover(bx, img, W, H, focus, zoom);
+  bx.filter = 'none';
+  const sp = cfg.speed;
+  if (sp && sp.amount > 0) {
+    // zoom blur: copies of the shot, each a little bigger about `at`, averaged; then the sharp shot through a round mask
+    const at = sp.at || subject, cx = at[0] * W, cy = at[1] * H, N = 18;
+    for (let i = 0; i < N; i++) {
+      const s = 1 + (sp.amount * i) / N;
+      ctx.globalAlpha = 1 / (i + 1);
+      ctx.drawImage(base, cx - cx * s, cy - cy * s, W * s, H * s);
+    }
+    ctx.globalAlpha = 1;
+    const sharp = document.createElement('canvas'); sharp.width = W; sharp.height = H;
+    const sx = sharp.getContext('2d');
+    sx.drawImage(base, 0, 0);
+    sx.globalCompositeOperation = 'destination-in';
+    const keep = (sp.keep ?? 0.35) * W;
+    const gr = sx.createRadialGradient(cx, cy, keep * 0.35, cx, cy, keep);
+    gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    sx.fillStyle = gr; sx.fillRect(0, 0, W, H);
+    ctx.drawImage(sharp, 0, 0);
+  } else ctx.drawImage(base, 0, 0);
+
+  // ---- washes
+  const glows = (list) => (list || []).map((g) => g.at === 'all' || !g.at
+    ? `linear-gradient(${g.color}, ${g.color})`
+    : `radial-gradient(${(g.r || 0.4) * W}px ${(g.ry || g.r || 0.4) * W}px at ${pct(where(g.at)[0])} ${pct(where(g.at)[1])}, ${g.color}, transparent)`).join(', ') || 'none';
+  $('shade').style.background = glows(cfg.shade);
+  $('light').style.background = glows(cfg.light);
+  const v = cfg.vignette ?? 0.5;
+  $('vig').style.background = `radial-gradient(120% 120% at 50% 45%, transparent 45%, rgba(3, 4, 8, ${v}) 100%), linear-gradient(180deg, rgba(3, 4, 8, ${v * 0.35}), transparent 22%, transparent 70%, rgba(3, 4, 8, ${v * 0.75}))`;
+  const sc = cfg.scrim;
+  $('scrim').style.background = !sc ? 'none' : sc.side === 'bottom'
+    ? `linear-gradient(0deg, rgba(4, 6, 12, ${sc.a ?? 0.7}), transparent ${pct(sc.reach ?? 0.5)})`
+    : `linear-gradient(90deg, rgba(4, 6, 12, ${sc.a ?? 0.7}), rgba(4, 6, 12, ${(sc.a ?? 0.7) * 0.45}) ${pct((sc.reach ?? 0.5) * 0.55)}, transparent ${pct(sc.reach ?? 0.5)})`;
+  const gn = $('grain');
+  gn.style.opacity = cfg.grain || 0;
+  if (cfg.grain) gn.style.backgroundImage = `url(${noiseUrl()})`;
+
+  // ---- copy
+  const copy = $('copy');
+  copy.replaceChildren();
+  if (cfg.title) {
+    P.style.setProperty('--ts', cfg.titleSize || 120);
+    P.style.setProperty('--tg', cfg.tagSize || 26);
+    const t = document.createElement('h1'); t.className = 'title';
+    for (const line of cfg.title) { const s = document.createElement('span'); if (line.startsWith('~')) { s.className = 'alt'; s.textContent = line.slice(1); } else s.textContent = line; t.append(s); }
+    copy.append(t);
+    if (cfg.tag) { const g = document.createElement('p'); g.className = 'tag'; g.textContent = cfg.tag; copy.append(g); }
+    const c = cfg.copy || {};
+    copy.style.left = pct(c.left ?? 0.055); copy.style.bottom = pct(c.bottom ?? 0.2);
+    copy.style.transform = c.rotate ? `rotate(${c.rotate}deg)` : '';
+    copy.style.transformOrigin = 'left bottom';
+  }
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return { w: W, h: H };
+};
+
+if (new URLSearchParams(location.search).has('demo')) {
+  const c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+  const g = c.getContext('2d'); const gr = g.createLinearGradient(0, 0, 1280, 720); gr.addColorStop(0, '#0b1d3a'); gr.addColorStop(1, '#2a7a3a'); g.fillStyle = gr; g.fillRect(0, 0, 1280, 720);
+  window.renderPoster({ src: c.toDataURL(), title: ['DEMO', '~GAME'], tag: 'A small tag line', vignette: 0.6, scrim: { side: 'left', a: 0.6, reach: 0.6 } });
+}
+</script>
+</body>
+</html>

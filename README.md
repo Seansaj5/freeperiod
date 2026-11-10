@@ -36,6 +36,7 @@ Shared libraries for games go in `lib/` (Three.js r170 is there, plus the post-p
 - `style.css` (page look), `ui.css` (account chip, sheets, suggest bar, toasts), `assets/`: pictures, fonts
   (Bungee + Outfit, both SIL Open Font License)
 - `tests/`: `node --test tests/`
+- `tools/posters/`: makes each game's card poster, banner poster and hover preview from real gameplay (see its README)
 
 Accounts are Bing Ball accounts: the hub talks to `https://bing-ball.onrender.com/api/*`. To test against a local
 Bing Ball server, open the hub with `?api=http://localhost:3100` (kept for the tab's session).
