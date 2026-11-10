@@ -160,8 +160,8 @@ export function mountComposer(el, { onSend, onTyping, onLogin } = {}) {
     },
     setReply,
     notice: showNotice,
-    // mode: 'open' | 'locked' (read-only channel) | 'guest' | 'wait' (chat not ready)
-    setTarget(k, { placeholder = 'Message', mode: m = 'open', lockText = '' } = {}) {
+    // mode: 'open' | 'locked' (read-only channel; lockKind 'muted' | 'banned' | 'blocked' for those lines) | 'guest' | 'wait' (chat not ready)
+    setTarget(k, { placeholder = 'Message', mode: m = 'open', lockText = '', lockKind = '' } = {}) {
       if (key) cur().text = ta.value;
       key = k; mode = m;
       const d = cur();
@@ -175,8 +175,8 @@ export function mountComposer(el, { onSend, onTyping, onLogin } = {}) {
         gate.replaceChildren(h('span', { class: 'cx-gate-text' }, h('b', { text: 'Want to say something?' }), ' Log in with your Free Period account.'),
           h('button', { type: 'button', class: 'cx-btn', onclick: () => onLogin && onLogin() }, icon('login'), 'Log in to chat'));
       } else if (m === 'locked') {
-        gate.className = 'cx-cmp-gate locked';
-        gate.replaceChildren(icon('lock'), h('span', { text: lockText || 'Only Sean and mods post here' }));
+        gate.className = 'cx-cmp-gate locked' + (lockKind ? ' ' + lockKind : '');
+        gate.replaceChildren(icon(lockKind === 'muted' ? 'clock' : lockKind === 'banned' || lockKind === 'blocked' ? 'block' : 'lock'), h('span', { text: lockText || 'Only Sean and mods post here' }));
       }
       setReply(d.reply);
       if (m !== 'open') { reply.hidden = true; tray.hidden = true; errs.hidden = true; }

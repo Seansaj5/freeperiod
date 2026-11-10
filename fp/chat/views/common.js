@@ -1,7 +1,10 @@
-// Shared bits for the chat views: icons, avatars, names, times, safe media URLs. DOM calls only, never innerHTML.
+// Shared bits for the chat views: icons, avatars (with flair frames), names (with flair styles), badges, times, menus,
+// safe media URLs. DOM calls only, never innerHTML.
 import { h } from '../../ui.js';
 import { CHAT } from '../config.js';
 import { mediaUrl } from '../data.js';
+import { paintName, badgesFor, badgeInfo, FRAMES } from '../flair.js';
+import { mountFrame } from '../frames.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ICONS = {
@@ -34,6 +37,21 @@ const ICONS = {
   open: ['M14 4.5h5.5V10', 'M19.5 4.5 11 13', 'M17 14v4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 5 18V8.5A1.5 1.5 0 0 1 6.5 7h4'],
   left: ['M14.5 5.5 8 12l6.5 6.5'],
   right: ['M9.5 5.5 16 12l-6.5 6.5'],
+  up: ['M12 19V5', 'M6 11l6-6 6 6'],
+  gear: ['M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z', 'M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.5A7.6 7.6 0 0 0 7 6.5l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 3l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 2.6-1.5l2.4 1 2-3.4z'],
+  flag: ['M5.5 21V4', 'M5.5 4.5h11.5l-2.3 4.3 2.3 4.2H5.5'],
+  block: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M5.6 5.6l12.8 12.8'],
+  clock: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7v5l3.2 2'],
+  userPlus: ['M15 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20', 'M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z', 'M19 8v6', 'M16 11h6'],
+  leave: ['M10 4H6.5A2.5 2.5 0 0 0 4 6.5v11A2.5 2.5 0 0 0 6.5 20H10', 'M15 16.5 19.5 12 15 7.5', 'M19.5 12H9'],
+  check: ['M5 12.5l4.5 4.5L19 7.5'],
+  copy: ['M9.5 8.5h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z', 'M5.5 15.5h-.5a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v.5'],
+  camera: ['M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.5-2h5.6l1.5 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z', 'M12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
+  star: { fill: true, d: ['M12 3.2l2.6 5.5 6 .8-4.4 4.1 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8z'] },
+  trophy: ['M8 4h8v5a4 4 0 0 1-8 0z', 'M8 6H5.5a2.5 2.5 0 0 0 2.6 3', 'M16 6h2.5a2.5 2.5 0 0 1-2.6 3', 'M12 13v4', 'M8.5 20.5h7', 'M10 17h4v3.5h-4z'],
+  car: ['M4 16.5V13l2-4.5h12l2 4.5v3.5z', 'M7 16.5v2', 'M17 16.5v2', 'M7.5 13h.01', 'M16.5 13h.01', 'M6 8.5l1-3h10l1 3'],
+  ghost: ['M6 20.5V10a6 6 0 0 1 12 0v10.5l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5z', 'M10 10h.01', 'M14 10h.01'],
+  at: ['M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0z', 'M16 12v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-3.5 7.1'],
 };
 
 export function icon(name, cls) {
@@ -77,10 +95,13 @@ export function nameColor(p) {
   const c = p && p.name_color;
   return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c : '';
 }
+// '' | 'mod' | 'owner', from the server-written profile like the database's profile_role(): a banned account is never a
+// mod, and the owner can demote a Bing Ball admin (mod_revoked).
 export function roleOf(p) {
   if (!p) return '';
   if (p.role === 'owner') return 'owner';
-  if (p.role === 'mod' || p.is_mod) return 'mod';
+  if (p.banned) return '';
+  if ((p.role === 'mod' && !p.mod_revoked) || p.is_mod === true) return 'mod';
   return '';
 }
 export function roleMark(p) {
@@ -103,29 +124,77 @@ function initials(p) {
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : n.slice(0, 2)).toUpperCase();
 }
 
-export function avatar(p, { size = 40, status = null, cls = '' } = {}) {
+// frame: false (none), 'hover' (still until hovered: message and member lists), 'auto' (animated: the profile card),
+// 'off' (always still). localSrc: a blob: URL of the person's own just-picked file (editor preview), never server content.
+export function avatar(p, { size = 40, status = null, cls = '', frame = false, localSrc = '' } = {}) {
   const [a, b] = SWATCH[hashOf(p && (p.id || p.username)) % SWATCH.length];
   const el = h('span', { class: 'cx-av' + (cls ? ' ' + cls : ''), style: `--av:${size}px;--av-a:${a};--av-b:${b}`, 'aria-hidden': 'true' },
     h('span', { class: 'cx-av-txt', text: initials(p) }));
-  if (p && p.avatar_path) {
-    mediaSrc({ bucket: 'public-media', path: p.avatar_path }).then((src) => {
-      if (!src) return;
-      const img = h('img', { alt: '', src, decoding: 'async', loading: 'lazy' });
-      img.addEventListener('load', () => el.classList.add('has-img'));
-      img.addEventListener('error', () => img.remove());
-      el.append(img);
-    });
-  }
+  const put = (src) => {
+    const img = h('img', { alt: '', src, decoding: 'async', loading: 'lazy' });
+    img.addEventListener('load', () => el.classList.add('has-img'));
+    img.addEventListener('error', () => img.remove());
+    el.prepend(img);
+  };
+  if (localSrc && localSrc.startsWith('blob:')) put(localSrc);
+  else if (p && p.avatar_path) mediaSrc({ bucket: 'public-media', path: p.avatar_path }).then((src) => { if (src) put(src); });
+  if (frame && p && FRAMES.includes(p.frame)) mountFrame(el, p.frame, { size, motion: frame });
   if (status) el.append(h('span', { class: 'cx-av-dot ' + status }));
   return el;
 }
+// Frames in lists stay still until their row is hovered (like Discord's avatar decorations).
+export function hotOnHover(row) {
+  if (!row.querySelector('.fp-frame')) return row;
+  row.addEventListener('mouseenter', () => { for (const f of row.querySelectorAll('.fp-frame')) f.classList.add('is-hot'); });
+  row.addEventListener('mouseleave', () => { for (const f of row.querySelectorAll('.fp-frame')) f.classList.remove('is-hot'); });
+  return row;
+}
 
-// Name in the person's name color (or the default), plus the owner crown / mod shield.
-export function nameEl(p, tag = 'span', cls = 'cx-name') {
+// Name in the person's flair style (font, color or gradient, glow; flair.css). plain: color only (tight spots).
+export function nameEl(p, tag = 'span', cls = 'cx-name', { plain = false } = {}) {
   const el = h(tag, { class: cls, text: nameOf(p) });
-  const c = nameColor(p);
-  if (c) el.style.color = c;
+  if (plain) { const c = nameColor(p); if (c) el.style.color = c; return el; }
+  paintName(el, p || {});
   return el;
+}
+
+// Small badges next to a name in messages: Early Member star and the Bing Ball rank tier (owner/mod: roleMark).
+export function badgeMarks(p) {
+  const ids = badgesFor(p || {}).filter((id) => id !== 'owner' && id !== 'mod');
+  if (!ids.length) return null;
+  const box = h('span', { class: 'cx-badges' });
+  for (const id of ids) {
+    const info = badgeInfo(id);
+    if (!info) continue;
+    if (id === 'early') box.append(h('span', { class: 'cx-bdg early', title: 'Early Member', role: 'img', 'aria-label': 'Early Member', style: '--bc:' + info.color }, icon('star')));
+    else {
+      const lv = p.game_stats && p.game_stats.bb && Number(p.game_stats.bb.level);
+      const label = 'Bing Ball ' + info.label + (lv > 0 ? ' · Level ' + Math.floor(lv) : '');
+      box.append(h('span', { class: 'cx-bdg rank', title: label, role: 'img', 'aria-label': label, style: '--bc:' + info.color, text: info.label }));
+    }
+  }
+  return box.childElementCount ? box : null;
+}
+// Labeled badge pills for the profile card, in badgesFor order.
+export function badgePills(p) {
+  return badgesFor(p || {}).map((id) => {
+    const info = badgeInfo(id);
+    if (!info) return null;
+    const ic = id === 'owner' ? icon('crown') : id === 'mod' ? icon('shield') : id === 'early' ? icon('star') : icon('trophy');
+    return h('span', { class: 'cx-pill ' + (id.startsWith('bb:') ? 'rank' : id), style: '--bc:' + info.color, title: id.startsWith('bb:') ? 'Bing Ball rank: ' + info.label : info.label }, ic, h('span', { text: info.label }));
+  }).filter(Boolean);
+}
+
+// Time-out line from a profile's muted_until ('' when not timed out).
+export function timeoutLeft(until) {
+  const t = Date.parse(until || '');
+  if (!Number.isFinite(t) || t <= Date.now()) return 0;
+  return Math.max(1, Math.ceil((t - Date.now()) / 60e3));
+}
+export function timeoutText(until) {
+  const m = timeoutLeft(until);
+  if (!m) return '';
+  return 'You’re timed out for ' + (m < 60 ? m + ' min' : Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : ''));
 }
 
 // ---------- time ----------
@@ -164,6 +233,67 @@ export function mediaSrc(att) {
     if (att.bucket === 'dm-media') setTimeout(() => srcCache.delete(key), 50 * 60e3); // signed links last an hour
   }
   return srcCache.get(key);
+}
+
+// ---------- menus: a small popover (bottom sheet on phones) ----------
+// items: { label, icon?, danger?, disabled?, note?, onClick } | 'sep' | { heading }
+let menuOpen = null;
+export function closeMenu() { if (menuOpen) menuOpen.close(); }
+export function openMenu(anchor, items, { label = 'Actions', align = 'end' } = {}) {
+  if (menuOpen && menuOpen.anchor === anchor) { menuOpen.close(); return null; }
+  closeMenu();
+  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 560px)').matches;
+  const el = h('div', { class: 'cx-menu' + (sheet ? ' sheet' : ''), role: 'menu', 'aria-label': label });
+  const scrim = sheet ? h('div', { class: 'cx-pk-scrim cx-menu-scrim', onclick: () => close() }) : null;
+  for (const it of items.filter(Boolean)) {
+    if (it === 'sep') { el.append(h('div', { class: 'cx-menu-sep', role: 'separator' })); continue; }
+    if (it.heading) { el.append(h('div', { class: 'cx-menu-head', text: it.heading })); continue; }
+    const b = h('button', { type: 'button', role: 'menuitem', class: 'cx-menu-item' + (it.danger ? ' danger' : ''), disabled: !!it.disabled },
+      it.icon ? icon(it.icon) : h('span', { class: 'cx-menu-ic' }), h('span', { class: 'cx-menu-text' }, h('span', { text: it.label }), it.note ? h('small', { text: it.note }) : null));
+    b.addEventListener('click', () => { close(); if (it.onClick) it.onClick(); });
+    el.append(b);
+  }
+  function place() {
+    if (sheet) return;
+    const r = anchor.getBoundingClientRect();
+    el.style.visibility = 'hidden';
+    const W = el.offsetWidth, H = el.offsetHeight;
+    let top = r.bottom + 6;
+    if (top + H > innerHeight - 8) top = Math.max(8, r.top - H - 6);
+    const left = align === 'start' ? Math.min(innerWidth - W - 8, Math.max(8, r.left)) : Math.max(8, Math.min(innerWidth - W - 8, r.right - W));
+    el.style.top = top + 'px'; el.style.left = left + 'px'; el.style.visibility = '';
+  }
+  const onDown = (e) => { const p = e.composedPath(); if (!p.includes(el) && !p.includes(anchor)) close(); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); if (anchor.focus) anchor.focus(); return; }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const list = [...el.querySelectorAll('.cx-menu-item:not(:disabled)')];
+    if (!list.length) return;
+    e.preventDefault();
+    const i = list.indexOf(document.activeElement);
+    list[(i + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length].focus();
+  };
+  let closed = false;
+  function close() {
+    if (closed) return;
+    closed = true;
+    el.remove(); if (scrim) scrim.remove();
+    document.removeEventListener('pointerdown', onDown, true);
+    document.removeEventListener('keydown', onKey, true);
+    removeEventListener('resize', close);
+    anchor.setAttribute('aria-expanded', 'false');
+    if (menuOpen && menuOpen.el === el) menuOpen = null;
+  }
+  if (scrim) document.body.append(scrim);
+  document.body.append(el);
+  place();
+  anchor.setAttribute('aria-expanded', 'true');
+  setTimeout(() => { if (!closed) { document.addEventListener('pointerdown', onDown, true); addEventListener('resize', close); } }, 0);
+  document.addEventListener('keydown', onKey, true);
+  const first = el.querySelector('.cx-menu-item:not(:disabled)');
+  if (first && finePointer()) first.focus();
+  menuOpen = { el, anchor, close };
+  return menuOpen;
 }
 
 export const finePointer = () => typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches;

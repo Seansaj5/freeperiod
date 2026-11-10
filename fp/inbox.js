@@ -1,19 +1,70 @@
-// Owner-only suggestion inbox.
+// Owner-only inbox: site suggestions, and (once chat is set up) chat reports.
 import { call } from './api.js';
 import { h, openSheet, toast, errText } from './ui.js';
 
 export const LABELS = { 'fp-site': 'Free Period', 'fp-bingball': 'Bing Ball', 'fp-closecall': 'Close Call', 'fp-horrorexe': 'horror.exe', 'fp-newgame': 'New game idea' };
 const isSite = (s) => typeof s.category === 'string' && s.category.startsWith('fp-');
 
-export async function openInbox() {
+export async function openInbox({ tab = 'suggestions' } = {}) {
   const sheet = openSheet({ title: 'Inbox' });
+  sheet.el.classList.add('fp-inbox-sheet');
+  const tabs = h('div', { class: 'fp-tabs', role: 'tablist' });
+  const suggestPane = h('div', { class: 'fp-inbox-pane' });
+  const reportsPane = h('div', { class: 'fp-inbox-pane', hidden: true });
+  sheet.body.append(tabs, suggestPane, reportsPane);
+
+  // Reports need chat; with no chat config the tab is not offered and nothing chat-related loads.
+  let chatOn = false;
+  try { const { CHAT } = await import('./chat/config.js'); chatOn = !!(CHAT && CHAT.url && CHAT.key); } catch { chatOn = false; }
+  let reportsLoaded = false;
+  function setTab(k) {
+    tab = chatOn ? k : 'suggestions';
+    tabs.hidden = !chatOn;
+    tabs.replaceChildren(...[['suggestions', 'Suggestions'], ['reports', 'Reports']].map(([key, label]) =>
+      h('button', { type: 'button', role: 'tab', class: 'fp-tab' + (tab === key ? ' on' : ''), 'aria-selected': tab === key ? 'true' : 'false', dataset: { tab: key }, onclick: () => setTab(key) }, label)));
+    suggestPane.hidden = tab !== 'suggestions';
+    reportsPane.hidden = tab !== 'reports';
+    if (tab === 'reports' && !reportsLoaded) { reportsLoaded = true; loadReports(); }
+  }
+  async function loadReports() {
+    reportsPane.replaceChildren(h('p', { class: 'fp-note', role: 'status', text: 'Loading reports…' }));
+    try {
+      const [client, mod] = await Promise.all([import('./chat/client.js'), import('./chat/views/mod.js'), ensureChatCss()]);
+      await client.ensureChatSession();
+      if (client.chatState() !== 'ready') { reportsPane.replaceChildren(h('p', { class: 'fp-err', text: client.chatError() || 'Chat isn’t available right now. Try again in a bit.' })); return; }
+      const me = client.me();
+      const data = await import('./chat/data.js');
+      const profile = me ? await data.getProfile(me.id).catch(() => null) : null;
+      await mod.renderReports(reportsPane, {
+        me: profile,
+        onOpen: ({ channel, message }) => {
+          if (document.body.classList.contains('chat-page')) {
+            sheet.close();
+            window.dispatchEvent(new CustomEvent('fp:chat-open', { detail: { channel, message } }));
+          } else location.href = 'chat.html?c=' + encodeURIComponent(channel) + '&m=' + encodeURIComponent(message);
+        },
+      });
+    } catch (ex) { reportsPane.replaceChildren(h('p', { class: 'fp-err', text: errText(ex) })); }
+  }
+  drawSuggestions(suggestPane);
+  setTab(tab);
+  sheet.focus();
+}
+
+// chat.css styles the report cards (pictures, names); the home page only has it once chat is on.
+function ensureChatCss() {
+  const href = new URL('../chat.css', import.meta.url).href;
+  if ([...document.querySelectorAll('link[rel="stylesheet"]')].some((l) => l.href === href)) return Promise.resolve();
+  return new Promise((res) => { const l = h('link', { rel: 'stylesheet', href }); l.addEventListener('load', res); l.addEventListener('error', res); document.head.append(l); });
+}
+
+async function drawSuggestions(pane) {
   let items = [], filter = 'site';
   const chips = h('div', { class: 'fp-chips' });
   const status = h('p', { class: 'fp-note', role: 'status' }, 'Loading...');
   const err = h('p', { class: 'fp-err', role: 'alert' });
   const list = h('ul', { class: 'fp-inbox' });
-  sheet.body.append(chips, err, status, list);
-  sheet.focus();
+  pane.append(chips, err, status, list);
 
   function draw() {
     chips.replaceChildren(...[['site', 'Site'], ['all', 'All']].map(([k, label]) =>
