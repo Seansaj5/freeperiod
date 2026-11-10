@@ -10,6 +10,14 @@ const recKey = id => 'fp.sync.' + id;
 
 const inflight = new Map();
 
+// Device settings (graphics quality, volume) stay per device: a pulled save keeps local's `settings` when both are JSON objects.
+const obj = (raw) => { try { const v = JSON.parse(raw); return v && typeof v === 'object' && !Array.isArray(v) ? v : null; } catch { return null; } };
+function keepSettings(localRaw, cloudRaw) {
+  const l = obj(localRaw), c = obj(cloudRaw);
+  if (!l || !c || !Object.prototype.hasOwnProperty.call(l, 'settings')) return cloudRaw;
+  return JSON.stringify({ ...c, settings: l.settings });
+}
+
 // One sync per game at a time; callers during a run share its result.
 export function syncGame(game, opts) {
   if (!game || !game.saveKey || !game.id || !session.getToken()) return Promise.resolve('none');
@@ -46,8 +54,10 @@ async function doSync(game, { keepalive = false, pullBy = 0, pushOnly = false } 
         return 'clear';
       }
       if (localRaw && localRaw !== cloud.data) store.set('fp.backup.' + game.id, localRaw);
-      if (!store.set(game.saveKey, cloud.data)) return 'none';
-      store.setJson(recKey(game.id), { hash: hashString(cloud.data), at: cloud.at, user });
+      const data = localRaw == null ? cloud.data : keepSettings(localRaw, cloud.data);
+      if (!store.set(game.saveKey, data)) return 'none';
+      // the hash of what was written, at the cloud's time: it is not pushed back until the game changes it
+      store.setJson(recKey(game.id), { hash: hashString(data), at: cloud.at, user });
     } else if (action === 'push') {
       if (tooBig(localRaw)) return 'none';
       const d = await call('/api/fp/save', { body: { game: game.id, data: localRaw }, auth: true, keepalive });

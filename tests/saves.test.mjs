@@ -103,3 +103,23 @@ test('saves over 4096 bytes are never sent (bytes, not characters), on sync or p
   localStorage.setItem('cc.v1', 'é'.repeat(2048)); // exactly 4096 bytes
   assert.equal(await s.syncGame(game), 'push');
 });
+
+test('M2: a pull keeps this device\'s settings; what was written is not pushed back', async () => {
+  const cloud = { data: JSON.stringify({ cash: 900, settings: { quality: 'high', vol: 1 } }), at: 50 };
+  const posts = [];
+  const s = await setup(async (url, o) => { if (o.method === 'POST') { posts.push(o.body); return res({ ok: true, at: 60 }); } return res({ ok: true, save: cloud }); });
+  localStorage.setItem('cc.v1', JSON.stringify({ cash: 5, settings: { quality: 'low', vol: 0.2 } }));
+  assert.equal(await s.syncGame(game), 'pull');
+  const written = localStorage.getItem('cc.v1');
+  assert.deepEqual(JSON.parse(written), { cash: 900, settings: { quality: 'low', vol: 0.2 } });
+  assert.deepEqual(JSON.parse(localStorage.getItem('fp.sync.close-call')), { hash: hashString(written), at: 50, user: 'tester' });
+  assert.equal(await s.syncGame(game), 'none');
+  assert.equal(posts.length, 0);
+  // a local save without settings, or one that is not a JSON object, takes the cloud save as it is
+  for (const local of [JSON.stringify({ cash: 5 }), 'not json', '[1,2]']) {
+    localStorage.removeItem('fp.sync.close-call');
+    localStorage.setItem('cc.v1', local);
+    assert.equal(await s.syncGame(game), 'pull');
+    assert.equal(localStorage.getItem('cc.v1'), cloud.data, local);
+  }
+});
