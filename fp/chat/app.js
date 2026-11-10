@@ -11,7 +11,7 @@ import { newClientId } from './feedlogic.js';
 import { roleOfProfile, isStaffRole, timedOut } from './perms.js';
 import { mountRail } from './views/rail.js';
 import { mountChannels } from './views/channels.js';
-import { mountMessages } from './views/messages.js';
+import { mountMessages, networkFailure } from './views/messages.js';
 import { mountComposer } from './views/composer.js';
 import { mountMembers } from './views/members.js';
 import { icon, bellLogo, nameOf, avatar, closeMenu, openMenu, timeoutText } from './views/common.js';
@@ -706,10 +706,11 @@ export function mountChatApp(root, { compact = false } = {}) {
       let text = '';
       try { text = data.chatError(e); } catch { /* ignore */ }
       text = text || 'Couldn’t send that';
-      if (tempId != null) messages.failed(tempId, text);
+      // A dropped connection shows on the message itself (Retry, and it goes again once chat is live); a refusal (slow down,
+      // timed out, banned) also gets a line here.
+      const network = networkFailure(e);
+      if (tempId != null) messages.failed(tempId, text, { network });
       else composer.restore(body);
-      // A dropped connection shows on the message itself (Retry); a refusal (slow down, timed out, banned) also gets a line here.
-      const network = !navigator.onLine || (e && (e.code === 'network' || e.name === 'TypeError' || /fetch|network/i.test(e.message || '')));
       if (tempId == null || !network) composer.notice(text);
     });
     return true;

@@ -15,6 +15,9 @@ const GROUP_MS = 5 * 60e3;
 const tkey = (t) => (t.dm ? 'd:' + t.dm : 'c:' + t.channel);
 const JUMBO = /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|️|‍|⃣|[#*0-9]|\s)+$/u;
 const err = (e) => { try { return dataError(e) || 'Something went wrong'; } catch { return 'Something went wrong'; } };
+// A send that failed only because there was no connection (not a refusal): it goes out again by itself once chat is live.
+export const networkFailure = (e) => (typeof navigator !== 'undefined' && navigator.onLine === false)
+  || !!(e && (e.code === 'network' || e.name === 'TypeError' || /fetch|network/i.test(e.message || '')));
 
 export function mountMessages(el, ctx) {
   el.classList.add('cx-feedwrap');
@@ -477,7 +480,7 @@ export function mountMessages(el, ctx) {
   }
   function retry(m) {
     m.failed = false; m.pending = true; m.error = ''; m._v++; repaintRow(m);
-    Promise.resolve().then(() => retrySend(m.tempId)).then((real) => api.sent(m.tempId, real), (e) => api.failed(m.tempId, err(e)));
+    Promise.resolve().then(() => retrySend(m.tempId)).then((real) => api.sent(m.tempId, real), (e) => api.failed(m.tempId, err(e), { network: networkFailure(e) }));
   }
 
   // ---------- lightbox ----------
@@ -676,13 +679,15 @@ export function mountMessages(el, ctx) {
       }
       if (store) paint();
     },
-    failed(tempId, text) {
+    // network: it failed only for want of a connection, so resync() (chat live again) sends it again by itself.
+    failed(tempId, text, { network = false } = {}) {
       const [s, t] = findTemp(tempId);
       if (!t) return;
-      t.pending = false; t.failed = true; t.error = text || 'no connection'; t._v++;
+      t.pending = false; t.failed = true; t.error = text || 'no connection'; t.network = !!network; t._v++;
       if (s === store) { const keep = stick; paint(); if (keep) toBottom(); }
     },
-    // Fetch the newest page again after a reconnect and merge it in.
+    // Fetch the newest page again after a reconnect and merge it in; sends that failed for want of a connection go out
+    // again (same client id, so one the server did get is never stored twice). Refused sends keep their Retry.
     async resync() {
       const list2 = [...stores.values()].filter((s) => s.loaded);
       for (const s of list2) {
@@ -692,6 +697,7 @@ export function mountMessages(el, ctx) {
         } catch { /* next reconnect */ }
       }
       if (store) { const keep = stick; paint(); if (keep) toBottom(); }
+      for (const arr of [...pendingByTarget.values()]) for (const t of [...arr]) if (t.failed && t.network) retry(t);
     },
     repaint() { if (store) { const keep = stick; paint(); if (keep) scroller.scrollTop = scroller.scrollHeight; } },
     // Restart of the app's stores. Unsent messages of the signed-in account (uid) stay; anyone else's are cancelled. Returns how many were dropped.
