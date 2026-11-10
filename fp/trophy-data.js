@@ -4,8 +4,8 @@
 // each step re-evaluates.
 import * as store from './store.js';
 import * as session from './session.js';
-import { getMeta } from './meta.js';
-import { peekStreak, onStreak } from './streak.js';
+import { getMeta, pullMerge } from './meta.js';
+import { peekStreak, onStreak, checkin } from './streak.js';
 import { careerCard, careerFacts, saveFacts } from './profile.js';
 import { CHAT } from './chat/config.js';
 import { evaluate, mergeRecord, progressText, TROPHIES } from './trophies.js';
@@ -104,8 +104,14 @@ function watchChat() {
 }
 
 /** Starts trophies on a page: evaluates now, then again as the streak, career card, chat and sign-in arrive. */
-export function startTrophies() {
+export function startTrophies({ sync = true } = {}) {
   refresh();
+  // pages other than home: bring this account's favorites / play time down and ask for today's streak (both cheap and
+  // once per page; the home page does its own)
+  if (sync && session.getToken()) {
+    pullMerge().then(() => refresh(), () => {});
+    checkin().catch(() => {});
+  }
   onStreak(() => refresh());
   session.onChange(() => { refresh(); loadCareer(); });
   addEventListener('storage', (e) => { if (e.key === 'fp.meta' || e.key === 'closecall.v1' || e.key === 'horrorexe.v1') refresh(); });
@@ -115,7 +121,8 @@ export function startTrophies() {
 
 // ---------- the home teaser ----------
 export function trophyMedal(t, size = '') {
-  return h('span', { class: 'tr-medal tier-' + t.tier + (t.done ? ' won' : '') + (size ? ' ' + size : ''), 'aria-hidden': 'true' }, icon(t.done ? t.icon : 'lock'));
+  return h('span', { class: 'tr-medal tier-' + t.tier + (t.done ? ' won' : '') + (size ? ' ' + size : ''), 'aria-hidden': 'true' },
+    icon(t.icon), t.done || size === 'xs' ? null : h('span', { class: 'tr-lock' }, icon('lock')));
 }
 export function mountTrophyTeaser(el) {
   if (!el) return;
@@ -124,8 +131,9 @@ export function mountTrophyTeaser(el) {
     const total = results.length;
     const pct = Math.round((won.length / total) * 100);
     const latest = won.slice().sort((a, b) => (record.got[b.id] || 0) - (record.got[a.id] || 0)).slice(0, 4);
-    const next = results.filter((t) => !t.done && t.known && t.pct > 0).sort((a, b) => b.pct - a.pct)[0]
-      || results.find((t) => !t.done && t.known) || null;
+    // up next: the two closest (started ones first, then any that can be tracked)
+    const open = results.filter((t) => !t.done && t.known);
+    const nexts = [...open.filter((t) => t.pct > 0).sort((a, b) => b.pct - a.pct), ...open.filter((t) => !t.pct)].slice(0, 2);
     el.hidden = false;
     el.replaceChildren(
       h('div', { class: 'hp-head' },
@@ -141,13 +149,13 @@ export function mountTrophyTeaser(el) {
       // the whole case: every trophy as a small medal, won ones lit
       h('ul', { class: 'tt-case', 'aria-label': 'All trophies' }, results.map((t) => h('li', { class: 'tt-cell' + (t.done ? ' won' : ''), title: t.title + (t.done ? ' (won)' : '') },
         h('a', { href: 'trophies.html#' + t.id, 'aria-label': t.title + (t.done ? ', won' : ', locked') }, trophyMedal(t, 'xs'))))),
-      next ? h('a', { class: 'tt-next', href: 'trophies.html#' + next.id },
+      nexts.length ? h('div', { class: 'tt-nexts' }, nexts.map((next, i) => h('a', { class: 'tt-next', href: 'trophies.html#' + next.id },
         trophyMedal(next, 'sm'),
         h('span', { class: 'tt-next-text' },
-          h('small', { text: 'Up next' }),
+          h('small', { text: i ? 'Then' : 'Up next' }),
           h('b', { text: next.title }),
           h('span', { class: 'tr-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(next.pct), 'aria-label': next.title + ' progress' }, h('i', { style: `width:${Math.max(3, next.pct)}%` }))),
-        h('span', { class: 'tt-next-num', text: progressText(next) })) : null);
+        h('span', { class: 'tt-next-num', text: progressText(next) })))) : null);
   });
 }
 export { TROPHIES };

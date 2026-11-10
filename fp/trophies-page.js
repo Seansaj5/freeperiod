@@ -39,7 +39,7 @@ function draw({ results, record }) {
       h('button', { type: 'button', class: 'chip' + (filter === k ? ' on' : ''), 'aria-pressed': filter === k ? 'true' : 'false', onclick: () => { filter = k; lastSig = ''; draw({ results, record }); } }, label)));
   const shown = results.filter((t) => filter === 'all' || (filter === 'won' ? t.done : !t.done));
   const groups = [...new Set(results.map((t) => t.group))];
-  root.replaceChildren(
+  root.replaceChildren(...[
     !session.getToken() ? h('p', { class: 'page-note' }, icon('key'),
       h('span', {}, 'Streak, Bing Ball and chat trophies count once you log in. ',
         h('button', { type: 'button', class: 'link-btn', onclick: () => openAuthSheet('login') }, 'Log in'))) : null,
@@ -58,7 +58,7 @@ function draw({ results, record }) {
       return h('section', { class: 'tp-group', 'aria-label': gname },
         h('h2', {}, gname, h('span', { class: 'count', text: `${all.filter((t) => t.done).length} / ${all.length}` })),
         h('div', { class: 'tp-grid' }, list.map((t) => card(t, record.got[t.id]))));
-    }));
+    })].filter(Boolean));
   if (location.hash && !draw.scrolled) {
     const el = document.getElementById(location.hash.slice(1));
     if (el) { draw.scrolled = true; el.scrollIntoView({ block: 'center' }); }

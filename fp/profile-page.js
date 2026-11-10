@@ -64,9 +64,10 @@ function card(p, chat, kit) {
     since ? h('span', { class: 'pf-chip' }, icon('calendar'), 'Since ' + new Date(since).toLocaleDateString([], { month: 'short', year: 'numeric' })) : null,
   ];
   el.append(banner,
-    h('div', { class: 'pf-top' }, av, pills),
+    h('div', { class: 'pf-top' }, av),
     h('div', { class: 'pf-body' },
       h('div', {}, nameEl, h('p', { class: 'pf-user' }, h('span', { text: '@' + p.name }), role, chat && chat.pronouns ? h('span', { text: '· ' + chat.pronouns }) : null)),
+      pills.childElementCount ? pills : null,
       chat && (chat.status_text || chat.status_emoji) ? h('p', { class: 'pf-status' }, chat.status_emoji ? h('span', { text: chat.status_emoji }) : null, h('span', { text: chat.status_text || '' })) : null,
       chat && chat.about ? h('p', { class: 'pf-about', text: chat.about }) : null,
       h('div', { class: 'pf-chips' }, chips),

@@ -489,7 +489,7 @@ renderHero();
 renderRecent();
 mountWhatsNew($('whatsnew'), { games: GAMES });
 mountTrophyTeaser($('trophy-teaser'));
-startTrophies(); // evaluates now, then as the streak, the career card and chat come in (toasts for new trophies)
+startTrophies({ sync: false }); // evaluates now, then as the streak, the career card and chat come in (toasts for new trophies)
 renderChips();
 renderGrid();
 mountBoard();
