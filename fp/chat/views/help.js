@@ -1,6 +1,6 @@
 // Hallpass in the help channel and in a DM with the bot: quick-pick question buttons, and an answer card that only the
-// asker sees (it's drawn here, never stored or sent). Typing a question matches the FAQ first (free, instant); when nothing
-// matches, AI answers come from the server only when the owner has switched them on.
+// asker sees (it's drawn here, never stored or sent). Typing a question matches the FAQ first (free, instant); anything
+// else is an ordinary message, which Hallpass answers with AI only when the owner has switched AI on.
 import { h } from '../../ui.js';
 import { matchFaq, isRealQuestion } from '../faq.js';
 import { icon, avatar } from './common.js';
@@ -16,7 +16,7 @@ export function mountHelp(el, cx) {
   el.classList.add('cx-help');
   el.hidden = true;
   let key = null;
-  let card = null;     // { question, answer, kind: 'faq' | 'none' }
+  let card = null;     // { question, answer, kind: 'faq' }
   let showAll = false;
   let seq = 0;
   let fetchedAt = 0;
@@ -33,11 +33,10 @@ export function mountHelp(el, cx) {
         h('button', { type: 'button', class: 'cx-iconbtn sm cx-hc-x', 'aria-label': 'Close answer', title: 'Close', onclick: () => { card = null; draw(); } }, icon('x'))),
       card.question ? h('p', { class: 'cx-hc-q' }, h('span', { text: 'You asked: ' }), card.question) : null,
     ];
-    if (card.kind === 'faq') kids.push(h('p', { class: 'cx-hc-a', text: card.answer }));
-    else kids.push(h('p', { class: 'cx-hc-a' }, h('b', { text: 'AI answers aren’t on yet. ' }), 'I only know the questions below for now. Pick one, or put your idea in the Tell Sean box on the home page.'));
+    kids.push(h('p', { class: 'cx-hc-a', text: card.answer }));
     const acts = [];
     if (ai && card.question) acts.push(h('button', { type: 'button', class: 'cx-btn ghost cx-hc-ai', onclick: () => { const q = card.question; card = null; draw(); cx.askAI(q); } }, icon('sparkle'), 'Ask Hallpass AI instead'));
-    acts.push(h('button', { type: 'button', class: 'cx-btn ghost cx-hc-ok', onclick: () => { card = null; draw(); } }, card.kind === 'faq' ? 'Got it' : 'Close'));
+    acts.push(h('button', { type: 'button', class: 'cx-btn ghost cx-hc-ok', onclick: () => { card = null; draw(); } }, 'Got it'));
     kids.push(h('div', { class: 'cx-hc-acts' }, ...acts));
     return h('div', { class: 'cx-help-card', role: 'region', 'aria-label': 'Answer from Hallpass, only you can see it' }, ...kids);
   }
@@ -70,8 +69,8 @@ export function mountHelp(el, cx) {
     redraw: draw,
     pick(item) { card = { question: item.question, answer: item.answer, kind: 'faq' }; draw(); const c = el.querySelector('.cx-help-card'); if (c && c.scrollIntoView) c.scrollIntoView({ block: 'nearest' }); },
     clear() { card = null; draw(); },
-    // A typed question. 'card': answered or explained here (nothing is sent); 'send': the caller posts it for the AI;
-    // 'post': chatter, not a question, so it is just a normal message (no bot card); 'gone': the conversation changed meanwhile.
+    // A typed question. 'card': answered from the FAQ here (nothing is sent); 'send': a real question with AI on, the
+    // caller posts it for Hallpass; 'post': anything else, just a normal message; 'gone': the conversation changed meanwhile.
     async ask(text) {
       const mine = seq;
       // Opening #help (or the Hallpass DM) reloads the FAQ and the AI switch: a question typed before that answer is back
@@ -86,11 +85,9 @@ export function mountHelp(el, cx) {
       }
       const hit = matchFaq(text, fresh.faq);
       if (hit) { card = { question: text, answer: hit.item.answer, kind: 'faq' }; draw(); return 'card'; }
-      if (!isRealQuestion(text)) return 'post';
-      if (fresh.aiOn) return 'send';
-      card = { question: text, answer: '', kind: 'none' };
-      draw();
-      return 'card';
+      // Nothing in the FAQ: an ordinary message. With AI on a real question goes to Hallpass; with AI off it is simply
+      // posted (kids help each other in #help; Hallpass stays quiet there, and in its DM says AI isn't on yet).
+      return fresh.aiOn && isRealQuestion(text) ? 'send' : 'post';
     },
   };
   return api;
