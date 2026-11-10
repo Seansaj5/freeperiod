@@ -70,6 +70,39 @@
     .sw.on { border-color: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25); }
     .count { text-align: center; font-size: 12px; color: var(--muted); margin-top: 10px; }
 
+    /* route picker */
+    .maps { display: flex; flex-direction: column; gap: 10px; }
+    .mapc { position: relative; text-align: left; border-radius: 14px; border: 1px solid var(--line); background: rgba(16, 22, 40, 0.85); padding: 12px 14px 12px 86px; min-height: 76px; transition: border-color 0.12s, transform 0.12s; }
+    .mapc:hover { transform: translateX(3px); border-color: rgba(255, 176, 32, 0.45); }
+    .mapc.on { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber), 0 10px 30px -14px rgba(255, 160, 30, 0.8); }
+    .mapc::before { content: ''; position: absolute; left: 10px; top: 10px; bottom: 10px; width: 64px; border-radius: 10px; }
+    .mapc[data-m='city']::before { background: linear-gradient(160deg, #0b1440 0%, #1c2a66 45%, #ffb347 46%, #20160c 60%, #080a12 100%); }
+    .mapc[data-m='coast']::before { background: linear-gradient(170deg, #2c4d8c 0%, #e0884a 42%, #ffd27a 50%, #164a63 52%, #0b2433 100%); }
+    .mapc[data-m='canyon']::before { background: linear-gradient(170deg, #060a1c 0%, #1b2140 40%, #a8461f 41%, #5a2412 70%, #1a0e0a 100%); }
+    .mapc b { display: block; font-family: 'Bungee', sans-serif; font-weight: 400; font-size: 17px; }
+    .mapc span { display: block; font-size: 13px; color: var(--muted); line-height: 1.35; margin-top: 3px; }
+    .mapc small { display: block; font-size: 12px; font-weight: 700; color: var(--green); margin-top: 5px; }
+    .lanes .btn { flex: 1; justify-content: center; padding: 0 8px; }
+    .lanes .btn small { margin-left: 6px; }
+    .seg { display: flex; gap: 6px; }
+    .seg .btn { flex: 1; justify-content: center; padding: 0 6px; height: 38px; font-size: 12px; }
+    #route .panel { width: min(470px, 100%); }
+    .panel { max-height: calc(100vh - 24px); overflow-y: auto; }
+    @media (max-height: 560px) {
+      .screen { padding: 12px 4vw; }
+      .panel { padding: 16px; }
+      .mapc span { display: none; }
+      .mapc { min-height: 0; padding: 9px 12px 9px 74px; }
+      .mapc::before { width: 54px; top: 7px; bottom: 7px; }
+      .panel h2 { font-size: 19px; margin-bottom: 8px; }
+      .maps { gap: 6px; }
+      .mapc { padding-top: 6px; padding-bottom: 6px; }
+      .mapc b { font-size: 15px; }
+      #route .lbl { margin: 8px 0 4px; }
+      #r-note { display: none; }
+      #route .btn.small, #route .btn { height: 38px; }
+    }
+
     /* ---------- HUD ---------- */
     #hud { position: fixed; inset: 0; pointer-events: none; }
     .tl { position: absolute; top: 16px; left: 18px; display: flex; flex-direction: column; gap: 6px; }
@@ -111,6 +144,12 @@
     .feed { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
     .feed div { background: var(--panel); border-radius: 8px; padding: 5px 9px; animation: fade 6s forwards; }
     @keyframes fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+    .slip { position: absolute; left: 50%; top: 118px; transform: translateX(-50%); font: 400 14px 'Bungee', sans-serif; color: var(--cyan); letter-spacing: 0.08em; text-shadow: 0 0 12px rgba(61, 224, 255, 0.7); opacity: 0; transition: opacity 0.2s; }
+    .slip.on { opacity: 1; }
+    .trapd { position: absolute; right: 22px; bottom: 150px; text-align: right; font: 400 13px 'Bungee', sans-serif; color: #ffd27a; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8); opacity: 0; transition: opacity 0.3s; }
+    .trapd.on { opacity: 1; }
+    .trapd small { display: block; font: 700 11px 'Outfit', sans-serif; letter-spacing: 0.12em; color: var(--muted); }
+    body.touch .trapd { bottom: auto; top: 70px; }
     .hint { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); font-size: 13px; color: var(--muted); text-shadow: 0 1px 6px #000; transition: opacity 1s; }
 
     /* touch controls */
@@ -136,9 +175,9 @@
   <!-- main menu -->
   <section id="menu" class="screen menu-bg">
     <h1 class="logo">CLOSE<span>CALL</span></h1>
-    <p class="tag">Weave through midnight traffic. Every near miss builds your combo. Bank it for cash, crash and it's gone.</p>
+    <p class="tag">Weave through traffic in the city, on the coast and through the canyon. Every near miss builds your combo. Bank it for cash, crash and it's gone.</p>
     <div class="stack">
-      <button class="btn primary" id="b-solo">Drive solo <small>endless highway</small></button>
+      <button class="btn primary" id="b-solo">Drive solo <small id="b-route"></small></button>
       <button class="btn" id="b-mp">Multiplayer <small>up to 8 drivers</small></button>
       <button class="btn" id="b-garage">Garage <small id="garage-count"></small></button>
       <button class="btn small" id="b-settings">Settings</button>
@@ -168,12 +207,30 @@
     </div>
   </section>
 
+  <!-- route: map + lanes -->
+  <section id="route" class="screen menu-bg hidden">
+    <div class="panel">
+      <h2>Pick a route</h2>
+      <div class="maps" id="r-maps"></div>
+      <span class="lbl">Lanes</span>
+      <div class="row lanes"><button class="btn small" data-l="2">2 <small>x1.5 cash</small></button><button class="btn small" data-l="3">3 <small>x1.25</small></button><button class="btn small" data-l="4">4 <small>x1</small></button></div>
+      <div class="status" id="r-note"></div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn small" id="r-back" style="flex:0 0 auto">Back</button>
+        <button class="btn primary" id="r-go" style="flex:1;justify-content:center">Drive</button>
+      </div>
+    </div>
+  </section>
+
   <!-- multiplayer -->
   <section id="mp" class="screen menu-bg hidden">
     <div class="panel">
       <h2>Multiplayer</h2>
       <span class="lbl" style="margin-top:0">Your name</span>
       <input class="field" id="mp-name" maxlength="16" spellcheck="false" autocomplete="off" />
+      <span class="lbl">Map and lanes <span style="text-transform:none;letter-spacing:0;font-weight:600">(for quick play and new rooms)</span></span>
+      <div class="seg" id="mp-maps"><button class="btn small" data-mm="city">Night City</button><button class="btn small" data-mm="coast">Sunset Coast</button><button class="btn small" data-mm="canyon">Red Canyon</button></div>
+      <div class="seg" style="margin-top:6px" id="mp-lanes"><button class="btn small" data-ml="2">2 lanes</button><button class="btn small" data-ml="3">3 lanes</button><button class="btn small" data-ml="4">4 lanes</button></div>
       <div class="stack" style="width:100%;margin-top:16px">
         <button class="btn primary" id="mp-quick">Quick play <small>join anyone</small></button>
         <button class="btn" id="mp-create">Create room <small>play with friends</small></button>
@@ -225,6 +282,7 @@
       <div class="sub">Score</div>
       <div class="score" id="h-run">0</div>
       <div class="sub">Cash <b id="h-cash">$0</b></div>
+      <div class="sub" id="h-route" style="opacity:0.8"></div>
     </div>
     <div class="combo off" id="h-combo">
       <div class="pts" id="h-pend">0</div>
@@ -244,7 +302,9 @@
       <div class="board"><div class="h"><span>ROOM <span id="h-code"></span></span><span>SCORE</span></div><div id="h-board"></div></div>
       <div class="feed" id="h-feed"></div>
     </div>
-    <div class="hint" id="h-hint">Pass cars close to start a combo · don't crash before it banks</div>
+    <div class="slip" id="h-slip">SLIPSTREAM</div>
+    <div class="trapd" id="h-trap"></div>
+    <div class="hint" id="h-hint">Pass cars close to start a combo · don't crash before it banks · watch for blinkers</div>
   </div>
 
   <div id="touch" class="hidden">

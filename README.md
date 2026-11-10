@@ -15,6 +15,9 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   `games/close-call/server/`, deployed to Render by `render.yaml` (service `freeperiod-closecall`).
   Test locally: `node games/close-call/server/index.js` (port 8787) and open
   `games/close-call/?server=ws://localhost:8787`.
+  Maps (Night City, Sunset Coast, Red Canyon) and lane modes are defined in `js/maps.js`; map scenery is
+  `js/scenery.js`. Sounds are real CC0 recordings from Freesound in `games/close-call/sfx/`
+  (credits in `sfx/CREDITS.md`; `sfx.json` lists the engine loops by RPM, the loops and the one-shots).
 
 - **horror.exe** lives in `games/horror-exe/`: survivors vs EXE in a cheerful zone gone wrong. The round rules,
   map and bots are in `games/horror-exe/shared/` and run in the browser for solo games and on the server

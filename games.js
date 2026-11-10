@@ -26,7 +26,7 @@ window.GAMES = [
   {
     id: 'close-call',
     title: 'Close Call',
-    tagline: 'Weave through midnight highway traffic. Near misses build combos, combos buy cars.',
+    tagline: 'Weave through traffic in a neon city, along a sunset coast and through a red canyon. Near misses build combos, combos buy supercars.',
     url: 'games/close-call/',
     thumb: 'assets/close-call.jpg',
     tags: ['3D', 'Multiplayer', 'Racing'],

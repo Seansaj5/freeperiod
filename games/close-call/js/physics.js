@@ -1,6 +1,5 @@
 // Arcade car handling in road space, plus collisions with walls and traffic.
 // yaw = the car's heading relative to the road (0 = straight down the lane, + = pointing left).
-import { WALL, laneCenter } from './road.js';
 import { clamp, damp } from './util.js';
 
 export const GEAR_TOPS = [0.22, 0.38, 0.53, 0.68, 0.84, 1.0];
@@ -9,7 +8,7 @@ const REDLINE = 7400;
 export class CarSim {
   constructor(spec) {
     this.setSpec(spec);
-    this.reset(300, laneCenter(1), 0);
+    this.reset(300, 0, 0);
   }
 
   setSpec(spec) {
@@ -26,6 +25,7 @@ export class CarSim {
     this.braking = false;
     this.wallCool = 0;
     this.scrape = 0;
+    this.draft = false; // in another car's slipstream (set by the game each frame)
   }
 
   /** Half width across the road, counting the car's angle. */
@@ -41,17 +41,19 @@ export class CarSim {
     const boost = input.nitro && this.nitro > 0.02 && this.v > 5;
     this.boosting = boost;
     if (boost) this.nitro = Math.max(0, this.nitro - dt * 0.28);
-    const vmax = (sp.top / 3.6) * (boost ? 1.1 : 1);
+    const vmax = (sp.top / 3.6) * (boost ? 1.1 : 1) * (this.draft ? 1.04 : 1);
 
     // --- speed ---
     let a = 0;
-    if (input.gas) a += sp.accel * Math.max(0, 1 - Math.pow(Math.max(0, this.v) / vmax, 2.4)) * (boost ? 1.75 : 1);
+    if (input.gas) a += sp.accel * Math.max(0, 1 - Math.pow(Math.max(0, this.v) / vmax, 2.4)) * (boost ? 1.75 : 1) * (this.draft ? 1.15 : 1);
     if (boost && !input.gas) a += sp.accel * 0.6;
     if (input.brake) a -= 17;
+    a -= 9.81 * road.grade(this.s) * 0.45; // hills: a little slower up, a little faster down
     // air drag only when coasting, so every car reaches its listed top speed on the gas
     a -= 0.25 + (input.gas || boost ? 0 : 0.00034 * this.v * this.v);
     if (this.v > vmax) a = Math.min(a, -3);
     this.v = clamp(this.v + a * dt, 0, vmax * 1.03);
+    this.accel = a;
     this.braking = !!input.brake && this.v > 1;
     this.load = input.gas || boost ? 1 : 0;
 
@@ -82,7 +84,7 @@ export class CarSim {
     this.wallCool = Math.max(0, this.wallCool - dt);
 
     // --- walls ---
-    const lim = WALL - this.hwEff;
+    const lim = road.wall - this.hwEff;
     this.scrape = 0;
     if (Math.abs(this.d) > lim - 0.01) {
       const side = Math.sign(this.d);

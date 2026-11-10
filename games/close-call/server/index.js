@@ -34,8 +34,12 @@ function makeCode() {
   }
 }
 
-function makeRoom(isPublic) {
-  const room = { code: makeCode(), public: isPublic, seed: Math.floor(Math.random() * 1e9), density: 1, start: Date.now(), players: new Map() };
+const MAPS = ['city', 'coast', 'canyon'];
+const cleanMap = (m) => (MAPS.includes(m) ? m : 'city');
+const cleanLanes = (l) => ([2, 3, 4].includes(l) ? l : 4);
+
+function makeRoom(isPublic, map, lanes) {
+  const room = { code: makeCode(), public: isPublic, seed: Math.floor(Math.random() * 1e9), density: 1, start: Date.now(), players: new Map(), map: cleanMap(map), lanes: cleanLanes(lanes) };
   rooms.set(room.code, room);
   return room;
 }
@@ -65,13 +69,15 @@ wss.on('connection', (ws) => {
         if (!room) return send(ws, { t: 'err', msg: 'No room with that code.' });
         if (room.players.size >= MAX_PLAYERS) return send(ws, { t: 'err', msg: 'That room is full (8 max).' });
       } else if (m.mode === 'create') {
-        room = makeRoom(false);
+        room = makeRoom(false, m.map, m.lanes);
       } else {
-        room = [...rooms.values()].filter((r) => r.public && r.players.size < MAX_PLAYERS).sort((a, b) => b.players.size - a.players.size)[0] || makeRoom(true);
+        // quick play: the busiest public room on the same map and lane count
+        const map = cleanMap(m.map), lanes = cleanLanes(m.lanes);
+        room = [...rooms.values()].filter((r) => r.public && r.map === map && r.lanes === lanes && r.players.size < MAX_PLAYERS).sort((a, b) => b.players.size - a.players.size)[0] || makeRoom(true, map, lanes);
       }
       me = { id: nextId++, ws, name: cleanName(m.name), car: String(m.car || 'pocket').slice(0, 20), color: num(m.color, 0, 0xffffff) | 0, st: null };
       room.players.set(me.id, me);
-      send(ws, { t: 'welcome', id: me.id, code: room.code, public: room.public, seed: room.seed, density: room.density, start: room.start, now: Date.now(), players: [...room.players.values()].filter((p) => p !== me).map(info) });
+      send(ws, { t: 'welcome', id: me.id, code: room.code, public: room.public, seed: room.seed, density: room.density, start: room.start, map: room.map, lanes: room.lanes, now: Date.now(), players: [...room.players.values()].filter((p) => p !== me).map(info) });
       broadcast(room, { t: 'join', p: info(me) }, me);
       return;
     }

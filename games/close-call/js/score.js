@@ -13,7 +13,7 @@ export const TIERS = [
 const MIN_KMH = 80;
 
 export class Scorer {
-  constructor() { this.reset(); }
+  constructor() { this.cashMult = 1; this.reset(); }
 
   reset() {
     this.run = 0; // banked this session
@@ -88,7 +88,7 @@ export class Scorer {
       const pts = Math.round(this.pending);
       this.run += pts;
       this.bestCombo = Math.max(this.bestCombo, pts);
-      ev.push({ type: 'bank', pts, cash: Math.floor(pts / 10), chain: this.chain });
+      ev.push({ type: 'bank', pts, cash: Math.floor((pts / 10) * this.cashMult), chain: this.chain });
     }
     this.pending = 0; this.chain = 0; this.mult = 1; this.timer = 0;
   }
@@ -96,6 +96,15 @@ export class Scorer {
   lose(ev, reason) {
     if (this.pending > 0) ev.push({ type: 'lost', pts: Math.round(this.pending), reason });
     this.pending = 0; this.chain = 0; this.mult = 1; this.timer = 0;
+  }
+
+  /** Passing under a speed trap: points for every km/h over 140, added to the combo (which it keeps alive). */
+  trap(kmh, ev) {
+    if (kmh < 140) { ev.push({ type: 'trap', kmh, pts: 0 }); return; }
+    const pts = Math.round((kmh - 140) * 9 * Math.max(1, this.mult));
+    this.pending += pts;
+    this.timer = Math.max(this.timer, 2.5);
+    ev.push({ type: 'trap', kmh, pts });
   }
 
   /** Scraping a wall eats into the combo timer. */
