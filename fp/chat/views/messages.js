@@ -33,6 +33,8 @@ export function mountMessages(el, ctx) {
   let store = null;          // the open conversation
   let stick = true;          // pinned to the bottom?
   let editing = null;        // message id being edited
+  let editEl = null;         // its edit box, kept while rows are rebuilt (someone's profile save, a reaction): the text,
+                             // the cursor and the focus stay instead of snapping back to the saved message
   let touched = null;        // row showing its tools on a touch screen
   const revealed = new Set(); // blocked messages the person chose to show
   const rows = new WeakMap(); // message -> { el, sig }
@@ -310,18 +312,26 @@ export function mountMessages(el, ctx) {
   }
 
   function editBox(m) {
+    if (editEl && editEl.dataset.mid === String(m.id)) {
+      const old = editEl.querySelector('textarea');
+      if (old && document.activeElement === old) {
+        const a = old.selectionStart, b = old.selectionEnd;
+        setTimeout(() => { if (old.isConnected) { old.focus({ preventScroll: true }); try { old.setSelectionRange(a, b); } catch { /* ignore */ } } }, 0);
+      }
+      return editEl;
+    }
     const ta = h('textarea', { class: 'cx-edit-ta', rows: '1', 'aria-label': 'Edit message', maxlength: '2500' });
     ta.value = m.body || '';
     const save = () => {
       const v = ta.value.trim();
       if (v.length > 2000) { toast('That message is too long (max 2000 characters)', 'err'); return; } // stay in the edit box
-      editing = null;
+      editing = null; editEl = null;
       if (!v || v === m.body) { m._v++; repaintRow(m); return; }
       const old = { body: m.body, edited_at: m.edited_at };
       m.body = v; m.edited_at = new Date().toISOString(); m._v++; repaintRow(m);
       Promise.resolve().then(() => editMessage(m.id, v)).catch((e) => { Object.assign(m, old); m._v++; repaintRow(m); toast(err(e), 'err'); });
     };
-    const cancel = () => { editing = null; m._v++; repaintRow(m); };
+    const cancel = () => { editing = null; editEl = null; m._v++; repaintRow(m); };
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); save(); }
       else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
@@ -329,9 +339,10 @@ export function mountMessages(el, ctx) {
     const fit = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 260) + 'px'; };
     ta.addEventListener('input', fit);
     setTimeout(() => { fit(); ta.focus(); ta.selectionStart = ta.selectionEnd = ta.value.length; }, 0);
-    return h('div', { class: 'cx-edit' }, ta, h('div', { class: 'cx-edit-hint' }, 'Enter to ',
+    editEl = h('div', { class: 'cx-edit', dataset: { mid: String(m.id) } }, ta, h('div', { class: 'cx-edit-hint' }, 'Enter to ',
       h('button', { type: 'button', class: 'cx-link', onclick: save }, 'save'), ' · Esc to ',
       h('button', { type: 'button', class: 'cx-link', onclick: cancel }, 'cancel')));
+    return editEl;
   }
 
   function snippet(m) {
@@ -547,7 +558,7 @@ export function mountMessages(el, ctx) {
       if (!s) { s = newStore(target, channel); stores.set(key, s); }
       s.channel = channel || s.channel;
       store = s;
-      editing = null;
+      editing = null; editEl = null;
       el.classList.remove('waiting');
       const markNew = () => {
         s.newFrom = null;
@@ -722,7 +733,7 @@ export function mountMessages(el, ctx) {
         const { drop } = splitPending(arr, uid);
         for (const t of drop) { try { discardSend(t.tempId); } catch { /* nothing queued */ } dropTemp(t, 0); dropped++; }
       }
-      stores.clear(); store = null; editing = null; stopFrames(list); list.replaceChildren();
+      stores.clear(); store = null; editing = null; editEl = null; stopFrames(list); list.replaceChildren();
       return dropped;
     },
     destroy() {
@@ -730,7 +741,7 @@ export function mountMessages(el, ctx) {
       if (closeLightbox) closeLightbox();
       closeEmojiPicker();
       for (const arr of pendingByTarget.values()) for (const t of arr) { if (t.failed) { try { discardSend(t.tempId); } catch { /* ignore */ } } revokeLocal(t, 0); }
-      pendingByTarget.clear(); stores.clear(); store = null; editing = null; touched = null;
+      pendingByTarget.clear(); stores.clear(); store = null; editing = null; editEl = null; touched = null;
       stopFrames(list); list.replaceChildren();
     },
   };
