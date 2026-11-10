@@ -190,7 +190,8 @@ export function mountChatApp(root, { compact = false } = {}) {
     aiOn: () => aiOn,
     refresh: () => refreshHelp(),
     bot: () => members.find((p) => p.is_bot) || null,
-    askAI: (q) => sendNow({ body: q, files: [] }),
+    // "@Hallpass" tells the bot to skip its FAQ and ask Claude (the asker already saw the FAQ card).
+    askAI: (q) => sendNow({ body: /(^|[^a-z0-9_])@hallpass\b/i.test(q) ? q : '@Hallpass ' + q, files: [] }),
   });
   const offEmoji = onEmoji(() => { viewVersion++; messages.repaint(); });
 
