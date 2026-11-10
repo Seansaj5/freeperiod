@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+  <title>Messages · Free Period</title>
+  <meta name="description" content="Free Period chat: one server for everyone, channels for every game, DMs, pictures and GIFs." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preload" href="assets/fonts/bungee.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/outfit.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="ui.css" />
+  <link rel="stylesheet" href="chat.css" />
+</head>
+<body class="chat-page">
+  <div class="sky" aria-hidden="true">
+    <i class="glow g1"></i><i class="glow g2"></i>
+    <i class="paper"></i>
+  </div>
+
+  <header class="cx-top">
+    <a class="logo" href="./" aria-label="Free Period home">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g class="bell" fill="none" stroke="#c6ff3d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 42h28l-3.5-5V27a10.5 10.5 0 0 0-21 0v10z" /><path d="M28 48a4.5 4.5 0 0 0 8 0" /><path d="M32 12v4" />
+        </g>
+        <circle cx="47" cy="17" r="6" fill="#3de0ff" />
+      </svg>
+      <span class="wordmark">FREE <b>PERIOD</b></span>
+    </a>
+    <span class="cx-top-sep" aria-hidden="true"></span>
+    <span class="cx-top-title">Messages</span>
+    <a class="cx-top-link" href="./" aria-label="All games">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8.5h10a4.5 4.5 0 0 1 4.4 5.4l-.6 3a2.5 2.5 0 0 1-4.3 1.2L14.2 16H9.8l-2.3 2.1a2.5 2.5 0 0 1-4.3-1.2l-.6-3A4.5 4.5 0 0 1 7 8.5z" /><path d="M8 11v3" /><path d="M6.5 12.5h3" /><path d="M15.5 11.5h.01" /><path d="M17.5 13.5h.01" /></svg>
+      <span>All games</span>
+    </a>
+    <div class="account-slot" id="account"></div>
+  </header>
+
+  <main id="chat" class="cx-host"></main>
+
+  <script src="games.js"></script>
+  <script type="module" src="fp/chat/page.js"></script>
+</body>
+</html>

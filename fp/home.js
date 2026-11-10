@@ -9,6 +9,7 @@ import { watchStatus, resolveGame } from './status.js';
 import { h, fmtTime } from './ui.js';
 import { mountAccount, openAuthSheet } from './account-ui.js';
 import { mountSuggest } from './suggest.js';
+import { mountChatButton } from './chat/button.js';
 
 const GAMES = (window.GAMES || []).map(resolveGame);
 const $ = (id) => document.getElementById(id);
@@ -490,6 +491,7 @@ addEventListener('storage', (e) => { if (e.key === 'fp.meta') refreshMeta(); });
 
 // ---------- start ----------
 mountAccount($('account'));
+mountChatButton($('chat-btn')); // stays hidden (and loads nothing) until chat is set up
 mountSuggest($('suggest'));
 renderHero();
 renderRecent();
