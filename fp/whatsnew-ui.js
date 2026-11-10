@@ -3,7 +3,7 @@ import { h } from './ui.js';
 import { icon } from './icons.js';
 import { WHATS_NEW, newIds, readSeen, markSeen, dayLabel } from './whatsnew.js';
 
-const SHOW = 5;
+const SHOW = 4;
 
 export function mountWhatsNew(el, { games = [] } = {}) {
   if (!el) return;
