@@ -464,6 +464,40 @@ body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex;
 .cx-cmp-gate.locked .cx-ic { width: 16px; height: 16px; color: var(--cx-gold); }
 .cx-cmp-gate.guest { color: var(--cx-text); border: 1px solid rgba(198, 255, 61, 0.3); background: linear-gradient(90deg, rgba(198, 255, 61, 0.1), rgba(61, 224, 255, 0.06)); }
 .cx-cmp-gate.guest .cx-btn { margin-left: auto; }
+/* the list above the box: slash commands (then the picked command's arguments) and people to ping */
+.cx-cmp-box { position: relative; }
+.cx-ac {
+  position: absolute; left: -1px; right: -1px; bottom: calc(100% + 8px); z-index: 40; display: flex; flex-direction: column; gap: 1px;
+  max-height: min(340px, 46vh); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border-radius: 16px; color: var(--cx-text);
+  background: #121a29; border: 1px solid rgba(255, 255, 255, 0.13); box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(0, 0, 0, 0.4);
+  animation: cx-pop 0.12s var(--ease);
+}
+.cx-ac[hidden] { display: none; }
+.cx-ac-head { flex: none; padding: 6px 10px 6px; font: 700 11px 'Outfit', sans-serif; letter-spacing: 0.13em; text-transform: uppercase; color: var(--cx-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cx-ac-row { flex: none; display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 6px 10px; border-radius: 10px; cursor: pointer; user-select: none; -webkit-user-select: none; min-width: 0; }
+.cx-ac-row.on { background: rgba(198, 255, 61, 0.1); box-shadow: inset 0 0 0 1px rgba(198, 255, 61, 0.22); }
+.cx-ac.cmd .cx-ac-row { justify-content: space-between; }
+.cx-ac-cmd { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: none; max-width: 60%; }
+.cx-ac-cmd b { font: 700 14.5px 'Outfit', sans-serif; color: var(--cx-text); white-space: nowrap; }
+.cx-ac-row.on .cx-ac-cmd b, .cx-ac-tip .cx-ac-cmd b { color: var(--lime); }
+.cx-ac-hint { font: 600 12.5px ui-monospace, 'SF Mono', Menlo, monospace; color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cx-ac-desc { min-width: 0; font-size: 12.5px; color: var(--cx-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.cx-ac-who { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.cx-ac-who b { font: 700 14.5px 'Outfit', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cx-ac-who small { font-size: 12.5px; color: var(--cx-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: none; max-width: 55%; }
+.cx-ac-who .cx-role { align-self: center; }
+.cx-ac-who .cx-role .cx-ic { width: 14px; height: 14px; }
+.cx-ac-tag { align-self: center; flex: none; padding: 0 6px; border-radius: 6px; font: 800 9.5px/16px 'Outfit', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cyan); border: 1px solid rgba(61, 224, 255, 0.4); }
+.cx-ac-tag.owner { color: var(--cx-gold); border-color: rgba(255, 200, 71, 0.45); }
+.cx-ac-at { display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 50%; color: #0a0f05; background: var(--cx-gold); }
+.cx-ac-at .cx-ic { width: 15px; height: 15px; }
+.cx-ac-tip { display: grid; gap: 3px; padding: 4px 10px 6px; min-width: 0; }
+.cx-ac-tip .cx-ac-cmd { max-width: none; flex-wrap: wrap; }
+.cx-ac-tip .cx-ac-desc { text-align: left; white-space: normal; }
+.cx[data-layout="narrow"] .cx-ac { max-height: min(300px, 42vh); }
+.cx[data-layout="narrow"] .cx-ac.cmd .cx-ac-row { flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; }
+.cx[data-layout="narrow"] .cx-ac-cmd { max-width: 100%; }
+.cx[data-layout="narrow"] .cx-ac-desc { max-width: 100%; text-align: left; }
 .cx-gate-text { min-width: 0; }
 .cx-main.drop::after {
   content: 'Drop pictures to attach'; position: absolute; inset: 12px; z-index: 8; display: grid; place-items: center; border-radius: 20px;
@@ -1154,6 +1188,27 @@ body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex;
 .cx[data-layout="narrow"] .cx-help-card { max-height: 30vh; padding: 10px 12px 0; gap: 6px; }
 .cx[data-layout="narrow"] .cx-hc-a { font-size: 14px; line-height: 1.4; }
 .cx[data-layout="narrow"] .cx-hc-acts { position: sticky; bottom: 0; padding: 6px 0 10px; background: #0d1a26; }
+
+/* ---------- slash command results: Hallpass's card, only the person who typed the command sees it ---------- */
+.cx-cmdout { order: -1; padding: 8px 0; }
+.cx-cmdout[hidden] { display: none; }
+.cx-cmdcard .cx-hc-who { gap: 7px; }
+.cx-cmdcard .cx-hc-who b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cx-cmdcard .cx-hc-only { white-space: nowrap; }
+.cx-cmdcard.bad { background: linear-gradient(180deg, rgba(255, 122, 102, 0.08), rgba(255, 122, 102, 0.03)); border-color: rgba(255, 122, 102, 0.35); }
+.cx-cmdcard.good { background: linear-gradient(180deg, rgba(198, 255, 61, 0.07), rgba(61, 224, 255, 0.03)); border-color: rgba(198, 255, 61, 0.3); }
+.cx-cmdcard-text { display: flex; align-items: flex-start; gap: 8px; }
+.cx-cmdcard-mark { flex: none; display: grid; place-items: center; min-width: 20px; height: 22px; }
+.cx-cmdcard-mark .cx-spin { color: var(--cyan); }
+.cx-cmdcard-msg { min-width: 0; }
+.cx-cmdcard-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0 18px; }
+.cx-cmdcard-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 4px 0; border-top: 1px solid var(--cx-line); min-width: 0; }
+.cx-cmdcard-name { font: 700 13.5px 'Outfit', sans-serif; color: var(--lime); }
+.cx-cmdcard-hint { font: 600 12px ui-monospace, 'SF Mono', Menlo, monospace; color: var(--cyan); overflow-wrap: anywhere; }
+.cx-cmdcard-row small { flex-basis: 100%; font-size: 12.5px; color: var(--cx-dim); }
+.cx[data-layout="narrow"] .cx-cmdcard { padding-bottom: 10px; }
+.cx[data-layout="narrow"] .cx-cmdcard .cx-hc-head { flex-wrap: wrap; row-gap: 4px; }
+.cx[data-layout="narrow"] .cx-cmdcard .cx-hc-only { order: 3; flex-basis: 100%; padding-left: 40px; }
 
 /* ---------- pinned messages (header button -> sheet) ---------- */
 .cx-pins-list { display: flex; flex-direction: column; min-width: 0; }

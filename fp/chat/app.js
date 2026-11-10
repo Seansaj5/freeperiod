@@ -7,6 +7,7 @@ import { chatState, onChatState, ensureChatSession, me as chatMe, chatError as s
 import * as data from './data.js';
 import { tabTitle, badge } from './unread.js';
 import { mentionsMe } from './format.js';
+import { filterPeople, findByUsername } from './commands.js';
 import { newClientId } from './feedlogic.js';
 import { roleOfProfile, isStaffRole, timedOut } from './perms.js';
 import { mountRail } from './views/rail.js';
@@ -18,6 +19,7 @@ import { icon, bellLogo, nameOf, avatar, closeMenu, openMenu, timeoutText } from
 import { messageTools, openMemberMenu, openChannelManager, openHallpassTools } from './views/mod.js';
 import { mountFriends } from './views/friends.js';
 import { mountHelp } from './views/help.js';
+import { mountCommandCard, startCommand } from './views/commands.js';
 import { openEmojiManager } from './views/emoji-admin.js';
 import { setEmoji, applyEmojiChange, onEmoji } from './emoji.js';
 import { dmListNodes, dmTitle, dmOthers, groupIcon, openPeoplePicker, confirmLeave } from './views/dms.js';
@@ -61,7 +63,8 @@ export function mountChatApp(root, { compact = false } = {}) {
   const compEl = h('div');
   const membersEl = h('aside');
   const helpEl = h('div');
-  const main = h('section', { class: 'cx-main', 'aria-label': 'Messages' }, headEl, feedEl, h('div', { class: 'cx-bottom' }, helpEl, typingEl, compEl));
+  const cmdEl = h('div');
+  const main = h('section', { class: 'cx-main', 'aria-label': 'Messages' }, headEl, feedEl, h('div', { class: 'cx-bottom' }, helpEl, cmdEl, typingEl, compEl));
   const navEl = h('div', { class: 'cx-nav' }, railEl, sideEl);
   const scrim = h('div', { class: 'cx-scrim', onclick: () => setMembers(false) });
   const shell = h('div', { class: 'cx-shell' }, navEl, main, scrim, membersEl);
@@ -176,7 +179,11 @@ export function mountChatApp(root, { compact = false } = {}) {
     onProfile: (p, anchor) => openCard(p, anchor),
     extraTools: (m, helpers) => (st === 'ready' ? messageTools(m, helpers, modCx) : []),
   });
-  const composer = mountComposer(compEl, { onSend: send, onTyping: pingTyping, onLogin: openLogin });
+  const composer = mountComposer(compEl, { onSend: send, onTyping: pingTyping, onLogin: openLogin,
+    commands: () => ({ role: myRole(), dm: mode === 'dms' }),
+    onCommand: (x) => startCommand(x.text, x, cmdCx),
+    people: (q, o) => peopleFor(q, o) });
+  const cmdCard = mountCommandCard(cmdEl, { bot: () => members.find((p) => p.is_bot) || null });
   const friendsView = mountFriends({
     rows: () => friendRows,
     online: () => online,
@@ -403,6 +410,10 @@ export function mountChatApp(root, { compact = false } = {}) {
     if (st === 'ready' && muted()) muteTimer = setInterval(() => { setComposer(); if (!muted()) { clearInterval(muteTimer); muteTimer = 0; messages.repaint(); } }, 15000);
   }
   function setComposer() {
+    setComposerTarget();
+    cmdCard.setKey(composer.key());
+  }
+  function setComposerTarget() {
     compEl.hidden = mode === 'friends';
     if (mode === 'friends') { composer.setTarget('none', { placeholder: '', mode: 'wait' }); return; }
     if (mode === 'dms') {
@@ -704,6 +715,53 @@ export function mountChatApp(root, { compact = false } = {}) {
     openMenu(anchor, items, { label: 'Server tools' });
   }
 
+  // ---------- slash commands and the @ list ----------
+  const extraPeople = new Map(); // profiles findProfiles found that the member list didn't have yet
+  const peoplePool = () => {
+    const dm = mode === 'dms' ? curDMObj() : null;
+    return [...(dm ? (dm.members || []).map(live) : []), ...members, ...extraPeople.values()];
+  };
+  // "@" in a channel: members (and Hallpass), "@everyone" for the owner only (the database's rule); in a DM or group: the
+  // people in it. In a slash command's arguments: everyone (staff commands work on a person from a DM too).
+  function peopleFor(query, { command = false } = {}) {
+    const dm = mode === 'dms' ? curDMObj() : null;
+    const exclude = new Set([myId()]);
+    if (dm && !command) return { rows: filterPeople((dm.members || []).map(live), query, { exclude, online }) };
+    const pool = peoplePool();
+    const rows = filterPeople(pool, query, { exclude, online, everyone: !command && !dm && myRole() === 'owner' });
+    if (!query || rows.length >= 8 || st !== 'ready') return { rows };
+    return {
+      rows,
+      search: async () => {
+        const found = await data.findProfiles(query);
+        for (const p of found || []) if (p && p.id && !byId.has(p.id)) extraPeople.set(p.id, p);
+        return filterPeople(peoplePool(), query, { exclude, online, everyone: !command && !dm && myRole() === 'owner' });
+      },
+    };
+  }
+  async function findUser(name) {
+    const hit = findByUsername(peoplePool(), name);
+    if (hit) return live(hit);
+    const found = await data.findProfiles(name);
+    for (const p of found || []) if (p && p.id && !byId.has(p.id)) extraPeople.set(p.id, p);
+    return findByUsername(found, name);
+  }
+  const cmdCx = {
+    role: () => myRole(),
+    where: () => (st !== 'ready' ? null : mode === 'dms' && curDM ? { dm: curDM } : mode === 'server' && cur ? { channel: cur.id } : null),
+    findUser,
+    card: cmdCard,
+    post: (body, { reply, replyTo, files } = {}) => sendNow({ body, files: files || [], replyTo: replyTo || null, reply: reply || null }),
+    startDM: (p) => startDMWith(p),
+    openCard: (p) => openCard(p, compEl.querySelector('.cx-cmp-ta') || compEl),
+    setBlocked: (id, on) => setBlocked(id, on),
+    mergeProfile: (row) => mergeProfile(row),
+    patchProfile: (id, patch) => { if (byId.has(id)) mergeProfile({ id, ...patch }); }, // (Realtime brings the rest)
+    loadFriends: () => loadFriends(),
+    openReports: () => import('../inbox.js').then((m) => m.openInbox({ tab: 'reports' })),
+    afterAI: () => { refreshHelp().then(() => help.redraw(), () => {}); },
+  };
+
   // ---------- sending ----------
   // In #help and in a DM with Hallpass a typed question goes to the FAQ first: an answer card only the asker sees, and a
   // message is posted (for the AI to answer) only when nothing matched and AI answers are on.
@@ -951,7 +1009,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     const dropped = messages.reset(uid); // unsent messages of this account stay (Retry / Discard); anyone else's are cancelled
     if (dropped) toast(dropped === 1 ? 'An unsent message was dropped because the account changed.' : dropped + ' unsent messages were dropped because the account changed.', 'err');
     unread.clear(); online = new Set(); blocked = new Set(); setMembersList([]);
-    friendRows = []; faq = []; aiOn = false;
+    friendRows = []; faq = []; aiOn = false; extraPeople.clear();
     channels = []; cur = null; dms = []; curDM = null; mode = 'server';
     loading = true;
     drawSide(); drawHead(); setComposer(); drawMembers();
