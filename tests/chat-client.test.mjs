@@ -189,6 +189,36 @@ test('another tab puts another account session here -> reset and sign in as the 
   assert.equal(log.otps.length, 1); // Bob's session from the other tab is reused
 });
 
+test('another tab signed the same account in at the same moment (our link is no longer valid) -> use its session', async (t) => {
+  let calls = 0;
+  const { chat, log, state } = await setup(t, {
+    otp: async () => {
+      calls++;
+      // the other tab's newer link won: its session is now in the shared storage
+      state.session = { user: { id: 'u-1', email: emailOf('Saj'), app_metadata: { username: 'Saj' } } };
+      return { data: {}, error: Object.assign(new Error('Email link is invalid or has expired'), { status: 403, code: 'otp_expired' }) };
+    },
+  });
+  assert.equal(await chat.ensureChatSession(), 'ready');
+  assert.equal(chat.me().id, 'u-1');
+  assert.equal(calls, 1);
+  assert.equal(log.fetches.filter((f) => /\/api\/chat\/session$/.test(f.url)).length, 1);
+});
+
+test('a failed link with no other tab tries once more from the start', async (t) => {
+  let calls = 0;
+  const { chat, log } = await setup(t, {
+    otp: async () => {
+      calls++;
+      if (calls === 1) return { data: {}, error: Object.assign(new Error('Email link is invalid or has expired'), { status: 403, code: 'otp_expired' }) };
+      return { data: { session: { user: { id: 'u-1', email: emailOf('Saj'), app_metadata: { username: 'Saj' } } } }, error: null };
+    },
+  });
+  assert.equal(await chat.ensureChatSession(), 'ready');
+  assert.equal(calls, 2);
+  assert.equal(log.fetches.filter((f) => /\/api\/chat\/session$/.test(f.url)).length, 2);
+});
+
 test('another tab logs the hub out (storage event) -> this tab goes guest and signs chat out', async (t) => {
   const { chat, log } = await setup(t);
   await chat.ensureChatSession();

@@ -158,7 +158,7 @@ function refreshOnce(key) {
   });
 }
 
-async function run(g, key, fresh = false) {
+async function run(g, key, fresh = false, retried = false) {
   const stale = () => g !== gen || hubKey() !== key;
   const done = (st, msg = '') => { if (stale()) return state || baseState(); lastError = msg; setState(st); return st; };
   const fail = async (e) => {
@@ -203,7 +203,19 @@ async function run(g, key, fresh = false) {
     const r = await c.auth.verifyOtp({ token_hash: tokenHash, type: 'email' });
     session = r && r.data && r.data.session; err = r && r.error;
   } catch (e) { err = e; }
-  if (err) return fail(err);
+  if (err) {
+    // One sign-in link at a time per account: another tab of this browser that signed the same account in at the same
+    // moment (a login reaches every open tab) made ours invalid. Its session lands in the storage we share: use it.
+    for (let i = 0; i < 6 && !stale() && !isPaused(err); i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (stale()) return state || baseState();
+      let other = null;
+      try { const r = await c.auth.getSession(); other = r && r.data && r.data.session; } catch { /* ignore */ }
+      if (other && other.user && String(other.user.email || '').toLowerCase() === key) { setMe(other); refreshedFor = key; return done('ready'); }
+    }
+    if (!retried && !stale() && !isPaused(err)) return run(g, key, fresh, true); // no other tab: one more try from the start
+    return fail(err);
+  }
   // Whatever session is in the client now must belong to the hub user right now; if not, drop it.
   if (stale() || !session || !session.user || String(session.user.email || '').toLowerCase() !== hubKey()) {
     let cur = null;
