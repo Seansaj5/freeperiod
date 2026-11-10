@@ -26,6 +26,12 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   (`games/horror-exe/server/`, Render service `freeperiod-horror`) for online rooms.
   Test locally: `node games/horror-exe/server/index.js` (port 8790) and open `games/horror-exe/?server=ws://localhost:8790`.
   Rule tests: `node --test games/horror-exe/test/`. Bot-only balance check: `node games/horror-exe/test/sim.mjs 40`.
+  Accounts: the game reads the Free Period sign-in (`fp.token`/`fp.user`, same site), so your name is your account name.
+  Online, the server checks the token with the Bing Ball server (`/api/me`, override with `ACCOUNTS_API`) and guests
+  can't use the owner names (`OWNER_USERNAMES`, default Saj, Sean_0, Sean0). The owner (role `owner`) has everything
+  unlocked, a gold name with an OWNER badge, and ADMIN.EXE (`` ` `` in a game, the pause menu, or Admin in the lobby):
+  start/end the round, pick the next EXE, kick, announce, god mode, super speed, fly, no cooldowns, teleport, finish
+  the tasks, change the clock, switch worlds. Test with a fake account server: `?api=http://localhost:PORT` (localhost only).
   Look: the pixel-art title screen (Dreamy Hills turning into horror.exe) is drawn in `js/title.js`; in game the 3D view
   renders at about 400 lines with a dithered 16-bit color pass (`RetroShader` in `js/fx.js`, Settings → Look switches it off).
   The pixel font is Press Start 2P (SIL Open Font License, `games/horror-exe/fonts/OFL.txt`).

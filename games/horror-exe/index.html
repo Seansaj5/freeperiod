@@ -250,11 +250,13 @@
     .qte-text { font-family: 'Bungee', sans-serif; font-size: clamp(26px, 5vw, 56px); color: #fff; margin-top: 14px; }
     .qte-help { color: var(--muted); font-size: 14px; margin-top: 10px; font-weight: 600; }
     #touch .tb.big { width: 110px; height: 110px; font-size: 40px; z-index: 30; position: fixed; pointer-events: auto; }
+    /* short windows: the controls help would sit on top of the buttons (the round's intro lists the controls anyway) */
+    @media (max-height: 620px) { .keys { display: none; } }
     @media (max-height: 500px) {
       #title .tag, .keys { display: none; }
       .screen { padding-top: 3vh; padding-bottom: 3vh; }
       .stack { gap: 7px; } .btn { height: 40px; font-size: 9px; } .btn.small { height: 36px; } .field { height: 38px; }
-      .online { margin-top: 8px; } .status { margin-top: 6px; min-height: 0; }
+      .online { margin-top: 8px; } .statusrow { margin-top: 8px; } .status { margin-top: 6px; min-height: 0; }
     }
     @keyframes scare { 0% { opacity: 1; transform: scale(1.05) translate(6px, -4px); } 12% { transform: scale(1.12) translate(-8px, 5px); filter: invert(1); } 18% { filter: none; } 30% { opacity: 0; } 38% { opacity: 1; transform: scale(1.3) translate(4px, 0); } 60% { transform: scale(1.45) translate(-5px, 3px); filter: contrast(1.6) saturate(2); } 85% { opacity: 1; } 100% { opacity: 0; } }
     /* touch */
@@ -293,6 +295,26 @@
     .panel.win::before { content: attr(data-title); position: absolute; left: 0; right: 0; top: 0; height: 30px; line-height: 30px; padding: 0 44px 0 12px; font-family: var(--pix); font-size: 9px; letter-spacing: 0.06em; color: #ffd9dc; background: linear-gradient(90deg, #8a0010, #3a0006 70%, #1a0003); border-bottom: 3px solid #4a0c14; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .panel.win::after { content: '\2715'; position: absolute; right: 7px; top: 6px; width: 18px; height: 18px; line-height: 15px; text-align: center; font: 9px var(--pix); color: #fff; background: #c8001a; border: 2px solid #ff6a6a; box-shadow: 2px 2px 0 #000; }
     .panel.win h2 { display: none; }
+    /* the owner (Free Period account) */
+    .own { color: #ffd23d !important; text-shadow: 0 0 8px rgba(255, 190, 40, 0.55); }
+    .owntag { font: 7px var(--pix); background: #c8001a; color: #fff; padding: 3px 5px 2px; border: 2px solid #ff6a6a; margin-left: 7px; vertical-align: 2px; letter-spacing: 0.04em; }
+    .tick { color: #6dff8a; font-weight: 800; }
+    .statusrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 16px; max-width: 460px; }
+    .statusrow .online { margin-top: 0; }
+    .acct { font-size: 13px; color: var(--muted); }
+    .acct a { color: #ffd23d; }
+    .acct kbd { font-size: 11px; }
+    .note { font-size: 12px; color: var(--muted); margin-top: 5px; }
+    .field:disabled { opacity: 0.7; }
+    .own-btn { border-color: #ffd23d !important; color: #ffd23d; }
+    #admin .panel { width: min(540px, 100%); max-height: 94vh; overflow-y: auto; scrollbar-width: thin; }
+    #admin .chips { margin-top: 2px; }
+    #admin .chips button.on { background: #ffd23d; color: #1a0a00; border-color: #fff2a8; }
+    .adm-who { margin: 0 0 10px; font-size: 14px; }
+    #lobbyAnn:empty, #admNote:empty, .note:empty { display: none; }
+    #annBar { position: absolute; left: 50%; top: 92px; transform: translateX(-50%); max-width: min(640px, 92vw); padding: 10px 16px; background: rgba(20, 8, 0, 0.88); border: 3px solid #ffd23d; box-shadow: 4px 4px 0 #000; color: #ffe9a0; font: 11px/1.6 var(--pix); text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 6; }
+    #annBar.on { opacity: 1; }
+    #annBar small { display: block; color: #ffb800; font-size: 7px; margin-bottom: 4px; }
     .panel .lbl { font-family: var(--pix); font-weight: 400; font-size: 8px; letter-spacing: 0.08em; color: #ff8a95; }
     .chips button { font-family: var(--pix); font-weight: 400; font-size: 8px; border-radius: 0; border-width: 2px; padding: 8px 10px; }
     .chips button.on { background: #c8001a; color: #fff; border-color: #ff5a5a; }
@@ -348,7 +370,7 @@
       var lines = ['FREE PERIOD SYSTEM BIOS  v1.994', '(C) 1994 FREE PERIOD', '', 'MEMORY TEST ......... 4096K OK', 'VIDEO ............... 16-BIT COLOR', 'SOUND ............... FM SYNTH OK', 'CARTRIDGE ........... DREAMY HILLS', '', 'LOADING DREAMY_HILLS.EXE'];
       var log = el('bootLog'), i = 0;
       var typer = setInterval(function () { if (i >= lines.length) { clearInterval(typer); B.linesDone = true; el('bootRow').classList.remove('hidden'); return; } log.textContent += lines[i++] + '\n'; }, 85);
-      var EXPECT = 26;
+      var EXPECT = 27;
       try { new PerformanceObserver(function () { var n = performance.getEntriesByType('resource').filter(function (e) { return /\.js(\?|$)/.test(e.name); }).length; B.set(Math.min(0.55, 0.03 + (0.52 * n) / EXPECT), n && B.target < 0.56 ? 'LOADING CODE ' + n + '/' + Math.max(n, EXPECT) : ''); }).observe({ type: 'resource', buffered: true }); } catch (e) {}
       (function tick() {
         if (B.finished) return;
@@ -374,7 +396,7 @@
       <button class="btn" id="bCustom">Customize <small id="whoami"></small></button>
       <button class="btn small" id="bSettings">Settings</button>
     </div>
-    <div class="online" id="online"><i></i><span>Checking the server…</span></div>
+    <div class="statusrow"><div class="online" id="online"><i></i><span>Checking the server…</span></div><div class="acct" id="acct"></div></div>
     <div class="status" id="status"></div>
     <div class="keys"><kbd>WASD</kbd> move · <kbd>Mouse</kbd> look · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump · <kbd>E</kbd> ability · <kbd>F</kbd> hide in a locker<br />EXE: <kbd>Click</kbd> attack / rip a locker · <kbd>E</kbd> power · <kbd>R</kbd> second power · <kbd>Q</kbd> sense · <kbd>F</kbd> disguise</div>
   </section>
@@ -394,7 +416,7 @@
       <div class="tabs"><button data-tab="char" class="on">Character</button><button data-tab="avatar">Avatar</button><button data-tab="exe">EXE</button></div>
       <div id="tab-char"><div class="cards" id="charCards"></div></div>
       <div id="tab-avatar" class="hidden">
-        <span class="lbl">Name</span><input class="field" id="name" maxlength="16" placeholder="Your name" autocomplete="off" spellcheck="false" />
+        <span class="lbl">Name</span><input class="field" id="name" maxlength="16" placeholder="Your name" autocomplete="off" spellcheck="false" /><div class="note" id="nameNote"></div>
         <span class="lbl">Skin</span><div class="sw" id="swSkin"></div>
         <span class="lbl">Shirt</span><div class="sw" id="swShirt"></div>
         <div class="chips" id="chStyle" style="margin-top:8px"></div>
@@ -419,9 +441,11 @@
       <div class="code-big" id="lobbyCode">----</div>
       <div class="plist" id="lobbyList"></div>
       <div class="status" id="lobbyStatus"></div>
+      <div class="status" id="lobbyAnn"></div>
       <div class="row" style="margin-top:12px">
         <button class="btn small" id="lobbyLeave">Leave</button>
         <button class="btn small" id="lobbyCustom">Customize</button>
+        <button class="btn small own-btn hidden" id="lobbyAdmin">Admin</button>
         <button class="btn primary small center" id="lobbyStart" style="flex:1">Start</button>
       </div>
     </div>
@@ -434,6 +458,7 @@
     <canvas class="minimap hidden" id="minimap" width="180" height="180"></canvas>
     <div class="feed" id="feed"></div>
     <div class="banner" id="banner"></div>
+    <div id="annBar"></div>
     <div id="markers"></div>
     <div class="cross" id="cross"></div>
     <div class="prompt hidden" id="prompt"></div>
@@ -470,8 +495,25 @@
         <button class="btn primary" id="pResume">Resume</button>
         <button class="btn" id="pSettings">Settings</button>
         <button class="btn" id="pLeave">Leave match</button>
+        <button class="btn own-btn hidden" id="pAdmin">ADMIN.EXE <small>or press `</small></button>
       </div>
       <p class="status" id="pNote"></p>
+    </div>
+  </section>
+
+  <section id="admin" class="screen hidden">
+    <div class="panel win" data-title="ADMIN.EXE">
+      <h2>Admin</h2>
+      <p class="adm-who" id="admWho"></p>
+      <p class="status" id="admEmpty">Join a room or start a game to use these.</p>
+      <div class="chips" id="admRoomBtns"></div>
+      <div id="admExeWrap"><span class="lbl">EXE next round</span><div class="chips" id="admExe"></div></div>
+      <div id="admKickWrap"><span class="lbl">Kick from the room</span><div class="chips" id="admKick"></div></div>
+      <div id="admAnnWrap"><span class="lbl">Announce to everyone</span><div class="row"><input class="field" id="admAnn" maxlength="80" placeholder="Type a message" autocomplete="off" /><button class="btn small" id="admAnnGo">Send</button></div></div>
+      <div id="admPow"><span class="lbl">Powers</span><div class="chips" id="admPowers"></div></div>
+      <div id="admRnd"><span class="lbl">Teleport to</span><div class="chips" id="admTp"></div><span class="lbl">Round</span><div class="chips" id="admRound"></div></div>
+      <p class="status" id="admNote"></p>
+      <button class="btn primary center" id="admClose" style="width:100%;margin-top:10px">Close</button>
     </div>
   </section>
 
@@ -498,6 +540,7 @@
     <button class="tb" id="tDis" style="right:calc(5vw + 152px);bottom:calc(9vh + 76px)">HIDE</button>
     <button class="tb" id="tAb2" style="right:calc(5vw + 228px);bottom:9vh">R</button>
     <button class="tb" id="tG" style="right:calc(5vw + 228px);bottom:calc(9vh + 76px)">G</button>
+    <button class="tb own-btn hidden" id="tAdm" style="left:4vw;top:42vh">ADM</button>
     <button class="tb" id="tV" style="right:calc(5vw + 152px);bottom:calc(16vh + 152px)">V</button>
     <div id="touchQE" class="hidden"><button class="tb big" id="tQ" style="left:12vw;bottom:14vh">Q</button><button class="tb big" id="tE" style="right:12vw;bottom:14vh">E</button></div>
   </div>

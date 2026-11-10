@@ -406,3 +406,59 @@ test('movement: walls, slopes, springs, boost pads, bumpers, and gates that exis
   for (let i = 0; i < 60; i++) stepMove(k, { dx: 1, dz: 0, speed: 6 }, 1 / 60);
   assert.ok(k.x < post.x, 'blocked by it in the corrupted world');
 });
+
+test('owner admin tools: god mode, no cooldowns, full meter, teleport, switch world, finish tasks, time, end', () => {
+  const R = new Round({ seed: 5, players: [{ id: 1, name: 'Saj', char: 'rook', own: true, acct: true }, { id: 2, name: 'Friend', char: 'mira' }], exeId: null });
+  assert.equal(R.info().ents.find((e) => e.id === 1).own, 1);
+  assert.equal(R.info().ents.find((e) => e.id === 2).own, 0);
+  playing(R);
+  const me = R.ents.get(1), x = R.exeEnt();
+  // god: hits do nothing
+  R.admin(1, { c: 'god', on: true });
+  assert.equal(R.hit(x, me, 999), false);
+  assert.equal(me.hp, SURV.hp);
+  R.admin(1, { c: 'god', on: false });
+  assert.equal(R.hit(x, me, 1), true);
+  // no cooldowns: an ability can be used again right away
+  R.admin(1, { c: 'nocd', on: true });
+  R.action(1, { k: 'abl' });
+  assert.ok(Object.entries(me.cd).every(([k, v]) => k === 'portal' || v === 0));
+  // meter (also on a survivor it just sets it; the monster uses it)
+  R.admin(1, { c: 'meter' });
+  assert.equal(me.meter, 100);
+  // teleport next to a friend, in their world
+  const f = place(R, 2, 20, 20, 0, 1);
+  R.admin(1, { c: 'tp', id: 2 });
+  assert.equal(me.w, 1);
+  assert.ok(Math.hypot(me.x - f.x, me.z - f.z) < 4, 'lands next to them');
+  // zone teleport, then switch worlds
+  R.admin(1, { c: 'tp', zone: 2 });
+  assert.ok(Math.hypot(me.x - 136, me.z - 4) < 6, 'Toxic Works');
+  R.admin(1, { c: 'world' });
+  assert.equal(me.w, 0);
+  // time
+  const before = R.clock;
+  R.admin(1, { c: 'time', d: 60 }); assert.equal(R.clock, before + 60);
+  R.admin(1, { c: 'time', d: -9999 }); assert.equal(R.clock, 5);
+  // every task done opens the gates
+  R.admin(1, { c: 'tasks' });
+  assert.ok(TASKS.every((t) => R.done[t.id]));
+  assert.equal(R.phase, 'escape');
+  assert.equal(R.exitsOpen, true);
+  // end the round
+  R.admin(1, { c: 'end' });
+  assert.equal(R.phase, 'over');
+  assert.equal(R.admin(1, { c: 'god', on: true }), false, 'nothing after the round ends');
+});
+
+test('god mode survives lockers and the minigame', () => {
+  const R = new Round({ seed: 6, players: [{ id: 1, name: 'Saj', char: 'bolt', own: true }], exeId: null });
+  playing(R);
+  const me = R.ents.get(1);
+  R.admin(1, { c: 'god', on: true });
+  R.startQte(me, 'rip');
+  tick(R, 0.1);
+  assert.equal(me.qte, null);
+  assert.equal(me.st, ST.alive);
+  assert.equal(me.hp, SURV.hp);
+});

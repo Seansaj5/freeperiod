@@ -2,7 +2,7 @@
 // knockdowns, revives, disguises, the escape gates and the result.
 // The server runs this for online rooms; the browser runs the very same code for solo games.
 import { ROUND, SURV, EXE, CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, F, ST, PHASES, PORTAL, TASKS, TASK, HIDE, QTE, AWAKEN, moveSpeed, tickStamina } from './rules.js';
-import { SHARD_SPOTS, EXITS, SPAWNS, PORTALS, OBJ, LOCKERS, HALF, supportAt, terrainH, clampXZ, surfaceAt, lineOfSight, solidAt } from './map.js';
+import { SHARD_SPOTS, EXITS, SPAWNS, PORTALS, OBJ, LOCKERS, ZONES, HALF, supportAt, terrainH, clampXZ, surfaceAt, lineOfSight, solidAt } from './map.js';
 import { stepMove, body } from './move.js';
 import { newBrain, thinkSurv, thinkExe } from './bots.js';
 import { rng, shuffle, turnTo, clamp } from './util.js';
@@ -66,6 +66,8 @@ export class Round {
     const e = body(sp.x, y, sp.z, role === 'exe' ? EXE.radius : SURV.radius, role === 'exe' ? EXE.height : SURV.height, w);
     Object.assign(e, {
       id: p.id, name: String(p.name || 'Player').slice(0, 16), bot, role, ry: sp.ry,
+      // own: the game's owner (checked against the Free Period account); acct: signed in with an account
+      own: !bot && !!p.own, acct: !bot && !!p.acct, god: false, nocd: false,
       look: sanitizeLook(p.look), char: CHARS[p.char] ? p.char : 'bolt', variant: VARIANTS[p.variant] ? p.variant : 'exe',
       hp: SURV.hp, st: ST.alive, downT: 0, revP: 0, reviving: false, sprinting: false,
       sta: { stamina: SURV.stamina, exhausted: false, rest: 0 },
@@ -97,7 +99,7 @@ export class Round {
       seed: this.seed,
       shards: this.shards.map((s) => [r2(s.x), r2(s.y), r2(s.z)]),
       exits: this.exits.map((g) => g.i),
-      ents: [...this.ents.values()].map((e) => ({ id: e.id, name: e.name, bot: e.bot, role: e.role, look: e.look, char: e.char, variant: e.variant })),
+      ents: [...this.ents.values()].map((e) => ({ id: e.id, name: e.name, bot: e.bot, role: e.role, look: e.look, char: e.char, variant: e.variant, own: e.own ? 1 : 0, acct: e.acct ? 1 : 0 })),
     };
   }
 
@@ -181,7 +183,10 @@ export class Round {
     if (this.phase === 'intro' && this.phaseT >= ROUND.INTRO) this.setPhase('play');
     if (this.phase === 'play') { this.clock -= dt; if (this.clock <= 0) this.openExits('clock'); }
     if (this.phase === 'escape') { this.escapeT -= dt; if (this.escapeT <= 0) { this.finish(); return; } }
-    for (const e of this.ents.values()) if (e.bot) this.botStep(e, dt);
+    for (const e of this.ents.values()) {
+      if (e.bot) this.botStep(e, dt);
+      if (e.god) { e.fx.stun = 0; e.fx.slowx = 0; e.fx.invert = 0; e.fx.recover = 0; if (e.qte) this.resolveQte(e, true); }
+    }
     this.resolve(dt);
     this.checkEnd();
   }
@@ -228,8 +233,9 @@ export class Round {
     if (a.k === 'qte') { if (!e.qte) return false; this.resolveQte(e, !!a.ok); return true; }
     if (a.k === 'hide' && e.role === 'surv') return this.toggleHide(e);
     if (e.role === 'surv' && (e.hidden || e.qte)) return false;
-    if (e.role === 'exe') return this.monsterAction(e, a);
-    return this.survivorAction(e, a);
+    const ok = e.role === 'exe' ? this.monsterAction(e, a) : this.survivorAction(e, a);
+    if (e.nocd) for (const k in e.cd) if (k !== 'portal') e.cd[k] = 0;
+    return ok;
   }
 
   monsterAction(e, a) {
@@ -583,7 +589,7 @@ export class Round {
   /** Damage (health points). x is the monster, or null (lava, minigame). */
   hit(x, s, dmg, ignoreSafety = false) {
     const t = this.time;
-    if (s.st !== ST.alive || s.hidden || s.qte) return false;
+    if (s.st !== ST.alive || s.hidden || s.qte || s.god) return false;
     if (!ignoreSafety && (s.fx.invuln > t || s.fx.dash > t)) return false;
     dmg = Math.max(1, Math.round(dmg ?? (x ? VARIANTS[x.variant].dmg : SURV.heart)));
     s.hp -= dmg;
@@ -628,6 +634,7 @@ export class Round {
       s.hideT += dt;
       if (s.hideT >= HIDE.max) {
         if (s.overstay === 0) { s.overstay = 1; this.startQte(s, 'overstay'); }
+        else if (s.god) this.eject(s);
         else { this.eject(s); s.st = ST.out; this.ev({ k: 'out', id: s.id, why: 'dragged' }); }
       }
     }
@@ -834,6 +841,60 @@ export class Round {
     };
     this.setPhase('over');
     this.ev({ k: 'over', ...this.result });
+  }
+
+  /**
+   * The owner's admin tools (the server only lets the verified owner call this; solo trusts the browser).
+   * c: { c: 'god' | 'nocd', on } | { c: 'meter' } | { c: 'tp', id } | { c: 'tp', zone } | { c: 'tasks' } | { c: 'time', d } | { c: 'world' } | { c: 'end' }
+   */
+  admin(id, c) {
+    const e = this.ents.get(id);
+    if (!e || !c || this.phase === 'over') return false;
+    const t = this.time;
+    switch (c.c) {
+      case 'god': e.god = !!c.on; if (e.god && e.st === ST.down) { e.st = ST.alive; e.hp = SURV.hp; e.revP = 0; } break;
+      case 'nocd': e.nocd = !!c.on; if (e.nocd) for (const k in e.cd) if (k !== 'portal') e.cd[k] = 0; break;
+      case 'meter': e.unlockAwaken = true; e.awakeUsed = false; e.meter = 100; break;
+      case 'tp': {
+        if (e.st !== ST.alive) return false;
+        if (e.hidden) this.eject(e);
+        let x, z, w = e.w;
+        if (c.zone !== undefined) { const zn = ZONES[c.zone | 0]; if (!zn) return false; x = zn.x + 4; z = zn.z + 4; }
+        else { const o = this.ents.get(c.id); if (!o || o === e || o.st === ST.out || o.st === ST.esc) return false; x = o.x - Math.sin(o.ry) * 2.5; z = o.z - Math.cos(o.ry) * 2.5; w = o.w; }
+        if (w !== e.w) { if (e.disguise) this.popOut(e, false); if (e.carrying) this.dropCore(e); e.w = w; e.cd.portal = t + PORTAL.cooldown; }
+        this.warp(e, x, z, 'admin');
+        break;
+      }
+      case 'world':
+        if (e.st !== ST.alive) return false;
+        if (e.hidden) this.eject(e);
+        if (e.disguise) this.popOut(e, false);
+        if (e.carrying) this.dropCore(e);
+        e.w = e.w ? 0 : 1; e.cd.portal = t + PORTAL.cooldown;
+        this.warp(e, e.x, e.z, 'admin');
+        break;
+      case 'tasks':
+        if (this.phase === 'intro') this.setPhase('play');
+        for (const s of this.shards) { s.taken = 1; s.prog = 0; }
+        for (const v of this.valves) { v.done = 1; v.prog = 0; }
+        for (const v of this.panels) v.done = 1;
+        for (const v of this.bells) v.done = 1;
+        if (this.core.state === CORE_STATE.carried) { const b = this.ents.get(this.core.by); if (b) b.carrying = false; }
+        this.core.state = CORE_STATE.done; this.core.by = 0;
+        for (const tk of TASKS) this.taskDone(tk.id, e);
+        break;
+      case 'time': {
+        const d = Math.max(-600, Math.min(600, Number(c.d) || 0));
+        if (this.phase === 'intro') { if (d > 0) this.phaseT = ROUND.INTRO; }
+        else if (this.phase === 'play') { this.clock = Math.max(5, this.clock + d); }
+        else if (this.phase === 'escape') this.escapeT = Math.max(5, this.escapeT + d);
+        break;
+      }
+      case 'end': this.finish(); break;
+      default: return false;
+    }
+    this.ev({ k: 'admin', id, c: c.c, on: c.on === undefined ? undefined : !!c.on });
+    return true;
   }
 
   /** Someone left: a bot takes over their character so the round carries on. */

@@ -6,7 +6,8 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { World } from './world.js';
-import { Rig, nameTag, glowTex, tickRigFx, glitchFacesReady } from './rig.js';
+import { Rig, nameTag, ownerTag, glowTex, tickRigFx, glitchFacesReady } from './rig.js';
+import { account, refreshAccount, isOwnerAcct } from './account.js';
 import { Fx, GlitchShader, RetroShader } from './fx.js';
 import { Title } from './title.js';
 import { finishBoot } from './boot.js';
@@ -41,9 +42,12 @@ const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); }
 save.xp = Object.assign(Object.fromEntries([...CHAR_IDS, ...VARIANT_IDS].map((k) => [k, 0])), save.xp || {});
 const UNLOCK_ALL = params.get('unlock') === '1';
 const lvOf = (k) => levelOf(save.xp[k] || 0);
-const unlocked = (k) => UNLOCK_ALL || lvOf(k).lv >= LEVEL.max;
+// your Free Period account (same as Bing Ball): your name comes from it, and the owner has everything unlocked
+let acct = account();
+const isOwner = () => isOwnerAcct(acct);
+const unlocked = (k) => UNLOCK_ALL || isOwner() || lvOf(k).lv >= LEVEL.max;
 const myUnlock = () => ({ q: unlocked(save.char), awaken: unlocked(save.variant) });
-const myName = () => save.name.trim() || 'Player';
+const myName = () => (acct.user ? acct.user.username.replace(/[^\w .\-]/g, '').slice(0, 16) : save.name.trim()) || 'Player';
 
 // ------------------------------------------------------------------ renderer
 const hi = save.settings.quality === 'high';
@@ -126,6 +130,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyG') input.g = true;
   if (e.code === 'KeyV') input.v = true;
   if (e.code === 'Escape' && match && !touch && !document.pointerLockElement) togglePause();
+  if (e.code === 'Backquote') { if (curScreen === 'admin') closeAdmin(); else openAdmin(); }
 });
 addEventListener('keyup', (e) => input.keys.delete(e.code));
 addEventListener('blur', () => input.keys.clear());
@@ -137,8 +142,11 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0) { input.atk = true; if (match.spectating) match.nextSpectate(); }
 });
 addEventListener('mousemove', (e) => { if (document.pointerLockElement === canvas) { input.dx += e.movementX; input.dy += e.movementY; } });
-document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && match && !match.done && !paused && !touch) togglePause(true); });
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && match && !match.done && !paused && !touch && curScreen !== 'admin') togglePause(true); });
 const held = (...codes) => codes.some((c) => input.keys.has(c));
+/** ADMIN.EXE switches (owner only). God mode and no cooldowns are also switched on in the round itself. */
+const adm = { god: false, speed: false, fly: false, nocd: false };
+let admExe = null;
 
 // touch: left stick moves, dragging anywhere else looks
 if (touch) {
@@ -167,6 +175,7 @@ if (touch) {
   btn('tAb2', () => { input.ab2 = true; });
   btn('tG', () => { input.g = true; });
   btn('tV', () => { input.v = true; });
+  btn('tAdm', () => openAdmin());
   btn('tQ', () => match && match.mini && match.mini.press('Q'));
   btn('tE', () => match && match.mini && match.mini.press('E'));
   btn('tSprint', () => { input.sprintToggle = !input.sprintToggle; $('tSprint').classList.toggle('on', input.sprintToggle); });
@@ -190,7 +199,7 @@ function feed(html) {
   while (f.children.length > 5) f.lastChild.remove();
   setTimeout(() => d.remove(), 6500);
 }
-const tagOf = (v) => `<b style="color:${v.role === 'exe' ? '#ff4a5a' : CHARS[v.char].accent}">${esc(v.role === 'exe' ? VARIANTS[v.variant].name : v.name)}</b>`;
+const tagOf = (v) => (v.role === 'exe' ? `<b style="color:#ff4a5a">${esc(VARIANTS[v.variant].name)}</b>` : v.own ? `<b class="own">👑 ${esc(v.name)}</b>` : `<b style="color:${CHARS[v.char].accent}">${esc(v.name)}</b>`);
 
 function drawScareFaceInto(c, variant) { import('./rig.js').then((m) => m.drawScareFace(c.getContext('2d'), c.width, c.height, variant)); }
 
@@ -250,14 +259,29 @@ class Match {
     this.buildSlots();
     this.startSpawn();
     this.tryStart();
+    // the owner keeps their admin switches from round to round
+    this.isOwn = !!(this.myInfo && this.myInfo.own);
+    if (this.isOwn) { if (adm.god) session.admin({ c: 'god', on: true }); if (adm.nocd) session.admin({ c: 'nocd', on: true }); }
+    $('tAdm').classList.toggle('hidden', !(touch && this.isOwn));
+    if (this.isOwn) setTimeout(() => feed(`<b class="own">👑 OWNER</b> ${touch ? 'Tap ADM' : 'Press <kbd>\`</kbd>'} for ADMIN.EXE`), 1800);
+  }
+
+  /** ADMIN.EXE fly: straight through walls, Space to go up and C to go down. */
+  noclip(b, dx, dz, speed, dt) {
+    const v = Math.max(speed, 12) * 1.5, up = (held('Space') ? 1 : 0) - (held('KeyC') ? 1 : 0);
+    const p = clampXZ({ x: b.x + dx * v * dt, z: b.z + dz * v * dt });
+    b.vx = (p.x - b.x) / Math.max(dt, 1e-3); b.vz = (p.z - b.z) / Math.max(dt, 1e-3); b.vy = 0;
+    b.x = p.x; b.z = p.z; b.y = clamp(b.y + up * v * dt, terrainH(b.x, b.z) - 2, 58);
+    b.ground = false; b.lock = 0;
+    return {};
   }
 
   addView(e) {
     const rig = new Rig({ role: e.role, look: e.look, char: e.char, variant: e.variant });
     scene.add(rig.root);
-    const v = { id: e.id, role: e.role, char: e.char, variant: e.variant, name: e.name, bot: e.bot, rig, px: 0, pz: 0, speed: 0, atkStart: -1, wasAtk: false, ry: 0, first: true };
+    const v = { id: e.id, role: e.role, char: e.char, variant: e.variant, name: e.name, bot: e.bot, own: !!e.own, rig, px: 0, pz: 0, speed: 0, atkStart: -1, wasAtk: false, ry: 0, first: true };
     const friendly = this.role !== 'exe' && e.role === 'surv' && e.id !== this.me;
-    if (friendly) { v.tag = nameTag(e.name, CHARS[e.char].accent); v.tag.position.y = 2.95; rig.root.add(v.tag); }
+    if (friendly) { v.tag = e.own ? ownerTag(e.name) : nameTag(e.name, CHARS[e.char].accent); v.tag.position.y = e.own ? 3.15 : 2.95; rig.root.add(v.tag); }
     if (e.role === 'surv') {
       const reveal = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xff1a1a, transparent: true, opacity: 0.9, depthTest: false, blending: THREE.AdditiveBlending }));
       reveal.scale.set(3.4, 4.6, 1); reveal.position.y = 1.2; reveal.visible = false; reveal.renderOrder = 15; rig.root.add(reveal); v.reveal = reveal;
@@ -711,6 +735,13 @@ class Match {
         feed(`<b style="color:#ffd23d">${esc(VARIANTS[e.v].name)} awakened: ${esc(AW.name)}</b>`);
         break;
       }
+      case 'admin': {
+        const NAMES = { god: 'God mode', nocd: 'No cooldowns', meter: 'Awakening meter filled', tasks: 'finished every task', time: 'changed the clock', world: 'Switched worlds', tp: 'Teleported', end: 'ended the round' };
+        if (mine) { if (['god', 'nocd', 'meter'].includes(e.c)) feed(`<b class="own">ADMIN</b> ${NAMES[e.c]}${e.on === undefined ? '' : e.on ? ' ON' : ' OFF'}`); }
+        else if (v && ['tasks', 'time', 'end'].includes(e.c)) feed(`${tagOf(v)} <span class="owntag">OWNER</span> ${NAMES[e.c]}`);
+        if (e.c === 'tasks') sound.play('revive');
+        break;
+      }
       case 'warp':
         if (mine && this.body) { const b = this.body; b.x = e.x; b.y = e.y; b.z = e.z; b.vx = b.vy = b.vz = 0; fx.pulse('glitch', 0.6); }
         if (v && v.w === this.viewW) this.blinkFrom(e.x, e.y, e.z);
@@ -823,6 +854,7 @@ class Match {
     this.pitch = clamp(this.pitch - input.dy * sens * (save.settings.invert ? -1 : 1), -1.15, 0.6);
     input.dx = input.dy = 0;
     // move
+    if (this.isOwn && adm.nocd) { for (const k in this.cd) this.cd[k] = 0; this.sta.stamina = SURV.stamina; this.sta.exhausted = false; }
     const b = this.body;
     let flying = false;
     const hiddenIn = mine ? mine[13] : 0;
@@ -859,10 +891,10 @@ class Match {
       flags |= sf & F.SLOWED;
       const disChar = this.disguised && this.views.get(this.disguised) ? this.views.get(this.disguised).char : null;
       const sprintEx = this.role === 'exe' && disChar && wantSprint && moving;
-      const speed = moveSpeed(this.role, this.kind, st, flags, ph, sprinting || sprintEx, b.w, disChar);
+      const speed = moveSpeed(this.role, this.kind, st, flags, ph, sprinting || sprintEx, b.w, disChar) * (this.isOwn && adm.speed ? 2 : 1);
       const canAct = st === ST.alive && !(flags & F.STUN) && !(flags & F.POP) && !(this.role === 'exe' && ph === 'intro');
       const jump = input.jump && canAct && b.ground;
-      const res = stepMove(b, { dx, dz, speed, jump, jumpV: this.role === 'exe' ? EXE.jump : SURV.jump, fly: flying, up: held('Space') }, dt);
+      const res = this.isOwn && adm.fly ? this.noclip(b, dx, dz, speed, dt) : stepMove(b, { dx, dz, speed, jump, jumpV: this.role === 'exe' ? EXE.jump : SURV.jump, fly: flying, up: held('Space') }, dt);
       if (jump) sound.play('jump', 0.6);
       if (res.spring) { sound.play('spring'); world.kickSpring(res.spring.i); }
       if (res.boost) { sound.play('boost'); fx.pulse('glitch', 0.15); }
@@ -960,7 +992,7 @@ class Match {
       if (!d && tv) {
         const info = this.info.ents.find((x) => x.id === disId);
         d = { rig: new Rig({ role: 'surv', look: info.look, char: info.char }) };
-        if (this.role !== 'exe') { d.tag = nameTag(info.name, CHARS[info.char].accent); d.tag.position.y = 2.95; d.rig.root.add(d.tag); }
+        if (this.role !== 'exe') { d.tag = info.own ? ownerTag(info.name) : nameTag(info.name, CHARS[info.char].accent); d.tag.position.y = info.own ? 3.15 : 2.95; d.rig.root.add(d.tag); }
         scene.add(d.rig.root); this.disRigs.set(disId, d);
       }
       if (d) {
@@ -1073,7 +1105,7 @@ class Match {
       const cls = s === ST.down ? 'down' : s === ST.esc ? 'esc' : s === ST.out ? 'out' : '';
       const status = s === ST.down ? `DOWN ${e[8]}s` : s === ST.esc ? 'ESCAPED' : s === ST.out ? 'TAKEN' : e[13] && this.role !== 'exe' ? 'HIDING' : `${'♥'.repeat(Math.max(0, Math.ceil(e[5] / SURV.heart)))}`;
       const wIcon = s === ST.alive || s === ST.down ? `<em class="${e[11] ? 'bad' : 'good'}">${e[11] ? '☠' : '☀'}</em>` : '';
-      html += `<div class="${cls}${v.id === this.me ? ' me' : ''}"><i style="background:${CHARS[v.char].accent}"></i>${esc(v.name)}${v.bot ? ' <small style="color:var(--muted)">bot</small>' : ''}${e[7] & F.CARRY ? ' <small style="color:#ffa040">core</small>' : ''}<span>${wIcon}${status}</span></div>`;
+      html += `<div class="${cls}${v.id === this.me ? ' me' : ''}"><i style="background:${CHARS[v.char].accent}"></i>${v.own ? `<b class="own">👑 ${esc(v.name)}</b>` : esc(v.name)}${v.bot ? ' <small style="color:var(--muted)">bot</small>' : ''}${e[7] & F.CARRY ? ' <small style="color:#ffa040">core</small>' : ''}<span>${wIcon}${status}</span></div>`;
     }
     setHTML($('team'), html);
     // hearts + stamina
@@ -1389,11 +1421,11 @@ class Match {
 }
 
 // ------------------------------------------------------------------ menus
-const screens = ['title', 'soloPick', 'custom', 'lobby', 'results', 'pause', 'settings'];
+const screens = ['title', 'soloPick', 'custom', 'lobby', 'results', 'pause', 'settings', 'admin'];
 let curScreen = 'title';
 function show(id) { curScreen = id; for (const s of screens) $(s).classList.toggle('hidden', s !== id); }
 // menus that sit on the pixel-art title picture instead of the 3D world
-const PIX_SCREENS = new Set(['title', 'soloPick', 'lobby', 'settings']);
+const PIX_SCREENS = new Set(['title', 'soloPick', 'lobby', 'settings', 'admin']);
 const title = new Title($('pix'), sound, () => $('title').classList.add('menu'));
 const pressStart = () => { if (!window.__bootDone) return false; if (!match && curScreen === 'title' && title.state !== 'evil') { sound.start(); title.press(); return true; } return false; };
 $('pix').addEventListener('pointerdown', () => { sound.start(); pressStart(); });
@@ -1402,7 +1434,106 @@ let menuMode = 'title'; // what the background camera does: title | custom
 let net = null;
 
 function setStatus(msg, err = false) { const s = $('status'); s.textContent = msg; s.classList.toggle('err', err); }
-function updateWho() { $('whoami').textContent = `${myName()} · ${CHARS[save.char].name}`; }
+function updateWho() { $('whoami').textContent = `${myName()}${acct.user ? ' ✓' : ''} · ${CHARS[save.char].name}`; }
+/** The title's account line: who you're signed in as, or how to sign in. */
+function renderAcct() {
+  const el = $('acct');
+  if (acct.user) el.innerHTML = `<span class="tick">✓</span> ${isOwner() ? `<b class="own">👑 ${esc(myName())}</b><span class="owntag">OWNER</span>` : `<b>${esc(myName())}</b>`}`;
+  else el.innerHTML = `Guest · <a href="../../" target="_top">Sign in</a> to use your account`;
+  el.title = acct.user ? 'Signed in with your Free Period account' : '';
+}
+function accountChanged() { renderAcct(); updateWho(); if (curScreen === 'custom') renderCustom(); }
+renderAcct();
+refreshAccount(acct).then((a) => { acct = a; accountChanged(); });
+// signing in or out on Free Period in another tab
+addEventListener('storage', (e) => { if (e.key === 'fp.token' || e.key === 'fp.user' || e.key === null) { acct = account(); accountChanged(); refreshAccount(acct).then((a) => { acct = a; accountChanged(); }); } });
+
+/** The owner's announcement: a banner in a round, a line in the lobby. */
+function showAnn(m) {
+  sound.play('click');
+  const line = `<b class="own">📢 ${esc(m.by)}</b> ${esc(m.text)}`;
+  if (match && !match.done) {
+    const b = $('annBar'); b.innerHTML = `<small>📢 ${esc(m.by)} · OWNER</small>${esc(m.text)}`; b.classList.add('on');
+    clearTimeout(showAnn.t); showAnn.t = setTimeout(() => b.classList.remove('on'), 5000);
+    feed(line);
+  }
+  else $('lobbyAnn').innerHTML = line;
+}
+
+// ------------------------------------------------------------------ ADMIN.EXE (the owner's tools)
+let adminFrom = null;
+const canAdmin = () => (match ? !!match.isOwn : !!(net && net.own));
+function openAdmin() {
+  if (curScreen === 'admin' || !canAdmin()) return;
+  adminFrom = curScreen;
+  if (match && !match.done) paused = true;
+  $('admNote').textContent = '';
+  renderAdmin(); show('admin');
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+function closeAdmin() {
+  if (curScreen !== 'admin') return;
+  if (match && !match.done) { paused = false; show(null); if (!touch) canvas.requestPointerLock?.()?.catch?.(() => {}); }
+  else show(adminFrom && adminFrom !== 'admin' ? adminFrom : net ? 'lobby' : 'title');
+}
+function renderAdmin() {
+  const inGame = !!(match && !match.done && match.isOwn && match.phase !== 'over');
+  const people = net && net.lobby ? net.lobby.players : [];
+  $('admWho').innerHTML = `<b class="own">👑 ${esc(myName())}</b><span class="owntag">OWNER</span> · ${net ? `room ${esc((net.lobby && net.lobby.code) || '')}` : 'solo game'}`;
+  const room = [];
+  if (net && !match) room.push('<button data-a="start">Start now</button>');
+  if (inGame) room.push('<button data-a="end">End round</button>');
+  $('admRoomBtns').innerHTML = room.join('');
+  $('admRoomBtns').classList.toggle('hidden', !room.length);
+  $('admExeWrap').classList.toggle('hidden', !net);
+  $('admExe').innerHTML = net ? [['', 'Random'], ['0', 'A bot'], ...people.map((p) => [String(p.id), p.id === net.me ? 'Me' : p.name])]
+    .map(([id, l]) => `<button data-a="exe" data-id="${id}" class="${(admExe === null ? '' : admExe) === id ? 'on' : ''}">${esc(l)}</button>`).join('') : '';
+  const others = net ? people.filter((p) => p.id !== net.me) : [];
+  $('admKickWrap').classList.toggle('hidden', !others.length);
+  $('admKick').innerHTML = others.map((p) => `<button data-a="kick" data-id="${p.id}">✕ ${esc(p.name)}</button>`).join('');
+  $('admAnnWrap').classList.toggle('hidden', !net);
+  $('admPow').classList.toggle('hidden', !inGame);
+  const POW = [['god', 'God mode'], ['speed', 'Super speed'], ['fly', touch ? 'Fly (JUMP goes up)' : 'Fly (Space up, C down)'], ['nocd', 'No cooldowns']];
+  $('admPowers').innerHTML = POW.map(([k, l]) => `<button data-a="pow" data-k="${k}" class="${adm[k] ? 'on' : ''}">${l}${adm[k] ? ' ON' : ''}</button>`).join('')
+    + (inGame && match.role === 'exe' ? '<button data-a="meter">Fill Awakening</button>' : '');
+  $('admRnd').classList.toggle('hidden', !inGame);
+  if (inGame) {
+    const targets = [...match.views.values()].filter((v) => v.id !== match.me);
+    $('admTp').innerHTML = targets.map((v) => `<button data-a="tp" data-id="${v.id}">${esc(v.role === 'exe' ? VARIANTS[v.variant].name : v.name)}</button>`).join('')
+      + ZONES.map((z, i) => `<button data-a="tpz" data-z="${i}">${esc(z.name)}</button>`).join('');
+    $('admRound').innerHTML = '<button data-a="tasks">Finish all tasks</button><button data-a="time" data-d="60">+1 min</button><button data-a="time" data-d="-60">−1 min</button><button data-a="world">Switch world</button>';
+  }
+  $('admEmpty').classList.toggle('hidden', !!(inGame || net));
+}
+$('admin').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-a]');
+  if (!b || !canAdmin()) return;
+  sound.play('click');
+  const a = b.dataset.a, s = match && !match.done ? match.s : null, note = (t) => { $('admNote').textContent = t; };
+  switch (a) {
+    case 'start': if (net) net.admin({ c: 'start' }); closeAdmin(); return;
+    case 'end': if (s) s.admin({ c: 'end' }); closeAdmin(); return;
+    case 'exe': admExe = b.dataset.id === '' ? null : b.dataset.id; if (net) net.admin({ c: 'exe', id: admExe === null ? null : +admExe }); break;
+    case 'kick': if (net) net.admin({ c: 'kick', id: +b.dataset.id }); break;
+    case 'pow': {
+      const k = b.dataset.k; adm[k] = !adm[k];
+      if ((k === 'god' || k === 'nocd') && s) s.admin({ c: k, on: adm[k] });
+      note(`${b.textContent.replace(/ ON$/, '')} ${adm[k] ? 'on' : 'off'}`);
+      break;
+    }
+    case 'meter': if (s) s.admin({ c: 'meter' }); note('Awakening meter is full. Press V.'); break;
+    case 'tp': if (s) s.admin({ c: 'tp', id: +b.dataset.id }); closeAdmin(); return;
+    case 'tpz': if (s) s.admin({ c: 'tp', zone: +b.dataset.z }); closeAdmin(); return;
+    case 'tasks': if (s) s.admin({ c: 'tasks' }); note('Every task is done. The gates are open.'); break;
+    case 'time': if (s) s.admin({ c: 'time', d: +b.dataset.d }); note(+b.dataset.d > 0 ? 'Added a minute' : 'Took away a minute'); break;
+    case 'world': if (s) s.admin({ c: 'world' }); closeAdmin(); return;
+  }
+  renderAdmin();
+});
+const sendAnn = () => { const t = $('admAnn').value.trim(); if (!t || !net || !net.own) return; net.admin({ c: 'ann', text: t }); $('admAnn').value = ''; $('admNote').textContent = 'Sent to everyone in the room'; };
+$('admAnnGo').onclick = () => { sound.play('click'); sendAnn(); };
+$('admAnn').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendAnn(); });
+$('admClose').onclick = () => { sound.play('click'); closeAdmin(); };
 
 function endMatch() { if (match) { match.dispose(); match = null; } paused = false; if (document.pointerLockElement) document.exitPointerLock(); }
 function leaveToMenu() {
@@ -1416,7 +1547,7 @@ function startSolo() {
   endMatch();
   let role = save.soloRole;
   if (role === 'random') role = Math.random() < 1 / 3 ? 'exe' : 'surv';
-  const session = new LocalSession({ seed: Math.floor(Math.random() * 1e9), players: [{ id: 1, name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock() }], exeId: role === 'exe' ? 1 : null, me: 1 });
+  const session = new LocalSession({ seed: Math.floor(Math.random() * 1e9), players: [{ id: 1, name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock(), own: isOwner(), acct: !!acct.user }], exeId: role === 'exe' ? 1 : null, me: 1 });
   match = new Match(session, { solo: true });
   show(null);
   sound.start();
@@ -1445,14 +1576,18 @@ async function goOnline(mode) {
   if (mode === 'join' && code.length !== 4) { setStatus('Type the 4-letter room code first.', true); return; }
   setStatus(mode === 'quick' ? 'Finding a room… (the free server can take up to a minute to wake up)' : 'Connecting… (the free server can take up to a minute to wake up)');
   for (const b of ['bQuick', 'bCreate', 'bJoin']) $(b).disabled = true;
+  $('lobbyAnn').innerHTML = ''; admExe = null;
   if (net) net.close();
   net = new NetSession(serverUrl);
   try {
-    const w = await net.connect({ name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock(), mode, code });
+    const w = await net.connect({ name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock(), mode, code, token: acct.token || undefined });
     setStatus('');
     net.on.lobby = (m) => renderLobby(m);
+    net.on.acct = () => { if (net.lobby) renderLobby(net.lobby); };
+    net.on.ann = (m) => showAnn(m);
+    net.on.adm = (m) => { $('admNote').textContent = m.msg; if (match && !match.done) feed(`<b class="own">ADMIN</b> ${esc(m.msg)}`); };
     net.on.round = () => { endMatch(); match = new Match(net, { solo: false }); show(null); if (!touch) canvas.requestPointerLock?.()?.catch?.(() => {}); };
-    net.on.close = () => { const wasIn = !!match || !$('lobby').classList.contains('hidden'); leaveToMenu(); if (wasIn) setStatus('Lost connection to the server.', true); };
+    net.on.close = () => { const wasIn = !!match || !$('lobby').classList.contains('hidden'), kicked = net && net.kicked; leaveToMenu(); if (kicked) setStatus('The owner kicked you from that room.', true); else if (wasIn) setStatus('Lost connection to the server.', true); };
     renderLobby(w);
     if (w.round) { match = new Match(net, { solo: false }); show(null); }
     else show('lobby');
@@ -1472,8 +1607,10 @@ function renderLobby(m) {
   const isHost = m.host === net.me;
   $('lobbyKind').textContent = m.public ? 'Quick play room' : 'Room code (tell your friends)';
   $('lobbyCode').textContent = m.code;
-  $('lobbyList').innerHTML = m.players.map((p) => `<div><i style="background:${CHARS[p.char] ? CHARS[p.char].accent : '#fff'}"></i>${esc(p.name)}${p.id === net.me ? ' (you)' : ''}<small>${CHARS[p.char] ? CHARS[p.char].name : ''}${p.id === m.host ? ' · host' : ''}</small></div>`).join('');
+  $('lobbyList').innerHTML = m.players.map((p) => `<div><i style="background:${CHARS[p.char] ? CHARS[p.char].accent : '#fff'}"></i>${p.own ? `<b class="own">👑 ${esc(p.name)}</b><span class="owntag">OWNER</span>` : esc(p.name)}${p.acct && !p.own ? ' <span class="tick" title="Signed in with a Free Period account">✓</span>' : ''}${p.id === net.me ? ' (you)' : ''}<small>${CHARS[p.char] ? CHARS[p.char].name : ''}${p.id === m.host ? ' · host' : ''}</small></div>`).join('');
   $('lobbyStart').classList.toggle('hidden', !isHost || m.public);
+  $('lobbyAdmin').classList.toggle('hidden', !net.own);
+  if (curScreen === 'admin') renderAdmin();
   const startAt = m.startIn != null ? performance.now() + m.startIn * 1000 : null;
   clearInterval(lobbyTimer);
   const tick = () => {
@@ -1484,11 +1621,12 @@ function renderLobby(m) {
     $('lobbyStatus').textContent = s;
   };
   tick(); lobbyTimer = setInterval(tick, 250);
-  if (!match || match.done) { if (match && match.done) { endMatch(); } show('lobby'); }
+  if (!match || match.done) { if (match && match.done) { endMatch(); } if (curScreen !== 'admin') show('lobby'); }
 }
 $('lobbyStart').onclick = () => { sound.play('click'); net && net.start(); };
 $('lobbyLeave').onclick = () => { sound.play('click'); leaveToMenu(); };
 $('lobbyCustom').onclick = () => { sound.play('click'); openCustom('lobby'); };
+$('lobbyAdmin').onclick = () => { sound.play('click'); openAdmin(); };
 
 // ------------------------------------------------------------------ customize
 let customFrom = 'title', tab = 'char', preview = null;
@@ -1535,11 +1673,13 @@ function chips(id, list, cur, onPick) {
 function renderCustom() {
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   for (const t of ['char', 'avatar', 'exe']) $('tab-' + t).classList.toggle('hidden', t !== tab);
-  const lvLine = (k) => { const l = lvOf(k); return `<div class="lv">Level ${l.lv}${l.lv < LEVEL.max ? ` <span class="xpbar"><i style="width:${Math.round((l.into / l.need) * 100)}%"></i></span>` : ' · MAX'}</div>`; };
+  const lvLine = (k) => { const l = isOwner() ? { lv: LEVEL.max } : lvOf(k); return `<div class="lv">Level ${l.lv}${l.lv < LEVEL.max ? ` <span class="xpbar"><i style="width:${Math.round((l.into / l.need) * 100)}%"></i></span>` : ' · MAX'}</div>`; };
   $('charCards').innerHTML = CHAR_IDS.map((id) => { const c = CHARS[id], q = unlocked(id); return `<button class="card${save.char === id ? ' on' : ''}" data-id="${id}" style="--accent:${c.accent}"><b>${c.name}</b><i>${c.role}</i>${lvLine(id)}<div class="ab">E ${c.abilityName}</div><div class="ab">R ${c.r.name}</div><p>${esc(c.r.desc)}</p><div class="ab${q ? '' : ' lockd'}">Q ${c.q.name}${q ? '' : ' 🔒 Lv 10'}</div><p>${esc(c.q.desc)}</p></button>`; }).join('');
   $('exeCards').innerHTML = VARIANT_IDS.map((id) => { const v = VARIANTS[id], aw = unlocked(id); return `<button class="card${save.variant === id ? ' on' : ''}" data-id="${id}" style="--accent:#ff2a3a"><b>${esc(v.name)}</b><i>${v.role} · speed ${v.speed} · hits ${v.dmg}</i>${lvLine(id)}<p>${esc(v.desc)}</p><div class="ab">Click ${v.atkName}</div>${['abl', 'ab2', 'ab3', 'ab4'].map((k, i) => `<div class="ab">${'ERQF'[i]} ${v.moves[k].name}</div>`).join('')}<div class="ab${aw ? '' : ' lockd'}">V ${v.awake.name}${aw ? '' : ' 🔒 Lv 10'}</div><p>${esc(v.awake.desc)}</p></button>`; }).join('');
   const L = save.look;
-  $('name').value = save.name;
+  $('name').value = acct.user ? myName() : save.name;
+  $('name').disabled = !!acct.user;
+  $('nameNote').textContent = acct.user ? 'Your name comes from your Free Period account.' : '';
   swatches('swSkin', SKINS, L.skin, (v) => { L.skin = v; });
   swatches('swShirt', COLORS, L.shirt, (v) => { L.shirt = v; });
   chips('chStyle', SHIRT_STYLES, L.style, (v) => { L.style = v; });
@@ -1577,12 +1717,13 @@ $('bSettings').onclick = () => { sound.start(); sound.play('click'); settingsFro
 function togglePause(force) {
   if (!match || match.done) return;
   paused = force === true ? true : !paused;
-  if (paused) { show('pause'); $('pNote').textContent = match.solo ? 'The game is paused.' : 'Online games keep going while you are paused.'; }
+  if (paused) { show('pause'); $('pNote').textContent = match.solo ? 'The game is paused.' : 'Online games keep going while you are paused.'; $('pAdmin').classList.toggle('hidden', !match.isOwn); }
   else { show(null); if (!touch) canvas.requestPointerLock?.()?.catch?.(() => {}); }
 }
 $('pResume').onclick = () => { sound.play('click'); togglePause(false); paused = false; show(null); if (!touch) canvas.requestPointerLock?.()?.catch?.(() => {}); };
 $('pSettings').onclick = () => { sound.play('click'); settingsFrom = 'pause'; renderSettings(); show('settings'); };
 $('pLeave').onclick = () => { sound.play('click'); leaveToMenu(); };
+$('pAdmin').onclick = () => { sound.play('click'); paused = false; openAdmin(); };
 
 // ------------------------------------------------------------------ server status on the title screen
 async function refreshOnline() {
@@ -1681,5 +1822,5 @@ requestAnimationFrame(frame);
 })();
 
 // for testing from the console / headless browser
-window.__hx = { get match() { return match; }, world, save, startSolo, leaveToMenu, input, sound, fx, renderer, camera, title, show };
+window.__hx = { get match() { return match; }, get net() { return net; }, get acct() { return acct; }, adm, openAdmin, closeAdmin, world, save, startSolo, leaveToMenu, input, sound, fx, renderer, camera, title, show };
 window.__hxGround = (x, z) => supportAt(x, z, terrainH(x, z) + 0.2);

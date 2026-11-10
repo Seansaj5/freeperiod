@@ -156,6 +156,26 @@ export function nameTag(text, color = '#ffffff') {
   return s;
 }
 
+/** The owner's name tag: their name in gold under a red OWNER badge. */
+export function ownerTag(text) {
+  const c = canvas(512, 176), g = c.getContext('2d');
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '800 38px Outfit, Arial, sans-serif';
+  const bw = g.measureText('OWNER').width + 40;
+  g.fillStyle = '#000'; g.fillRect(256 - bw / 2 + 5, 11, bw, 50);
+  g.fillStyle = '#c8001a'; g.fillRect(256 - bw / 2, 6, bw, 50);
+  g.lineWidth = 4; g.strokeStyle = '#ff6a6a'; g.strokeRect(256 - bw / 2 + 2, 8, bw - 4, 46);
+  g.fillStyle = '#ffffff'; g.fillText('OWNER', 256, 33);
+  g.font = '800 56px Outfit, Arial, sans-serif';
+  g.lineWidth = 11; g.strokeStyle = 'rgba(0,0,0,0.8)'; g.strokeText(text, 256, 120);
+  const grad = g.createLinearGradient(0, 92, 0, 148); grad.addColorStop(0, '#fff2a8'); grad.addColorStop(1, '#ffb800');
+  g.fillStyle = grad; g.fillText(text, 256, 120);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true, fog: false }));
+  s.scale.set(2.3, 2.3 * 176 / 512, 1); s.renderOrder = 20;
+  return s;
+}
+
 // ------------------------------------------------------------------ the rig
 export class Rig {
   /** Fewer trail pieces on the 'Fast' graphics setting. */
