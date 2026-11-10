@@ -6,18 +6,24 @@ let user = null;
 const listeners = new Set();
 function emit() { for (const fn of [...listeners]) { try { fn(user); } catch { /* ignore */ } } }
 
-export function getUser() { return user; }
+// Cached user (fp.user) lets the UI show the signed-in state while a sleeping server wakes.
+export function getUser() {
+  if (user) return user;
+  return getToken() ? store.json('fp.user', null) : null;
+}
 export function getToken() { return store.get('fp.token'); }
 export function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
 function setSession(token, u) {
   store.set('fp.token', token);
-  user = u || null;
+  user = u ? { username: u.username, role: u.role } : null;
+  if (user) store.setJson('fp.user', user); else store.del('fp.user');
   emit();
 }
 function clear() {
+  const had = getUser() !== null;
   store.del('fp.token');
-  const had = user !== null;
+  store.del('fp.user');
   user = null;
   if (had) emit();
 }
@@ -43,17 +49,19 @@ export async function resume() {
   if (!token) return null;
   try {
     const d = await call('/api/me', { auth: token });
-    user = d.user || null;
+    user = d.user ? { username: d.user.username, role: d.user.role } : null;
+    if (user) store.setJson('fp.user', user); else store.del('fp.user');
     emit();
   } catch (e) {
     if (e && e.status === 401) clear(); // dead token; anything else (waking, offline) keeps it
   }
-  return user;
+  return getUser();
 }
 
 // Token + user handed over by the game frame. No-op when it matches what we have.
 export function adopt(token, u) {
   if (!token || !u) return;
-  if (getToken() === token && user && user.username === u.username) return;
+  const cur = getUser();
+  if (getToken() === token && cur && cur.username === u.username) return;
   setSession(token, u);
 }

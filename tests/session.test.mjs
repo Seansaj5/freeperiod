@@ -67,3 +67,19 @@ test('adopt same token is a no-op', async () => {
   s.adopt('other', user);
   assert.equal(calls, 1);
 });
+
+test('cached user shows immediately while resume is pending', async () => {
+  const s = await setup({ token: 'tok', fetch: () => new Promise(() => {}) });
+  globalThis.localStorage.setItem('fp.user', JSON.stringify({ username: 'sean', role: 'p' }));
+  assert.deepEqual(s.getUser(), { username: 'sean', role: 'p' });
+  s.resume(); // never resolves
+  assert.equal(s.getUser().username, 'sean');
+});
+
+test('401 and logout clear cached user too', async () => {
+  const s = await setup({ token: 'tok', fetch: async () => json(401, { ok: false }) });
+  globalThis.localStorage.setItem('fp.user', JSON.stringify({ username: 'sean', role: 'p' }));
+  await s.resume();
+  assert.equal(s.getUser(), null);
+  assert.equal(globalThis.localStorage.getItem('fp.user'), null);
+});

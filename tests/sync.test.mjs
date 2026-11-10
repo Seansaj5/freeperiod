@@ -21,6 +21,10 @@ test('none when both match', () => {
   assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'L', at: 5 }, record: { hash: h('L'), at: 5 } }), 'none');
   assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'C', at: 5 }, record: { hash: h('L'), at: 5 } }), 'none');
 });
+test('first sync: cloud save wins over fresh local', () => {
+  assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'C', at: 5 }, record: null }), 'pull');
+  assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'L', at: 5 }, record: null }), 'none');
+});
 test('push when no record and no cloud', () => {
   assert.equal(decideSync({ localRaw: 'L', cloud: null, record: null }), 'push');
 });

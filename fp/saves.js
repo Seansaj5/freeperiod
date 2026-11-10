@@ -7,8 +7,18 @@ import { hashString, decideSync } from './sync.js';
 const MAX_DATA = 16384;
 const recKey = id => 'fp.sync.' + id;
 
-export async function syncGame(game, { keepalive = false } = {}) {
-  if (!game || !game.saveKey || !game.id || !session.getToken()) return 'none';
+const inflight = new Map();
+
+// One sync per game at a time; callers during a run share its result.
+export function syncGame(game, opts) {
+  if (!game || !game.saveKey || !game.id || !session.getToken()) return Promise.resolve('none');
+  if (inflight.has(game.id)) return inflight.get(game.id);
+  const p = doSync(game, opts || {}).finally(() => inflight.delete(game.id));
+  inflight.set(game.id, p);
+  return p;
+}
+
+async function doSync(game, { keepalive = false } = {}) {
   const localRaw = store.get(game.saveKey);
   const record = store.json(recKey(game.id), null);
   let cloud = null;
@@ -19,6 +29,9 @@ export async function syncGame(game, { keepalive = false } = {}) {
   const action = decideSync({ localRaw, cloud, record });
   try {
     if (action === 'pull') {
+      // The GET may have taken a while; never clobber progress made meanwhile.
+      if (store.get(game.saveKey) !== localRaw) return 'none';
+      if (localRaw && localRaw !== cloud.data) store.set('fp.backup.' + game.id, localRaw);
       if (!store.set(game.saveKey, cloud.data)) return 'none';
       store.setJson(recKey(game.id), { hash: hashString(cloud.data), at: cloud.at });
     } else if (action === 'push') {
@@ -53,7 +66,12 @@ export function watch(game) {
     clearTimeout(timer);
     const raw = store.get(game.saveKey);
     const rec = store.json(recKey(game.id), null);
-    if (raw != null && (!rec || rec.hash !== hashString(raw))) syncGame(game, { keepalive: true });
+    if (raw == null || raw.length > MAX_DATA || !session.getToken()) return;
+    if (rec && rec.hash === hashString(raw)) return;
+    // Unloading: no pre-GET (its continuation would never run); local wins, so POST directly.
+    call('/api/fp/save', { body: { game: game.id, data: raw }, auth: true, keepalive: true })
+      .then(d => store.setJson(recKey(game.id), { hash: hashString(raw), at: d.at }))
+      .catch(() => {});
   };
   globalThis.addEventListener('storage', onStorage);
   globalThis.addEventListener('pagehide', onHide);

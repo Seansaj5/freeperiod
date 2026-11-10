@@ -19,7 +19,8 @@ export function decideSync({ localRaw, cloud, record }) {
   const hasLocal = localRaw != null;
   if (!hasLocal) return cloud && cloud.data != null ? 'pull' : 'none';
   if (cloud && cloud.data === localRaw) return 'none';
-  if (!record) return 'push';
+  // First sync on this device: an existing cloud save wins over a fresh local one.
+  if (!record) return cloud && cloud.data != null ? 'pull' : 'push';
   if (hashString(localRaw) !== record.hash) return 'push';
   if (cloud && cloud.data != null && cloud.at > record.at) return 'pull';
   return 'none';
