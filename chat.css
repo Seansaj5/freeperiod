@@ -656,12 +656,22 @@ body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex;
   --cx-raise: #141b2a; --cx-line: rgba(255, 255, 255, 0.07); --cx-text: #e7ecf9; --cx-body: #d9e0f0; --cx-dim: #9aa3bd; --cx-faint: #67708b;
   --cx-red: #ff7a66; --cx-gold: #ffc847; --cx-hover: rgba(255, 255, 255, 0.035); --cx-side: #0f1522;
 }
+.cx-av-dot { z-index: 2; }
+.cx-av .fp-frame { z-index: 1; }
 .cx-dim { color: var(--cx-dim); font-size: 13px; }
 .cx-btn.ghost.danger { color: #ffb3a8; }
 .cx-btn.ghost.danger:hover { background: rgba(255, 122, 102, 0.12); }
 .cx-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
 .cx-iconbtn.danger:hover { color: var(--cx-red); background: rgba(255, 122, 102, 0.1); border-color: rgba(255, 122, 102, 0.3); }
 
+/* ---------- badges next to names in messages ---------- */
+.cx-badges { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.cx-bdg { display: inline-grid; place-items: center; flex: none; color: var(--bc); }
+.cx-bdg.early .cx-ic { width: 13px; height: 13px; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--bc) 55%, transparent)); }
+.cx-bdg.rank {
+  height: 17px; padding: 0 6px; border-radius: 6px; font: 800 9.5px/17px 'Outfit', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap;
+  background: color-mix(in srgb, var(--bc) 13%, transparent); border: 1px solid color-mix(in srgb, var(--bc) 42%, transparent);
+}
 
 /* ---------- menus (message "More", member menu) ---------- */
 .cx-menu {
@@ -1001,3 +1011,7 @@ body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex;
   .cx-top { gap: 8px; }
   .cx-top .fp-chip .fp-badge { display: none; } /* the owner's role tag: the chip stays on screen at 360 px */
 }
+/* The profile effect plays over the banner and the card, under the name and text so they stay readable. */
+.cx-pc > .fp-effect { z-index: 1; }
+.cx-pc-top, .cx-pc-body { z-index: 2; }
+.cx-pc-user, .cx-pc-badges { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
