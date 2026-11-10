@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { matchFaq } from '../fp/chat/faq.js';
+import { matchFaq, isRealQuestion } from '../fp/chat/faq.js';
 
 // Fixture only: the real entries are seeded by the migration.
 const FAQ = [
@@ -34,4 +34,9 @@ test('bad input never throws', () => {
 test('punctuation and case are ignored; the best entry wins', () => {
   assert.equal(matchFaq('HOW DO I REPORT SOMEONE?!', FAQ).item.id, 4);
   assert.equal(matchFaq('Why is bing ball waking up so slow', FAQ).item.id, 3);
+});
+
+test('isRealQuestion mirrors the server gate', () => {
+  for (const t of ['hi', 'lol', 'thanks so much', 'ok', '12345 678 90', '', null]) assert.equal(isRealQuestion(t), false, String(t));
+  for (const t of ['how do i get more cars', 'what is 2+2']) assert.equal(isRealQuestion(t), true, t);
 });

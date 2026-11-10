@@ -154,11 +154,15 @@ export function mountComposer(el, { onSend, onTyping, onLogin } = {}) {
     },
     focus() { if (mode === 'open' && finePointer()) ta.focus(); },
     // A send that failed before it became a pending message: put the text back so nothing is lost.
-    restore(body) {
-      if (!body || ta.value.trim()) return;
+    // k (optional): put it back in that conversation's draft even if another one is open now.
+    restore(body, k) {
+      if (!body) return;
+      if (k != null && k !== key) { const d = drafts.get(k) || { text: '', reply: null, files: [], errors: [] }; drafts.set(k, d); if (!String(d.text).trim()) d.text = body; return; }
+      if (ta.value.trim()) return;
       ta.value = body; cur().text = body;
       autosize(); refresh();
     },
+    key: () => key,
     setReply,
     notice: showNotice,
     // mode: 'open' | 'locked' (read-only channel; lockKind 'muted' | 'banned' | 'blocked' for those lines) | 'guest' | 'wait' (chat not ready)

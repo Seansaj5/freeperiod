@@ -1109,7 +1109,11 @@ body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex;
 .cx-hp-chip { max-width: 100%; height: 32px; padding: 0 12px; border-radius: 16px; cursor: pointer; font: 600 13px 'Outfit', sans-serif; color: var(--cx-text); background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: background 0.15s, border-color 0.15s; }
 .cx-hp-chip:hover { background: rgba(61, 224, 255, 0.12); border-color: rgba(61, 224, 255, 0.45); }
 .cx-hp-chip.more { color: var(--lime); border-style: dashed; }
-.cx[data-layout="narrow"] .cx-hp-chips { max-height: 72px; }
+.cx[data-layout="narrow"] .cx-hp-chips:not(.all) { flex-wrap: nowrap; max-height: none; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; margin-right: -2px; }
+.cx[data-layout="narrow"] .cx-hp-chips:not(.all)::-webkit-scrollbar { display: none; }
+.cx[data-layout="narrow"] .cx-hp-chips:not(.all) .cx-hp-chip { flex: none; max-width: 78vw; }
+.cx[data-layout="narrow"] .cx-hp-chips:not(.all) .cx-hp-chip.more { order: -1; }
+.cx[data-layout="narrow"] .cx-hp-chips.all { max-height: 24vh; }
 
 /* ---------- Hallpass owner tools ---------- */
 .cx-hpman .cx-hp-ai { align-items: flex-start; }
@@ -1141,4 +1145,6 @@ body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex;
   .cx-fr-acts .cx-fr-msg .cx-ic { width: 18px; height: 18px; }
   .cx-fr-text small { max-width: 100%; }
 }
-.cx[data-layout="narrow"] .cx-help-card { max-height: 34vh; }
+.cx[data-layout="narrow"] .cx-help-card { max-height: 30vh; padding: 10px 12px 0; gap: 6px; }
+.cx[data-layout="narrow"] .cx-hc-a { font-size: 14px; line-height: 1.4; }
+.cx[data-layout="narrow"] .cx-hc-acts { position: sticky; bottom: 0; padding: 6px 0 10px; background: #0d1a26; }

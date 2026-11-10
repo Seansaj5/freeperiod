@@ -37,3 +37,13 @@ export function matchFaq(question, faq) {
   }
   return best;
 }
+
+// Is this worth answering at all? Same gate as the server's Hallpass function (supabase/functions/hallpass/index.ts, "Cheap
+// gates before any AI spend"): chatter, one or two words, or no letters is just conversation, not a question for the bot.
+// Hub addition over the server set: "so much very a lot" so "thanks so much" is chatter here (the server would still let it through).
+const CHATTER = new Set(('hi hello hey hiya yo sup hii heyy thanks thank thx ty tysm you ok okay k kk lol lmao haha cool nice bye gg wow yes no yeah yep nope please pls good morning night afternoon night np welcome so much very a lot').split(' '));
+export function isRealQuestion(text) {
+  const t = String(text == null ? '' : text);
+  const words = t.toLowerCase().replace(/[^a-z0-9\s']/g, ' ').split(/\s+/).filter(Boolean);
+  return !(words.length < 3 || !/[a-z]/i.test(t) || words.every((w) => CHATTER.has(w)));
+}

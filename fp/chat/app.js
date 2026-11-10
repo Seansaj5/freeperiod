@@ -680,7 +680,8 @@ export function mountChatApp(root, { compact = false } = {}) {
   // message is posted (for the AI to answer) only when nothing matched and AI answers are on.
   function send(opts) {
     if (st === 'ready' && helpKey() && opts.body && opts.body.trim() && !(opts.files && opts.files.length) && !opts.replyTo) {
-      help.ask(opts.body.trim()).then((r) => { if (r === 'send') sendNow(opts); }, () => sendNow(opts));
+      const key = composer.key(), body = opts.body;
+      help.ask(opts.body.trim()).then((r) => { if (r === 'send' || r === 'post') sendNow(opts); else if (r === 'gone') composer.restore(body, key); }, () => sendNow(opts));
       return true;
     }
     return sendNow(opts);

@@ -2,14 +2,15 @@
 // asker sees (it's drawn here, never stored or sent). Typing a question matches the FAQ first (free, instant); when nothing
 // matches, AI answers come from the server only when the owner has switched them on.
 import { h } from '../../ui.js';
-import { matchFaq } from '../faq.js';
+import { matchFaq, isRealQuestion } from '../faq.js';
 import { icon, avatar } from './common.js';
 
+const REFETCH_MS = 30_000; // typed questions use the cached FAQ + ai_on; refetch at most this often
 const FIRST = 6; // buttons shown before "More questions"
 
 /**
  * cx: { faq() -> FAQ rows, aiOn() -> bool, refresh() -> Promise<{ faq, aiOn }>, bot() -> Hallpass profile | null, askAI(question) }
- * @returns {{ el, setTarget(key|null), ask(text) -> Promise<'card'|'send'>, pick(item), clear() }}
+ * @returns {{ el, setTarget(key|null), ask(text) -> Promise<'card'|'send'|'post'|'gone'>, pick(item), clear() }}
  */
 export function mountHelp(el, cx) {
   el.classList.add('cx-help');
@@ -18,6 +19,7 @@ export function mountHelp(el, cx) {
   let card = null;     // { question, answer, kind: 'faq' | 'none' }
   let showAll = false;
   let seq = 0;
+  let fetchedAt = 0;
 
   const botAvatar = () => { const b = cx.bot(); return b ? avatar(b, { size: 30, frame: false }) : h('span', { class: 'cx-av cx-help-bot', style: '--av:30px', 'aria-hidden': 'true' }, icon('sparkle')); };
 
@@ -55,18 +57,23 @@ export function mountHelp(el, cx) {
   const api = {
     el,
     // key: the conversation the helper is for ('c:7', 'd:<id>'), or null when the open conversation isn't a help one.
-    setTarget(k) { const changed = k !== key; if (changed) { key = k; card = null; showAll = false; seq++; } draw(); if (k && changed) cx.refresh().then(() => { if (key === k) draw(); }, () => {}); },
+    setTarget(k) { const changed = k !== key; if (changed) { key = k; card = null; showAll = false; seq++; } draw(); if (k && changed) cx.refresh().then(() => { fetchedAt = Date.now(); if (key === k) draw(); }, () => {}); },
     redraw: draw,
     pick(item) { card = { question: item.question, answer: item.answer, kind: 'faq' }; draw(); const c = el.querySelector('.cx-help-card'); if (c && c.scrollIntoView) c.scrollIntoView({ block: 'nearest' }); },
     clear() { card = null; draw(); },
-    // A typed question. 'card': answered or explained here (nothing is sent); 'send': the caller posts it for the AI.
+    // A typed question. 'card': answered or explained here (nothing is sent); 'send': the caller posts it for the AI;
+    // 'post': chatter, not a question, so it is just a normal message (no bot card); 'gone': the conversation changed meanwhile.
     async ask(text) {
       const mine = seq;
       let fresh = { faq: cx.faq(), aiOn: cx.aiOn() };
-      try { fresh = await cx.refresh(); } catch { /* use what we have */ }
-      if (mine !== seq) return 'gone';
+      if (Date.now() - fetchedAt >= REFETCH_MS) {
+        fetchedAt = Date.now(); // set first so a failed or slow fetch still counts as the one try in this window
+        try { fresh = await cx.refresh(); } catch { /* use what we have */ }
+        if (mine !== seq) return 'gone';
+      }
       const hit = matchFaq(text, fresh.faq);
       if (hit) { card = { question: text, answer: hit.item.answer, kind: 'faq' }; draw(); return 'card'; }
+      if (!isRealQuestion(text)) return 'post';
       if (fresh.aiOn) return 'send';
       card = { question: text, answer: '', kind: 'none' };
       draw();
