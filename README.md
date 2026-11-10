@@ -29,6 +29,9 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   Look: the pixel-art title screen (Dreamy Hills turning into horror.exe) is drawn in `js/title.js`; in game the 3D view
   renders at about 400 lines with a dithered 16-bit color pass (`RetroShader` in `js/fx.js`, Settings → Look switches it off).
   The pixel font is Press Start 2P (SIL Open Font License, `games/horror-exe/fonts/OFL.txt`).
+  Boot: index.html shows a fake console with the real loading bar (`window.__boot`), `js/boot.js` ends it with a fake crash;
+  add `?boot=0` to skip it (the headless tests do). Glitch.exe's TV face is three ChatGPT-made frames in `img/`
+  (`drawGlitchFrame` in `js/rig.js`). Monster trails (afterimages, drips, voxels) are pooled per rig and aged by `tickRigFx`.
 
 Shared libraries for games go in `lib/` (Three.js r170 is there, plus the post-processing addons it needs for bloom in `lib/addons/`, mapped as `three/addons/`).
 

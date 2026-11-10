@@ -51,6 +51,8 @@ export const RetroShader = {
     }`,
 };
 
+// what each monster says when it hits you (big, glitching, in the middle of the screen)
+const TAUNTS = { exe: ['FOUND YOU', 'TOO LATE', 'NO EXIT', 'STAY', 'RUN AGAIN', 'I SEE YOU'], glitch: ['ERR0R', 'FATAL ERROR', 'SIGNAL LOST', 'CORRUPTED', '0xDEAD'], grin: ['SMILE', 'HOLD STILL', 'GOT YOU', 'SAY CHEESE'] };
 const WHISPERS = ['BEHIND YOU', "DON'T STOP RUNNING", 'IT SEES YOU', 'STAY', 'YOU CAN\'T HIDE HERE', 'WHY ARE YOU STILL HERE', 'NOT FAST ENOUGH', 'LOOK UP', 'COME BACK', 'I FOUND YOU'];
 
 export class Fx {
@@ -62,6 +64,7 @@ export class Fx {
     this.scare = document.getElementById('scare');
     this.whisper = document.getElementById('whisper');
     this.scareCanvas = this.scare.querySelector('canvas');
+    this.tauntEl = document.getElementById('taunt');
     this.exeView = false;
   }
 
@@ -82,18 +85,34 @@ export class Fx {
     }
   }
 
-  jumpscare() {
-    // drawn tiny and blown up: a chunky pixel face, with static over it
-    const c = this.scareCanvas;
-    c.width = 200; c.height = Math.max(90, Math.round((200 * innerHeight) / Math.max(1, innerWidth)));
+  /** The monster's face fills the screen for a moment. variant: which monster ('exe', 'glitch', 'grin'). */
+  jumpscare(variant = 'exe') {
+    // drawn small and blown up: a chunky pixel face (Glitch.exe gets its own picture), repainted a few times so it twitches
+    const c = this.scareCanvas, W = variant === 'glitch' ? 360 : 200;
+    c.width = W; c.height = Math.max(90, Math.round((W * innerHeight) / Math.max(1, innerWidth)));
     const g = c.getContext('2d');
-    drawScareFace(g, c.width, c.height);
-    for (let i = 0; i < 700; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.35)'; g.fillRect(Math.random() * c.width, Math.random() * c.height, 1 + Math.random() * 3, 1); }
-    for (let y = 0; y < c.height; y += 2) { g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, y, c.width, 1); }
+    const paint = () => {
+      drawScareFace(g, c.width, c.height, variant, this.time);
+      if (variant === 'glitch') return;
+      for (let i = 0; i < 700; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.3)'; g.fillRect(Math.random() * c.width, Math.random() * c.height, 1 + Math.random() * 3, 1); }
+      for (let y = 0; y < c.height; y += 2) { g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, y, c.width, 1); }
+    };
+    paint();
+    clearInterval(this.scareAnim);
+    let n = 0;
+    this.scareAnim = setInterval(() => { paint(); if (++n > 9) clearInterval(this.scareAnim); }, 75);
     this.scare.classList.remove('on'); void this.scare.offsetWidth; this.scare.classList.add('on');
     this.pulse('down');
     clearTimeout(this.scareTimer);
     this.scareTimer = setTimeout(() => this.scare.classList.remove('on'), 750);
+  }
+
+  /** A taunt flashes up when the monster hits you. */
+  taunt(variant = 'exe') {
+    const list = TAUNTS[variant] || TAUNTS.exe, el = this.tauntEl;
+    if (!el) return;
+    el.textContent = list[Math.floor(Math.random() * list.length)];
+    el.classList.remove('on'); void el.offsetWidth; el.classList.add('on');
   }
 
   say(text) {

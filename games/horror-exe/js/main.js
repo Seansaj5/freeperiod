@@ -6,9 +6,10 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { World } from './world.js';
-import { Rig, nameTag, glowTex } from './rig.js';
+import { Rig, nameTag, glowTex, tickRigFx, glitchFacesReady } from './rig.js';
 import { Fx, GlitchShader, RetroShader } from './fx.js';
 import { Title } from './title.js';
+import { finishBoot } from './boot.js';
 import { Sound } from './audio.js';
 import { LocalSession, NetSession } from './net.js';
 import { SERVER_URL } from './config.js';
@@ -19,6 +20,7 @@ import { defaultLook, randomLook, sanitizeLook, SKINS, COLORS, SHIRT_STYLES, PAT
 import { clamp, damp, wrap, turnTo } from '../shared/util.js';
 
 const $ = (id) => document.getElementById(id);
+window.__boot && window.__boot.set(0.6, 'STARTING ENGINE');
 const params = new URLSearchParams(location.search);
 const serverUrl = params.get('server') || SERVER_URL;
 const httpUrl = serverUrl.replace(/^ws/, 'http');
@@ -45,6 +47,7 @@ const myName = () => save.name.trim() || 'Player';
 
 // ------------------------------------------------------------------ renderer
 const hi = save.settings.quality === 'high';
+Rig.lowFx = !hi;
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 // The 16-bit look renders the 3D world at about 400 lines and blows it up with crisp pixels
 // (it's also much faster). prScale drops if the frame rate does.
@@ -59,6 +62,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.prepend(renderer.domElement);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 1200);
 const world = new World(renderer, save.settings.quality);
+window.__boot && window.__boot.set(0.74, 'BUILDING ZONES');
 const scene = world.scene;
 scene.add(camera);
 const lantern = new THREE.PointLight(0xffc8a0, hi ? 7 : 10, 24, 1.4);
@@ -188,7 +192,7 @@ function feed(html) {
 }
 const tagOf = (v) => `<b style="color:${v.role === 'exe' ? '#ff4a5a' : CHARS[v.char].accent}">${esc(v.role === 'exe' ? VARIANTS[v.variant].name : v.name)}</b>`;
 
-function drawScareFaceInto(c) { import('./rig.js').then((m) => m.drawScareFace(c.getContext('2d'), c.width, c.height)); }
+function drawScareFaceInto(c, variant) { import('./rig.js').then((m) => m.drawScareFace(c.getContext('2d'), c.width, c.height, variant)); }
 
 // ------------------------------------------------------------------ minimap backgrounds (one per world)
 const miniCache = [null, null];
@@ -226,6 +230,7 @@ class Match {
     this.role = this.myInfo ? this.myInfo.role : 'spec';
     this.kind = this.myInfo ? (this.role === 'exe' ? this.myInfo.variant : this.myInfo.char) : null;
     for (const e of this.info.ents) this.addView(e);
+    this.exeVariant = (this.info.ents.find((e) => e.role === 'exe') || {}).variant || 'exe';
     world.setShards(this.info.shards); world.setExits(this.info.exits, false);
     this.ready = false; this.done = false; this.over = null;
     this.yaw = 0; this.pitch = -0.22; this.ry = 0;
@@ -243,7 +248,7 @@ class Match {
     $('feed').innerHTML = ''; $('markers').innerHTML = '';
     $('minimap').classList.remove('hidden'); $('tasks').classList.remove('hidden');
     this.buildSlots();
-    this.showIntro();
+    this.startSpawn();
     this.tryStart();
   }
 
@@ -322,10 +327,117 @@ class Match {
       const c = CHARS[this.kind];
       box.innerHTML = `<div class="who">You are</div><h1 style="color:${c.accent}">${esc(c.name)}</h1><p>Finish the 5 zone tasks to open the escape gates early (some are in the corrupted world: use the rift portals). Escape through a gate in the corrupted world.</p><p style="color:#ffb0b0">EXE can disguise as one of your friends in the normal world. You have 3 hearts and can be revived once.</p><p style="color:var(--muted)">${touch ? 'HIDE' : 'F'} near a locker to hide (not while EXE is watching, and not for too long).</p><p style="color:var(--muted)">E ${esc(c.abilityName)} · R ${esc(c.r.name)} · Q ${this.unlock.q ? esc(c.q.name) : `${esc(c.q.name)} (unlocks at level 10)`}</p>`;
     } else box.innerHTML = `<div class="who">Round in progress</div><h1>Watching</h1><p>You'll join the next round.</p>`;
-    $('intro').classList.remove('hidden');
-    clearTimeout(this.introT);
-    this.introT = setTimeout(() => $('intro').classList.add('hidden'), 5200);
+    $('intro').classList.remove('hidden', 'corner');
+    clearTimeout(this.introT); clearTimeout(this.introT2);
+    this.introT = setTimeout(() => $('intro').classList.add('corner'), 2600);
+    this.introT2 = setTimeout(() => $('intro').classList.add('hidden'), 7600);
     if (this.role === 'exe') setTimeout(() => sound.play('laugh', 0.8), 600);
+  }
+
+  // ---------------------------------------------------------------- spawning in
+  /** The round opens like a cartridge loading a level: a LOADING ZONE card that tears apart into pixel blocks
+   *  while everyone glitches into place out of red and black cubes. */
+  startSpawn() {
+    const me = this.s.latest && this.s.latest.pm.get(this.me);
+    const z = me ? zoneAt(me[1], me[3]) : ZONES[0];
+    const who = this.role === 'exe' ? VARIANTS[this.kind].name : this.role === 'surv' ? CHARS[this.kind].name : '';
+    const c = $('spawnCv'), W = 320, H = Math.max(160, Math.round((W * innerHeight) / Math.max(1, innerWidth)));
+    c.width = W; c.height = H; c.classList.remove('hidden');
+    const card = document.createElement('canvas'); card.width = W; card.height = H;
+    this.spawn = { t: 0, c, g: c.getContext('2d'), card, cg: card.getContext('2d'), zone: z.name.toUpperCase(), who: who.toUpperCase(), order: null, compiled: false, intro: false };
+    this.drawSpawnCard(0);
+    c.getContext('2d').drawImage(card, 0, 0);
+  }
+
+  drawSpawnCard(p) {
+    const S = this.spawn, g = S.cg, W = S.card.width, H = S.card.height;
+    g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    for (let y = 0; y < H; y += 2) { g.fillStyle = y % 4 ? 'rgba(60,0,6,0.35)' : 'rgba(0,0,0,0)'; g.fillRect(0, y, W, 1); }
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const txt = (t, y, size, col) => { g.font = `${size}px "Press Start 2P", monospace`; g.fillStyle = '#000'; g.fillText(t, W / 2 + 2, y + 2); g.fillStyle = col; g.fillText(t, W / 2, y); };
+    txt('LOADING ZONE', H * 0.24, 8, '#ff2a3a');
+    txt(S.zone, H * 0.36, S.zone.length > 13 ? 13 : 16, '#ffffff');
+    txt('ACT 1', H * 0.46, 8, '#ffd23d');
+    if (S.who) txt((this.role === 'exe' ? 'HUNT AS ' : 'YOU ARE ') + S.who, H * 0.78, 8, this.role === 'exe' ? '#ff4a5a' : '#cfe6ff');
+    // a chunky bar that stalls for a moment near the end
+    const q = p < 0.6 ? p : p < 0.82 ? 0.6 + (p - 0.6) * 0.25 : Math.min(1, 0.655 + (p - 0.82) * 1.95), n = 20, bw = 9, x0 = W / 2 - (n * (bw + 2)) / 2, y = H * 0.6;
+    g.fillStyle = '#4a0c14'; g.fillRect(x0 - 4, y - 4, n * (bw + 2) + 6, 18);
+    g.fillStyle = '#000'; g.fillRect(x0 - 2, y - 2, n * (bw + 2) + 2, 14);
+    for (let i = 0; i < Math.floor(q * n); i++) { g.fillStyle = i % 2 ? '#c8001a' : '#ff2a3a'; g.fillRect(x0 + i * (bw + 2), y, bw, 10); }
+    txt(`${Math.floor(q * 100)}%`, y + 24, 8, '#b39a9e');
+    if (Math.random() < 0.3) { const ty = Math.random() * H, th = 2 + Math.random() * 8; g.drawImage(S.card, 0, ty, W, th, (Math.random() - 0.5) * 20, ty, W, th); }
+  }
+
+  updateSpawn(dt) {
+    const S = this.spawn;
+    if (!S) return;
+    S.t += dt;
+    // compile the new monster and survivor materials now, behind the card, instead of hitching later
+    if (!S.compiled && S.t > 0.05) { S.compiled = true; try { renderer.compile(scene, camera); } catch {} }
+    const g = S.g, W = S.c.width, H = S.c.height;
+    if (S.t < 1.0) { this.drawSpawnCard(Math.min(1, S.t / 0.85)); g.clearRect(0, 0, W, H); g.drawImage(S.card, 0, 0); }
+    else if (S.t < 1.75) {
+      const bs = 16, cols = Math.ceil(W / bs), rows = Math.ceil(H / bs);
+      if (!S.order) {
+        S.order = Array.from({ length: cols * rows }, (_, i) => i);
+        for (let i = S.order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [S.order[i], S.order[j]] = [S.order[j], S.order[i]]; }
+        this.assembleT = 0; sound.play('static', 0.6); fx.pulse('glitch', 0.8);
+      }
+      const p = (S.t - 1.0) / 0.75, n = Math.floor(S.order.length * Math.min(1, p * 1.1));
+      g.clearRect(0, 0, W, H); g.drawImage(S.card, 0, 0);
+      for (let i = 0; i < n; i++) { const k = S.order[i]; g.clearRect((k % cols) * bs, Math.floor(k / cols) * bs, bs, bs); }
+      // some of the blocks still standing slip sideways or flash red
+      for (let i = 0; i < 16 && n < S.order.length; i++) {
+        const k = S.order[n + Math.floor(Math.random() * (S.order.length - n))], x = (k % cols) * bs, y = Math.floor(k / cols) * bs;
+        if (Math.random() < 0.5) { g.fillStyle = Math.random() < 0.6 ? '#ff1a2a' : '#000'; g.fillRect(x, y, bs, bs); } else g.drawImage(S.card, x, y, bs, bs, x + (Math.random() - 0.5) * 28, y, bs, bs);
+      }
+    } else { S.c.classList.add('hidden'); this.spawn = null; }
+    if (!S.intro && S.t > 1.3) { S.intro = true; this.showIntro(); }
+  }
+
+  /** Everyone in view builds up out of a swarm of red, black and white cubes, flickering in. */
+  updateAssemble(dt) {
+    this.assembleT += dt;
+    const p = Math.min(1, this.assembleT / 1.15);
+    if (!this.cubes) {
+      const views = [...this.views.values()].filter((v) => v.rig.root.visible || v.id === this.me);
+      const per = 56, N = Math.max(1, views.length * per);
+      const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff }), N);
+      mesh.frustumCulled = false;
+      const cols = [new THREE.Color(0xff1a2a), new THREE.Color(0x050505), new THREE.Color(0xffffff), new THREE.Color(0x8a0010)];
+      const list = [];
+      views.forEach((v) => {
+        const tall = v.role === 'exe' ? 3.4 : 2.5;
+        for (let i = 0; i < per; i++) {
+          const d = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 - 0.2, Math.random() - 0.5).normalize();
+          list.push({ v, off: new THREE.Vector3((Math.random() - 0.5) * 0.9, 0.1 + Math.random() * tall, (Math.random() - 0.5) * 0.7), d, dist: 2.5 + Math.random() * 3.5, delay: Math.random() * 0.35, size: 0.1 + Math.random() * 0.12 });
+          mesh.setColorAt(list.length - 1, cols[i % 4]);
+        }
+      });
+      scene.add(mesh);
+      this.cubes = { mesh, list, m: new THREE.Matrix4(), q: new THREE.Quaternion(), e: new THREE.Euler(), pos: new THREE.Vector3(), sc: new THREE.Vector3() };
+    }
+    const C = this.cubes;
+    C.list.forEach((c, i) => {
+      const q = clamp((p - c.delay) / 0.62, 0, 1), e = 1 - (1 - q) ** 3, root = c.v.rig.root;
+      C.pos.copy(root.position).add(c.off).addScaledVector(c.d, (1 - e) * c.dist);
+      const k = c.size * (q > 0.85 ? 1 - (q - 0.85) / 0.15 : 1) * (c.v.rig.root.visible || c.v.id === this.me ? 1 : 0);
+      C.e.set(i + p * 9, i * 0.7 + p * 6, 0); C.q.setFromEuler(C.e); C.sc.setScalar(Math.max(0.0001, k));
+      C.mesh.setMatrixAt(i, C.m.compose(C.pos, C.q, C.sc));
+    });
+    C.mesh.instanceMatrix.needsUpdate = true;
+    // the bodies flicker in as the cubes arrive
+    for (const v of this.views.values()) {
+      const r = v.rig.root;
+      if (!r.visible) continue;
+      r.visible = Math.random() < 0.06 + p * p;
+      r.position.x += (Math.random() - 0.5) * (1 - p) * 0.4;
+    }
+    if (p >= 1) { this.endAssemble(); }
+  }
+  endAssemble() {
+    if (this.cubes) { scene.remove(this.cubes.mesh); this.cubes.mesh.geometry.dispose(); this.cubes.mesh.material.dispose(); this.cubes.mesh.dispose(); this.cubes = null; }
+    this.assembleT = null;
   }
 
   myEntry() { return this.s.latest ? this.s.latest.pm.get(this.me) : null; }
@@ -495,13 +607,13 @@ class Match {
         world.setExits(this.info.exits, true);
         break;
       case 'hit':
-        if (mine) { fx.pulse('hit', Math.min(1.2, (e.dmg || 100) / 80)); sound.play('hit', Math.min(1, 0.5 + (e.dmg || 100) / 200)); banner(`-${e.dmg || ''}`, 'Run!'); }
+        if (mine) { fx.pulse('hit', Math.min(1.2, (e.dmg || 100) / 80)); sound.play('hit', Math.min(1, 0.5 + (e.dmg || 100) / 200)); banner(`-${e.dmg || ''}`, 'Run!'); fx.taunt(this.exeVariant); if (this.exeVariant === 'exe') holdFrames = 4; }
         else sound.play('hit', vol(e.id) * 0.8);
         if (e.by === this.me) { sound.play('laugh', 0.5); fx.pulse('static', 0.4); }
         if (v) feed(`${by ? tagOf(by) : 'EXE'} hit ${tagOf(v)}`);
         break;
       case 'down':
-        if (mine) { fx.jumpscare(); sound.play('scare'); }
+        if (mine) { fx.jumpscare(this.exeVariant); sound.play('scare'); }
         else { sound.play('down', vol(e.id)); if (this.role === 'surv') fx.pulse('static', 0.5); }
         if (e.by === this.me) sound.play('laugh', 0.8);
         if (v) feed(`${tagOf(v)} is <b style="color:#ff4a5a">DOWN</b>${this.role === 'surv' && !mine ? '. Revive them!' : ''}`);
@@ -513,7 +625,7 @@ class Match {
         break;
       case 'out':
         if (v) feed(`${tagOf(v)} was <b style="color:#ff4a5a">${e.why === 'dragged' ? 'dragged away by EXE' : 'taken'}</b>${e.why === 'norevive' ? ' (no revives left)' : ''}`);
-        if (mine) { banner(e.why === 'dragged' ? 'DRAGGED AWAY' : 'YOU WERE TAKEN', e.why === 'dragged' ? 'You hid too long, twice.' : 'Click to watch the others'); fx.jumpscare(); sound.play('scare'); }
+        if (mine) { banner(e.why === 'dragged' ? 'DRAGGED AWAY' : 'YOU WERE TAKEN', e.why === 'dragged' ? 'You hid too long, twice.' : 'Click to watch the others'); fx.jumpscare(this.exeVariant); sound.play('scare'); }
         break;
       case 'hide':
         world.doorLocker(e.i);
@@ -630,7 +742,7 @@ class Match {
         if (mine || !v) break;
         if (v.w === this.viewW && this.role === 'surv' && this.camFocus) {
           const d = v.rig.root.position.distanceTo(this.camFocus);
-          if (d < 7) { fx.jumpscare(); sound.play('pop'); } else if (d < 40) { sound.play('pop', clamp(1 - d / 40, 0.2, 0.8)); fx.pulse('pop'); }
+          if (d < 7) { fx.jumpscare(this.exeVariant); sound.play('pop'); } else if (d < 40) { sound.play('pop', clamp(1 - d / 40, 0.2, 0.8)); fx.pulse('pop'); }
           if (d < 40) feed(`It was <b style="color:#ff4a5a">EXE</b> all along!`);
         }
         break;
@@ -676,6 +788,7 @@ class Match {
   update(dt) {
     const S = this.s;
     if (!paused || !this.solo) S.update(dt);
+    this.updateSpawn(dt);
     if (!this.ready) this.tryStart();
     const snap = S.latest;
     const t = nowS();
@@ -768,6 +881,7 @@ class Match {
     input.jump = input.abl = input.atk = input.q = input.f = input.g = input.v = input.ab2 = false;
     // everyone's rig
     for (const v of this.views.values()) this.updateView(v, dt, snap, t, flying);
+    if (this.assembleT != null) this.updateAssemble(dt);
     for (const bu of this.bursts || []) { bu.t -= dt; for (const m of bu.g.children) { m.position.addScaledVector(m.userData.v, dt); m.rotation.x += dt * 5; } bu.g.visible = Math.random() > 0.15; if (bu.t <= 0) { scene.remove(bu.g); bu.dead = true; } }
     if (this.bursts) this.bursts = this.bursts.filter((x) => !x.dead);
     this.updateCamera(dt, st);
@@ -809,6 +923,8 @@ class Match {
       fx.pulse('glitch', 0.3 + terror * 0.4); if (Math.random() < 0.5) sound.play('static', 0.4);
     }
     fx.update(dt, terror, ph !== 'over', this.viewW);
+    // EXE: the picture stutters (skips frames) when it's close
+    if (this.exeVariant === 'exe' && this.role === 'surv' && fx.terror > 0.45 && !holdFrames && Math.random() < fx.terror * 0.02) holdFrames = 2 + Math.floor(Math.random() * 3);
     const chase = ph === 'escape' || (this.role === 'surv' && terror > 0.35);
     sound.update(dt, chase ? 'chase' : ph === 'over' ? 'menu' : this.viewW ? 'corrupt' : 'normal', terror, flying);
     lantern.position.copy(camera.position).y += 1.2;
@@ -821,7 +937,7 @@ class Match {
     const root = v.rig.root;
     if (!e) { root.visible = false; return; }
     const st = e[6], flags = e[7];
-    v.w = e[11];
+    v.w = e[11]; v.rig.world = v.w;
     const isMe = v.id === this.me && this.body;
     let pose;
     if (isMe) pose = { x: this.body.x, y: this.body.y, z: this.body.z, ry: this.ry };
@@ -1125,7 +1241,7 @@ class Match {
   startMinigame(reason) {
     if (this.mini) this.mini.close();
     const el = $('qte'), keyEl = $('qteKey'), ring = $('qteRing'), count = $('qteCount'), txt = $('qteText');
-    const c = $('qteFace'); c.width = 640; c.height = 512; drawScareFaceInto(c);
+    const c = $('qteFace'); c.width = this.exeVariant === 'glitch' ? 480 : 220; c.height = Math.round(c.width * 0.8); drawScareFaceInto(c, this.exeVariant);
     const lines = ['LET ME IN', 'FOUND YOU', 'TOO LONG', 'STAY WITH ME', "YOU CAN'T HIDE", 'COME OUT'];
     const seq = Array.from({ length: QTE.prompts }, () => (Math.random() < 0.5 ? 'Q' : 'E'));
     const m = { i: 0, seq, start: nowS() + 0.6, done: false };
@@ -1263,7 +1379,8 @@ class Match {
     for (const d of this.disRigs.values()) scene.remove(d.rig.root);
     $('minimap').classList.add('hidden'); $('tasks').classList.add('hidden');
     for (const b of this.bursts || []) scene.remove(b.g);
-    clearTimeout(this.introT);
+    clearTimeout(this.introT); clearTimeout(this.introT2);
+    this.endAssemble(); this.spawn = null; $('spawnCv').classList.add('hidden');
     this.s.on.ev = null;
     world.setShards(null); world.setExits([], false);
     $('hud').classList.add('hidden'); $('intro').classList.add('hidden'); $('touch').classList.add('hidden');
@@ -1278,7 +1395,7 @@ function show(id) { curScreen = id; for (const s of screens) $(s).classList.togg
 // menus that sit on the pixel-art title picture instead of the 3D world
 const PIX_SCREENS = new Set(['title', 'soloPick', 'lobby', 'settings']);
 const title = new Title($('pix'), sound, () => $('title').classList.add('menu'));
-const pressStart = () => { if (!match && curScreen === 'title' && title.state !== 'evil') { sound.start(); title.press(); return true; } return false; };
+const pressStart = () => { if (!window.__bootDone) return false; if (!match && curScreen === 'title' && title.state !== 'evil') { sound.start(); title.press(); return true; } return false; };
 $('pix').addEventListener('pointerdown', () => { sound.start(); pressStart(); });
 addEventListener('keydown', (e) => { if (!e.repeat && !(document.activeElement && document.activeElement.tagName === 'INPUT') && pressStart()) e.preventDefault(); });
 let menuMode = 'title'; // what the background camera does: title | custom
@@ -1375,15 +1492,33 @@ $('lobbyCustom').onclick = () => { sound.play('click'); openCustom('lobby'); };
 
 // ------------------------------------------------------------------ customize
 let customFrom = 'title', tab = 'char', preview = null;
+const pvScene = new THREE.Scene();
+const pvCam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 80);
+const pvBg = new THREE.CanvasTexture($('pix'));
+pvBg.colorSpace = THREE.SRGBColorSpace; pvBg.magFilter = pvBg.minFilter = THREE.NearestFilter; pvBg.generateMipmaps = false;
+pvScene.background = pvBg; pvScene.backgroundIntensity = 0.5;
+pvScene.add(new THREE.HemisphereLight(0xffd6d6, 0x1a0006, 1.5));
+{ const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(3, 5, 6); pvScene.add(key); const rim = new THREE.DirectionalLight(0xff2a2a, 4); rim.position.set(-4, 3, -5); pvScene.add(rim); }
+{ const floor = new THREE.Mesh(new THREE.CircleGeometry(1.8, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6, depthWrite: false })); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.01; pvScene.add(floor); }
+addEventListener('resize', () => pvBg.dispose());
+function renderPreview(dt) {
+  pvBg.needsUpdate = true;
+  if (preview) { preview.root.rotation.y += dt * 0.5; preview.update(dt, { speed: 0, atk: -1 }); }
+  const exe = tab === 'exe', h = exe ? 4.0 : 2.6, dist = h * 2.7 + 2.5;
+  pvCam.aspect = innerWidth / innerHeight; pvCam.updateProjectionMatrix();
+  const halfW = Math.tan(THREE.MathUtils.degToRad(pvCam.fov / 2)) * dist * pvCam.aspect, off = innerWidth > 760 ? halfW * 0.36 : 0;
+  pvCam.position.set(-off, h * 0.62, dist); pvCam.lookAt(-off, h * 0.5, 0);
+  renderer.render(pvScene, pvCam);
+}
 function rebuildPreview() {
-  if (preview) { scene.remove(preview.root); preview.dispose(); }
+  if (preview) { pvScene.remove(preview.root); preview.dispose(); }
   preview = tab === 'exe' ? new Rig({ role: 'exe', variant: save.variant }) : new Rig({ role: 'surv', look: save.look, char: save.char });
-  preview.root.position.set(4, V.y, 7); preview.root.rotation.y = 0.3;
-  scene.add(preview.root);
+  preview.root.rotation.y = 0.3;
+  pvScene.add(preview.root);
 }
 function openCustom(from) { customFrom = from; show('custom'); menuMode = 'custom'; renderCustom(); rebuildPreview(); }
 function closeCustom() {
-  if (preview) { scene.remove(preview.root); preview = null; }
+  if (preview) { pvScene.remove(preview.root); preview.dispose(); preview = null; }
   persist(); updateWho();
   if (net) net.pick({ name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock() });
   menuMode = 'title';
@@ -1499,7 +1634,7 @@ function menuUpdate(dt, t) {
 }
 
 // ------------------------------------------------------------------ main loop
-let last = performance.now(), pixWas = null;
+let last = performance.now(), pixWas = null, holdFrames = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); // the first frame's timestamp can be older than `last`
@@ -1515,16 +1650,35 @@ function frame(now) {
     sound.update(dt, title.music, 0.03);
     return;
   }
+  if (!match && curScreen === 'custom') {
+    // the title picture behind the character being customized
+    title.update(dt); title.draw();
+    tickRigFx(dt);
+    renderPreview(dt);
+    sound.update(dt, 'menu', 0.03);
+    return;
+  }
   if (match) { lurker.root.visible = false; match.update(dt); }
   else menuUpdate(dt, t);
+  tickRigFx(dt, match ? match.viewW : undefined);
   world.update(dt, camera, match && match.camFocus ? match.camFocus : null);
-  composer.render(dt);
+  if (holdFrames > 0) holdFrames--; else composer.render(dt);
   adaptResolution(dt);
 }
 updateWho();
 show('title');
 refreshOnline();
 requestAnimationFrame(frame);
+
+(async () => {
+  const B = window.__boot;
+  B && B.set(0.82, 'LOADING FACES');
+  const font = document.fonts ? document.fonts.load('8px "Press Start 2P"').catch(() => {}) : 0;
+  await Promise.race([Promise.all([glitchFacesReady(), font]), new Promise((r) => setTimeout(r, 4000))]);
+  B && B.set(0.9, 'COMPILING SHADERS');
+  try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 6000))]); } catch {}
+  await finishBoot();
+})();
 
 // for testing from the console / headless browser
 window.__hx = { get match() { return match; }, world, save, startSolo, leaveToMenu, input, sound, fx, renderer, camera, title, show };
