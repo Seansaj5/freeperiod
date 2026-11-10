@@ -23,7 +23,10 @@ import { clamp, damp, wrap, turnTo } from '../shared/util.js';
 const $ = (id) => document.getElementById(id);
 window.__boot && window.__boot.set(0.6, 'STARTING ENGINE');
 const params = new URLSearchParams(location.search);
-const serverUrl = params.get('server') || SERVER_URL;
+// ?server= is a local-testing override only: on the real site it would let a link send this player's account token to
+// any server (the hello message carries it), so it is honored on localhost / 127.0.0.1 alone.
+const localHost = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+const serverUrl = (localHost && params.get('server')) || SERVER_URL;
 const httpUrl = serverUrl.replace(/^ws/, 'http');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nowS = () => performance.now() / 1000;
