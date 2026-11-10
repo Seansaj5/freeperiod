@@ -1,6 +1,6 @@
 // Signed-in session. Only a 401 signs the user out; network trouble never does.
 import * as store from './store.js';
-import { call } from './api.js';
+import { call, WAKE_TIMEOUT } from './api.js';
 
 let user = null;
 const listeners = new Set();
@@ -31,12 +31,12 @@ function clear() {
 }
 
 export async function login(username, password) {
-  const d = await call('/api/login', { body: { username, password } });
+  const d = await call('/api/login', { body: { username, password }, timeout: WAKE_TIMEOUT });
   setSession(d.token, d.user);
   return d.user;
 }
 export async function register(username, password) {
-  const d = await call('/api/register', { body: { username, password } });
+  const d = await call('/api/register', { body: { username, password }, timeout: WAKE_TIMEOUT });
   setSession(d.token, d.user);
   return d.user;
 }

@@ -1,6 +1,6 @@
 // "Tell Sean" bar: suggestion box with an about-picker.
 import * as session from './session.js';
-import { call } from './api.js';
+import { call, WAKE_TIMEOUT } from './api.js';
 import { h, toast, errText } from './ui.js';
 
 const ABOUT = [['Free Period', 'fp-site'], ['Bing Ball', 'fp-bingball'], ['Close Call', 'fp-closecall'], ['New game idea', 'fp-newgame']];
@@ -38,7 +38,7 @@ export function mountSuggest(el) {
     send.disabled = true;
     send.textContent = 'Sending...';
     try {
-      await call('/api/suggest', { body: { category, text: t }, auth: true });
+      await call('/api/suggest', { body: { category, text: t }, auth: true, timeout: WAKE_TIMEOUT });
       text.value = '';
       toast('Sent to Sean');
     } catch (ex) {

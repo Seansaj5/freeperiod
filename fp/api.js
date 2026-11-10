@@ -27,6 +27,9 @@ export function apiBase() {
   return v || API_BASE;
 }
 
+// A napping Render server takes about a minute to wake: log in, sign up and suggestions wait this long.
+export const WAKE_TIMEOUT = 75000;
+
 // Returns parsed JSON. Throws Error with .status; .waking = true on timeout/network failure.
 export async function call(path, { body, auth, timeout = 20000, keepalive } = {}) {
   const headers = {};
