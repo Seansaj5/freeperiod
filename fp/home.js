@@ -1,8 +1,508 @@
-// Home page entry: account chip + suggest bar (the next task wires the rest).
+// Home page entry: featured banner, Jump back in, game grid (live status, favorites, play time, hover previews),
+// ranked leaderboard, search, clock, account chip and the suggest bar.
+// Everything is built with DOM calls (ui.js h() / createElementNS): no innerHTML, so server or user text never becomes markup.
 import * as session from './session.js';
-import { mountAccount } from './account-ui.js';
+import { call } from './api.js';
+import { getMeta, toggleFav, pullMerge } from './meta.js';
+import { syncAll } from './saves.js';
+import { watchStatus, resolveGame } from './status.js';
+import { h, fmtTime } from './ui.js';
+import { mountAccount, openAuthSheet } from './account-ui.js';
 import { mountSuggest } from './suggest.js';
 
-mountAccount(document.getElementById('account'));
-mountSuggest(document.getElementById('suggest'));
+const GAMES = (window.GAMES || []).map(resolveGame);
+const $ = (id) => document.getElementById(id);
+const mq = (q) => (typeof matchMedia === 'function' ? matchMedia(q) : { matches: false });
+const reduced = mq('(prefers-reduced-motion: reduce)');
+const noHover = mq('(hover: none)');
+const finePointer = mq('(hover: hover) and (pointer: fine)');
+const DAY = 864e5;
+
+// ---------- icons (SVG built with createElementNS) ----------
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const ICONS = {
+  play: { box: '0 0 16 16', fill: true, d: ['M3 1.8v12.4a.8.8 0 0 0 1.2.7l10.4-6.2a.8.8 0 0 0 0-1.4L4.2 1.1A.8.8 0 0 0 3 1.8z'] },
+  star: { box: '0 0 24 24', d: ['M12 2.8l2.83 5.73 6.32.92-4.57 4.46 1.08 6.29L12 17.23l-5.66 2.97 1.08-6.29L2.85 9.45l6.32-.92z'] },
+  clock: { box: '0 0 24 24', d: ['M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z', 'M12 7.5V12l3 2'] },
+  flask: { box: '0 0 24 24', sw: 1.7, d: ['M9 3h6M10 3v6.5L4.6 18.4A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.4-2.6L14 9.5V3', 'M7.2 15.5h9.6'] },
+  trophy: { box: '0 0 24 24', d: ['M8 4h8v6a4 4 0 0 1-8 0z', 'M8 6H5.5a2.5 2.5 0 0 0 2.6 4.4', 'M16 6h2.5a2.5 2.5 0 0 1-2.6 4.4', 'M12 14v3.5', 'M8.5 20.5h7', 'M10 17.5h4v3h-4z'] },
+  arrow: { box: '0 0 24 24', d: ['M5 12h14', 'M13 6l6 6-6 6'] },
+};
+function icon(name, cls) {
+  const def = ICONS[name];
+  const s = document.createElementNS(SVG_NS, 'svg');
+  s.setAttribute('viewBox', def.box);
+  s.setAttribute('aria-hidden', 'true');
+  s.setAttribute('class', 'ic' + (cls ? ' ' + cls : ''));
+  if (def.fill) s.setAttribute('fill', 'currentColor');
+  else {
+    s.setAttribute('fill', 'none');
+    s.setAttribute('stroke', 'currentColor');
+    s.setAttribute('stroke-width', String(def.sw || 2));
+    s.setAttribute('stroke-linecap', 'round');
+    s.setAttribute('stroke-linejoin', 'round');
+  }
+  for (const d of def.d) { const p = document.createElementNS(SVG_NS, 'path'); p.setAttribute('d', d); s.append(p); }
+  return s;
+}
+
+// ---------- helpers ----------
+const playLink = (g) => 'play.html?g=' + encodeURIComponent(g.id);
+const isNew = (g) => !!g.added && Date.now() - new Date(g.added).getTime() < 14 * DAY;
+const accentOf = (g) => (/^#[0-9a-f]{3,8}$/i.test(g.accent || '') ? g.accent : '#c6ff3d');
+const tagList = (g) => h('div', { class: 'tags' }, (g.tags || []).map((t) => h('span', { class: 'tag', text: t })));
+function ago(t) {
+  if (!(t > 0)) return '';
+  const d = Date.now() - t;
+  if (d < 6e4) return 'just now';
+  if (d < 36e5) return Math.floor(d / 6e4) + 'm ago';
+  if (d < DAY) return Math.floor(d / 36e5) + 'h ago';
+  if (d < 2 * DAY) return 'yesterday';
+  if (d < 14 * DAY) return Math.floor(d / DAY) + ' days ago';
+  return new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+// An <img> that quietly hides itself (or tries a fallback) instead of showing a broken-image icon.
+function picture(src, fallback, props) {
+  const img = h('img', { alt: '', decoding: 'async', ...props, src });
+  img.addEventListener('error', () => {
+    if (fallback && img.getAttribute('src') !== fallback) img.src = fallback;
+    else img.classList.add('broken');
+  });
+  return img;
+}
+
+// ---------- live status ----------
+const live = new Map(); // game id -> latest status from watchStatus
+// A game that `wakes` runs on its server (Bing Ball): Online / Waking up. Otherwise the game plays on its own and the
+// server only adds multiplayer (Close Call): Multiplayer on / Solo ready.
+function statusView(g, st) {
+  const solo = !g.wakes;
+  if (st && st.state === 'online') {
+    const players = st.players != null ? `${st.players} playing` : null;
+    return solo ? { k: 'on', text: ['Multiplayer on', players].filter(Boolean).join(' · ') }
+      : { k: 'on', text: ['Online', players, st.version].filter(Boolean).join(' · ') };
+  }
+  if (solo) return { k: 'solo', text: 'Solo ready' };
+  if (!st) return { k: 'check', text: 'Checking' };
+  return { k: 'wake', text: 'Waking up' };
+}
+function paintPill(el, g) {
+  const v = statusView(g, live.get(g.id));
+  for (const k of ['on', 'solo', 'check', 'wake']) el.classList.toggle('is-' + k, v.k === k);
+  el.replaceChildren(h('i', { class: 'dot', 'aria-hidden': 'true' }), h('span', { text: v.text }));
+}
+function pill(g, cls) {
+  const el = h('span', { class: 'live' + (cls ? ' ' + cls : ''), dataset: { live: g.id } });
+  paintPill(el, g);
+  return el;
+}
+function onStatus(g, st) {
+  live.set(g.id, st);
+  document.querySelectorAll('[data-live]').forEach((el) => { if (el.dataset.live === g.id) paintPill(el, g); });
+  document.querySelectorAll('[data-wakehint]').forEach((el) => {
+    if (el.dataset.wakehint === g.id) el.hidden = !!(st && st.state === 'online');
+  });
+}
+
+// ---------- favorites + play time (painted in place, so the page never re-renders under the pointer) ----------
+function favButton(g, cls) {
+  const b = h('button', { type: 'button', class: 'fav' + (cls ? ' ' + cls : ''), dataset: { fav: g.id }, 'aria-label': 'Favorite ' + g.title }, icon('star'));
+  b.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const on = toggleFav(g.id);
+    b.classList.remove('pop');
+    if (on) { void b.offsetWidth; b.classList.add('pop'); }
+    refreshMeta();
+  });
+  return b;
+}
+function playedTag(g) { return h('span', { class: 'played', dataset: { played: g.id } }, icon('clock'), h('span')); }
+function paintMeta() {
+  const m = getMeta();
+  document.querySelectorAll('[data-fav]').forEach((b) => {
+    const on = m.favs.includes(b.dataset.fav);
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.title = on ? 'In your favorites' : 'Add to favorites';
+  });
+  document.querySelectorAll('[data-played]').forEach((el) => {
+    const secs = m.play[el.dataset.played] || 0;
+    el.hidden = !(secs >= 60);
+    el.lastChild.textContent = fmtTime(secs) + ' played';
+  });
+}
+function refreshMeta() {
+  const was = tag;
+  paintMeta();
+  renderRecent();
+  renderChips(); // may drop the Favorites chip (and the filter) when the last favorite goes
+  if (was === 'Favorites' || tag === 'Favorites') renderGrid();
+}
+
+// ---------- featured banner ----------
+function renderHero() {
+  const slot = $('hero');
+  const g = GAMES.find((x) => x.featured) || GAMES[0];
+  if (!g) { slot.hidden = true; return; }
+  const hint = g.wakes ? h('p', { class: 'hint', dataset: { wakehint: g.id } }, 'First load can take up to a minute while the server wakes up.') : null;
+  slot.replaceChildren(h('div', { class: 'hero', style: '--accent:' + accentOf(g) },
+    h('div', { class: 'hero-media', 'aria-hidden': 'true' }, picture(g.hero || g.thumb, g.thumb, { class: 'hero-art', fetchpriority: 'high' })),
+    h('div', { class: 'hero-copy' },
+      h('div', { class: 'hero-top' },
+        h('span', { class: 'eyebrow' }, 'Featured'),
+        g.status ? h('span', { role: 'status' }, pill(g, 'lg')) : null,
+        g.beta ? h('span', { class: 'badge beta' }, 'Beta') : null),
+      h('h1', { text: g.title }),
+      h('p', { class: 'hero-tagline', text: g.tagline || '' }),
+      tagList(g),
+      h('div', { class: 'hero-actions' },
+        h('a', { class: 'btn-play', href: playLink(g) }, icon('play'), 'Play now'),
+        favButton(g, 'big'),
+        playedTag(g)),
+      hint)));
+  onStatus(g, live.get(g.id));
+}
+
+// ---------- Jump back in ----------
+function renderRecent() {
+  const m = getMeta();
+  const list = Object.entries(m.recent).sort((a, b) => b[1] - a[1])
+    .map(([id, at]) => ({ g: GAMES.find((x) => x.id === id), at })).filter((x) => x.g).slice(0, 6);
+  $('recent').hidden = !list.length;
+  $('recent-row').replaceChildren(...list.map(({ g, at }) => {
+    const secs = m.play[g.id] || 0;
+    const sub = [secs >= 60 ? fmtTime(secs) + ' played' : null, ago(at)].filter(Boolean).join(' · ');
+    return h('a', { class: 'tile', href: playLink(g), style: '--accent:' + accentOf(g) },
+      h('span', { class: 'tile-thumb' }, picture(g.thumb, null, {})),
+      h('span', { class: 'tile-text' },
+        h('strong', { text: g.title }),
+        h('span', { text: sub || 'Pick up where you left off' })),
+      h('span', { class: 'tile-go', 'aria-hidden': 'true' }, icon('play')));
+  }));
+}
+
+// ---------- filter chips + grid ----------
+let tag = 'All';
+const searchBox = $('q');
+const query = () => searchBox.value.trim().toLowerCase();
+
+function renderChips() {
+  const favs = getMeta().favs.filter((id) => GAMES.some((g) => g.id === id));
+  if (tag === 'Favorites' && !favs.length) tag = 'All';
+  const tags = ['All', ...new Set(GAMES.flatMap((g) => g.tags || []))];
+  if (favs.length) tags.push('Favorites');
+  $('chips').replaceChildren(...tags.map((t) => h('button', {
+    type: 'button', class: 'chip' + (t === tag ? ' on' : '') + (t === 'Favorites' ? ' chip-fav' : ''), 'aria-pressed': t === tag ? 'true' : 'false',
+    onclick: () => { tag = t; renderChips(); renderGrid(); },
+  }, t === 'Favorites' ? icon('star') : null, t)));
+}
+
+function card(g) {
+  const thumb = h('div', { class: 'thumb' },
+    picture(g.thumb, null, { class: 'poster', loading: 'lazy' }),
+    h('div', { class: 'badges' },
+      isNew(g) ? h('span', { class: 'badge new' }, 'New') : null,
+      g.beta ? h('span', { class: 'badge beta' }, 'Beta') : null),
+    favButton(g),
+    g.status ? pill(g) : null,
+    h('span', { class: 'go', 'aria-hidden': 'true' }, icon('play')));
+  const el = h('article', { class: 'card', style: '--accent:' + accentOf(g), dataset: { id: g.id } },
+    h('i', { class: 'shine', 'aria-hidden': 'true' }),
+    thumb,
+    h('div', { class: 'card-body' },
+      h('div', { class: 'card-title' }, h('h3', {}, h('a', { class: 'stretch', href: playLink(g), text: g.title })), playedTag(g)),
+      h('p', { text: g.tagline || '' }),
+      tagList(g)));
+  wireTilt(el);
+  if (g.preview) wirePreview(el, thumb, g);
+  return el;
+}
+
+function labCard() {
+  return h('article', { class: 'card lab' },
+    h('div', { class: 'lab-art' },
+      h('span', { class: 'lab-tag' }, 'In the lab'),
+      h('span', { class: 'lab-flask', 'aria-hidden': 'true' }, icon('flask'), h('i', { class: 'bub b1' }), h('i', { class: 'bub b2' }), h('i', { class: 'bub b3' })),
+      h('span', { class: 'lab-bar', 'aria-hidden': 'true' }, h('i'))),
+    h('div', { class: 'card-body' },
+      h('h3', { text: 'Next game in the lab' }),
+      h('p', { text: 'A new game is being built right now. It is not up yet. Got an idea for one? Tell Sean.' }),
+      h('button', { type: 'button', class: 'lab-cta', onclick: pitchIdea }, 'Pitch an idea', icon('arrow'))));
+}
+
+function renderGrid() {
+  const q = query();
+  const favs = getMeta().favs;
+  const list = GAMES.filter((g) => (tag === 'All' || (tag === 'Favorites' ? favs.includes(g.id) : (g.tags || []).includes(tag))) &&
+    (!q || [g.title, g.tagline, ...(g.tags || [])].join(' ').toLowerCase().includes(q)));
+  const showLab = !q && tag === 'All';
+  $('grid').replaceChildren(...list.map(card), ...(showLab ? [labCard()] : []));
+  $('empty').hidden = !!(list.length || showLab);
+  $('count').textContent = String(list.length);
+  paintMeta();
+}
+
+// Lab card -> the suggest bar, set to "New game idea".
+function pitchIdea() {
+  const sec = $('suggest');
+  const pick = [...sec.querySelectorAll('.fp-pick')].find((b) => b.textContent === 'New game idea');
+  if (pick && pick.getAttribute('aria-pressed') !== 'true') pick.click();
+  sec.scrollIntoView({ behavior: reduced.matches ? 'auto' : 'smooth', block: 'center' });
+  const ta = sec.querySelector('textarea');
+  if (ta) ta.focus({ preventScroll: true });
+}
+
+// ---------- card tilt + hover preview (mouse only, never with reduced motion) ----------
+function wireTilt(el) {
+  el.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse' || !finePointer.matches || reduced.matches) return;
+    const r = el.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+    el.style.setProperty('--rx', ((0.5 - y) * 6).toFixed(2) + 'deg');
+    el.style.setProperty('--ry', ((x - 0.5) * 8).toFixed(2) + 'deg');
+    el.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
+    el.style.setProperty('--my', (y * 100).toFixed(1) + '%');
+  });
+  el.addEventListener('pointerleave', () => { el.style.removeProperty('--rx'); el.style.removeProperty('--ry'); });
+}
+
+let webm = null;
+function wirePreview(el, thumb, g) {
+  let timer = null, video = null;
+  const allowed = () => !noHover.matches && !reduced.matches && !el.dataset.nopreview;
+  function start() {
+    if (!allowed()) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (webm === null) webm = !!document.createElement('video').canPlayType('video/webm');
+      if (!webm) { el.dataset.nopreview = '1'; return; }
+      if (!video) {
+        video = h('video', { class: 'preview', muted: true, loop: true, playsinline: true, preload: 'none', disablepictureinpicture: true, 'aria-hidden': 'true', tabindex: '-1' });
+        video.muted = true;
+        video.addEventListener('playing', () => thumb.classList.add('previewing'));
+        video.addEventListener('error', () => { // missing or unplayable file: never try again, the poster stays
+          el.dataset.nopreview = '1';
+          thumb.classList.remove('previewing');
+          if (video) video.remove();
+          video = null;
+        }, { once: true });
+        video.src = g.preview;
+        thumb.querySelector('.poster').after(video);
+      }
+      const p = video.play();
+      if (p && p.catch) p.catch(() => {});
+    }, 250);
+  }
+  function stop() {
+    clearTimeout(timer);
+    thumb.classList.remove('previewing');
+    if (video) video.pause();
+  }
+  el.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') start(); });
+  el.addEventListener('pointerleave', stop);
+  el.addEventListener('focusin', start);
+  el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget)) stop(); });
+}
+
+// ---------- ranked leaderboard (Bing Ball) ----------
+const MODES = ['1v1', '2v2', '3v3']; // RANKED_KEYS in Bing Ball's shared/modes.js
+// Tier keys from Bing Ball's shared/modes.js TIERS; colors picked for the hub (no pink/purple).
+const TIERS = {
+  rookie: ['Rookie', '#8b95a7'], contender: ['Contender', '#6fe0a0'], egoist: ['Egoist', '#3de0ff'], striker: ['Striker', '#5b9bff'],
+  ace: ['Ace', '#ffb020'], worldclass: ['World Class', '#ff7a3d'], newgen: ['New Gen', '#ffe066'],
+};
+const board = { mode: MODES[0], cache: new Map(), seq: 0, retry: null, slow: null };
+const bingBall = GAMES.find((g) => g.apiGame) || null;
+
+function tierChip(key) {
+  const t = TIERS[key] || [String(key || ''), '#8b95a7'];
+  return t[0] ? h('span', { class: 'tier', style: '--tier:' + t[1], text: t[0] }) : null;
+}
+const record = (e) => `${e.w || 0}W ${e.l || 0}L` + (e.d ? ` ${e.d}D` : '');
+const num = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)).toLocaleString() : '-');
+
+function mountBoard() {
+  const root = $('board');
+  if (!bingBall) { root.hidden = true; return; }
+  const tabs = h('div', { class: 'seg', role: 'tablist', 'aria-label': 'Ranked mode' });
+  root.replaceChildren(
+    h('div', { class: 'board-head' },
+      h('span', { class: 'board-icon', 'aria-hidden': 'true' }, icon('trophy')),
+      h('div', { class: 'board-title' },
+        h('h2', { id: 'board-h', text: 'Ranked leaderboard' }),
+        h('p', { class: 'board-sub', id: 'board-sub', text: bingBall.title + ' · top 10' })),
+      tabs),
+    h('div', { class: 'board-body', id: 'board-body', role: 'tabpanel', 'aria-labelledby': 'board-h' }),
+    h('div', { class: 'board-foot', id: 'board-foot' }));
+  paintTabs();
+}
+function paintTabs() {
+  const tabs = document.querySelector('#board .seg');
+  if (!tabs) return;
+  tabs.replaceChildren(...MODES.map((m) => h('button', {
+    type: 'button', role: 'tab', class: 'seg-btn' + (m === board.mode ? ' on' : ''), 'aria-selected': m === board.mode ? 'true' : 'false',
+    tabindex: m === board.mode ? '0' : '-1', 'aria-controls': 'board-body', onclick: () => loadBoard(m),
+    onkeydown: (e) => {
+      const i = MODES.indexOf(m), step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      e.preventDefault();
+      loadBoard(MODES[(i + step + MODES.length) % MODES.length]);
+      const on = tabs.querySelector('.on');
+      if (on) on.focus();
+    },
+  }, m)));
+}
+
+async function loadBoard(mode, { force = false } = {}) {
+  if (!bingBall) return;
+  board.mode = mode;
+  paintTabs();
+  const seq = ++board.seq;
+  clearTimeout(board.retry);
+  clearTimeout(board.slow);
+  const cached = board.cache.get(mode);
+  if (cached && !force) { drawBoard(cached); return; }
+  if (!force) drawSkeleton(false);
+  board.slow = setTimeout(() => { if (seq === board.seq) drawSkeleton(true); }, 6000);
+  try {
+    const d = await call('/api/leaderboard?mode=' + encodeURIComponent(mode), { auth: true, timeout: 75000 });
+    clearTimeout(board.slow);
+    if (seq !== board.seq) return;
+    board.cache.set(mode, d);
+    drawBoard(d);
+  } catch (e) {
+    clearTimeout(board.slow);
+    if (seq !== board.seq) return;
+    if (e && (e.waking || !e.status || e.status >= 500)) { // asleep or still booting: keep waiting, never an error
+      drawSkeleton(true);
+      board.retry = setTimeout(() => loadBoard(mode, { force: true }), 15000);
+    } else {
+      $('board-body').replaceChildren(h('p', { class: 'board-note', text: 'The leaderboard is taking a break. Try again in a bit.' }));
+      $('board-foot').replaceChildren();
+    }
+  }
+}
+
+function drawSkeleton(waking) {
+  const body = $('board-body');
+  body.classList.add('loading');
+  body.setAttribute('aria-busy', 'true');
+  body.replaceChildren(
+    h('div', { class: 'podium' }, [1, 2, 3].map((p) => h('div', { class: 'pod sk p' + p }, h('span', { class: 'medal', text: String(p) }), h('i', { class: 'bar w1' }), h('i', { class: 'bar w2' }), h('span', { class: 'step', 'aria-hidden': 'true' })))),
+    h('ol', { class: 'board-list', start: '4' }, [4, 5, 6, 7, 8, 9, 10].map((p) => h('li', { class: 'row sk' }, h('span', { class: 'pos', text: String(p) }), h('i', { class: 'bar' })))));
+  $('board-foot').replaceChildren(waking
+    ? h('p', { class: 'board-wake' }, h('i', { class: 'dot' }), 'Waking up the Bing Ball server. The first answer can take a minute.')
+    : h('p', { class: 'board-wake quiet' }, 'Loading the board...'));
+}
+
+function drawBoard(d) {
+  const body = $('board-body');
+  body.classList.remove('loading');
+  body.removeAttribute('aria-busy');
+  const mode = d.mode || board.mode;
+  const top = (Array.isArray(d.top) ? d.top : []).slice(0, 10);
+  const me = d.me && typeof d.me === 'object' ? d.me : null;
+  const user = session.getUser();
+  const isMe = (e) => !!(me && me.pos && e.pos === me.pos);
+  const pod = (p) => {
+    const e = top[p - 1];
+    const step = h('span', { class: 'step', 'aria-hidden': 'true', text: String(p) });
+    if (!e) return h('div', { class: 'pod open p' + p }, h('span', { class: 'medal', text: String(p) }), h('strong', { class: 'name', text: 'Open spot' }), h('span', { class: 'pod-sub', text: 'Play Ranked ' + mode }), step);
+    return h('div', { class: 'pod p' + p + (isMe(e) ? ' me' : '') },
+      h('span', { class: 'medal', text: String(p) }),
+      h('strong', { class: 'name', text: e.name || '?' }),
+      tierChip(e.tier),
+      h('span', { class: 'rating' }, h('b', { text: num(e.r) }), h('small', { text: 'rating' })),
+      h('span', { class: 'pod-sub', text: record(e) }),
+      step);
+  };
+  const rows = [];
+  for (let p = 4; p <= 10; p++) {
+    const e = top[p - 1];
+    rows.push(e
+      ? h('li', { class: 'row' + (isMe(e) ? ' me' : '') },
+        h('span', { class: 'pos', text: String(p) }), h('span', { class: 'name', text: e.name || '?' }), tierChip(e.tier),
+        h('span', { class: 'rec', text: record(e) }), h('span', { class: 'r', text: num(e.r) }))
+      : h('li', { class: 'row open' }, h('span', { class: 'pos', text: String(p) }), h('span', { class: 'name', text: 'Open spot' })));
+  }
+  body.replaceChildren(h('div', { class: 'podium' }, [1, 2, 3].map(pod)), h('ol', { class: 'board-list', start: '4' }, rows));
+  $('board-sub').textContent = `${bingBall.title} · top 10 of ${num(d.total || top.length)} in ${mode}`;
+
+  const play = h('a', { class: 'board-play', href: playLink(bingBall) }, 'Play ranked', icon('arrow'));
+  let line;
+  if (!user) {
+    line = h('p', { class: 'board-me' }, 'Log in to see where you rank. ',
+      h('button', { type: 'button', class: 'link-btn', onclick: () => openAuthSheet('login') }, 'Log in'));
+  } else if (me && me.pos && me.pos <= 10) {
+    line = h('p', { class: 'board-me' }, h('b', { text: `You are #${me.pos}` }), ` on the ${mode} board. Defend it.`);
+  } else if (me && me.pos) {
+    line = h('p', { class: 'board-me' }, h('b', { text: `You: #${me.pos}` }), ` · ${num(me.r)} rating · `, tierChip(me.tier));
+  } else {
+    line = h('p', { class: 'board-me' }, `You are not on the ${mode} board yet. Win a Ranked ${mode} match to get on it.`);
+  }
+  $('board-foot').replaceChildren(line, play);
+}
+
+// ---------- search, keys, clock ----------
+searchBox.addEventListener('input', renderGrid);
+addEventListener('keydown', (e) => {
+  const t = e.target, typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey && !document.querySelector('.fp-backdrop')) {
+    e.preventDefault();
+    searchBox.focus();
+  }
+  if (e.key === 'Escape' && t === searchBox) { searchBox.value = ''; renderGrid(); searchBox.blur(); }
+});
+
+function tick() {
+  const d = new Date();
+  $('time').textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const hr = d.getHours(), weekend = d.getDay() === 0 || d.getDay() === 6;
+  $('mood').textContent = weekend ? 'weekend mode'
+    : hr < 7 ? 'way too early' : hr < 15 ? 'free period' : hr < 18 ? 'after school' : hr < 23 ? 'game night' : 'go to sleep';
+}
+
+// Glass header gets a touch more solid once the page scrolls under it.
+const header = document.querySelector('.top');
+const onScroll = () => header && header.classList.toggle('scrolled', scrollY > 8);
+addEventListener('scroll', onScroll, { passive: true });
+
+// ---------- account: cloud saves + meta, once per sign-in (not on every render) ----------
+let syncedToken = null, boardToken = session.getToken();
+function syncAccount() {
+  const t = session.getToken();
+  if (!t) { syncedToken = null; return; }
+  if (t === syncedToken) return;
+  syncedToken = t;
+  syncAll(window.GAMES || []).catch(() => {});
+  pullMerge().then(refreshMeta, () => {});
+}
+session.onChange(() => {
+  syncAccount();
+  const t = session.getToken();
+  if (t !== boardToken) { boardToken = t; board.cache.clear(); loadBoard(board.mode); } // `me` on the board changed
+});
+addEventListener('storage', (e) => { if (e.key === 'fp.meta') refreshMeta(); });
+
+// ---------- start ----------
+mountAccount($('account'));
+mountSuggest($('suggest'));
+renderHero();
+renderRecent();
+renderChips();
+renderGrid();
+mountBoard();
+loadBoard(board.mode);
+$('foot-count').textContent = `${GAMES.length} game${GAMES.length === 1 ? '' : 's'} and counting`;
+tick();
+setInterval(tick, 15000);
+onScroll();
+
+for (const g of GAMES) if (g.status) watchStatus(g, (st) => onStatus(g, st));
+// Free servers nap after ~15 idle minutes: poke the ones nothing else is checking, so they wake before Play.
+GAMES.filter((g) => (g.wakes || g.wake) && !g.status)
+  .forEach((g) => fetch(g.wake || g.url, { mode: 'no-cors', cache: 'no-store' }).catch(() => {}));
+
+syncAccount();
 session.resume();

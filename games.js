@@ -1,13 +1,25 @@
-// Every game on Free Period. To add one, copy an entry, change the fields, and drop a 16:9 picture in assets/.
+// Every game on Free Period. To add one, copy an entry, change the fields, and drop its pictures in assets/.
 //   id        short name used in the link: play.html?g=<id>
 //   url       where the game runs (it opens inside Free Period in a frame)
-//   thumb     card picture, 16:9 (960x540 is plenty)
-//   hero      optional wider-cropped picture for the featured banner (the art sits on the right half)
+//   thumb     card poster, 16:9 (assets/<id>.jpg, 1280x720)
+//   hero      optional wide poster for the featured banner (assets/<id>-hero.jpg, 1920x820); falls back to thumb
+//   preview   optional hover video for the card (assets/<id>.webm: 6-8 s, 640x360, VP9, no audio, under 1.2 MB);
+//             plays after 250 ms of hover, never on touch screens or with reduced motion; a missing file just doesn't play
 //   tags      shown on the card and used by the filter chips
 //   controls  one line shown under the title on the play page
-//   wakes     true if the game runs on a free server that naps when idle (Render): the play page explains the wait
-//   wake      optional URL to poke when the home page opens (a game's multiplayer server on Render)
+//   accent    the card's glow color
+//   wakes     true if the game itself runs on a free server that naps when idle (Render): it shows "Waking up" while it wakes,
+//             and the play page explains the wait. Without it the game plays on its own (its server is extra, like multiplayer)
+//   wake      optional URL to poke when the home page opens, so a napping server is awake by Play (games with `status`
+//             don't need it: the status check wakes them)
+//   status    optional live status: { health, version } URLs. health = the server answers (and {players} if it is JSON),
+//             version = JSON {version, build}. Polled every 45 s while the page is visible.
+//   saveKey   optional localStorage key the game saves to: signed in, Free Period syncs it to the account (cloud save)
+//   beta      true shows a Beta badge (the game is playable but unfinished)
+//   apiGame   true for a game served by the Free Period API server (Bing Ball): its url and status URLs follow the
+//             ?api= test override (https://bing-ball.onrender.com is swapped for the override)
 //   featured  the big banner at the top of the home page (only one)
+//   added     date it went up (NEW badge for two weeks)
 window.GAMES = [
   {
     id: 'bing-ball',
@@ -16,10 +28,13 @@ window.GAMES = [
     url: 'https://bing-ball.onrender.com',
     thumb: 'assets/bing-ball.jpg',
     hero: 'assets/bing-ball-hero.jpg',
+    preview: 'assets/bing-ball.webm',
     tags: ['3D', 'Multiplayer', 'Sports'],
     controls: 'WASD move · click shoot · right-click pass · F dash · G Flow',
     accent: '#c6ff3d',
     wakes: true,
+    apiGame: true,
+    status: { health: 'https://bing-ball.onrender.com/health', version: 'https://bing-ball.onrender.com/api/status' },
     featured: true,
     added: '2026-11-06',
   },
@@ -29,10 +44,13 @@ window.GAMES = [
     tagline: 'Weave through midnight highway traffic. Near misses build combos, combos buy cars.',
     url: 'games/close-call/',
     thumb: 'assets/close-call.jpg',
+    preview: 'assets/close-call.webm',
     tags: ['3D', 'Multiplayer', 'Racing'],
     controls: 'W/S gas & brake · A/D steer · Shift nitro · C camera · Esc pause',
     accent: '#ffb020',
-    wake: 'https://freeperiod-closecall.onrender.com/health',
+    beta: true,
+    saveKey: 'closecall.v1',
+    status: { health: 'https://freeperiod-closecall.onrender.com/health' },
     added: '2026-11-07',
   },
 ];

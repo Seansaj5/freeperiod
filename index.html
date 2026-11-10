@@ -5,17 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Free Period</title>
   <meta name="description" content="Free Period: games made by us, for us." />
-  <meta name="theme-color" content="#06080e" />
+  <meta name="theme-color" content="#05070c" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="assets/fonts/bungee.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/outfit.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="ui.css" />
 </head>
-<body>
-  <div class="sky"></div>
+<body class="home">
+  <div class="sky" aria-hidden="true">
+    <i class="glow g1"></i><i class="glow g2"></i><i class="glow g3"></i>
+    <i class="paper"></i>
+    <i class="sweep"></i>
+  </div>
 
-  <div class="wrap">
-    <header class="top">
+  <header class="top">
+    <div class="wrap top-in">
       <a class="logo" href="./" aria-label="Free Period home">
         <svg viewBox="0 0 64 64" aria-hidden="true">
           <g class="bell" fill="none" stroke="#c6ff3d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
@@ -25,35 +30,46 @@
         </svg>
         <span class="wordmark">FREE <b>PERIOD</b></span>
       </a>
-      <div class="clock" id="clock" aria-live="off"><span id="time">--:--</span> · <em id="mood" style="font-style:normal">free period</em></div>
+      <div class="clock" id="clock" aria-live="off"><span id="time">--:--</span><em id="mood">free period</em></div>
       <label class="search">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
         <input id="q" type="search" placeholder="Search games" autocomplete="off" spellcheck="false" aria-label="Search games" />
-        <kbd>/</kbd>
+        <kbd aria-hidden="true">/</kbd>
       </label>
-      <div id="account"></div>
-    </header>
+      <div class="account-slot" id="account"></div>
+    </div>
+  </header>
 
-    <section id="hero"></section>
+  <main class="wrap">
+    <section id="hero" class="hero-slot" aria-label="Featured game"></section>
+
+    <section class="recent" id="recent" aria-labelledby="recent-h" hidden>
+      <div class="section-head"><h2 id="recent-h">Jump back in</h2></div>
+      <div class="recent-row" id="recent-row"></div>
+    </section>
 
     <section class="fp-suggest-section" id="suggest" aria-label="Tell Sean"></section>
 
-    <div class="section-head">
-      <h2>All games</h2>
-      <span class="count" id="count"></span>
-      <div class="chips" id="chips"></div>
-    </div>
-    <div class="grid" id="grid"></div>
-    <p class="empty" id="empty">No games match that. Yet.</p>
+    <section class="games" aria-labelledby="games-h">
+      <div class="section-head">
+        <h2 id="games-h">All games</h2>
+        <span class="count" id="count"></span>
+        <div class="chips" id="chips"></div>
+      </div>
+      <div class="grid" id="grid"></div>
+      <p class="empty" id="empty" hidden>No games match that. Yet.</p>
+    </section>
 
-    <footer>
-      <span>Free Period · games made by us, for us</span>
-      <span id="foot-count"></span>
-    </footer>
-  </div>
+    <section class="board" id="board" aria-labelledby="board-h"></section>
+  </main>
+
+  <footer class="wrap foot">
+    <span class="foot-brand"><b>FREE PERIOD</b> · games made by us, for us</span>
+    <span id="foot-count"></span>
+    <span class="foot-keys"><kbd>/</kbd> search</span>
+  </footer>
 
   <script src="games.js"></script>
-  <script src="app.js"></script>
   <script type="module" src="fp/home.js"></script>
 </body>
 </html>
