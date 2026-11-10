@@ -84,3 +84,22 @@ test('pullBy: a pull answering before the deadline still pulls', async () => {
   assert.equal(await s.syncGame(game, { pullBy: Date.now() + 5000 }), 'pull');
   assert.equal(localStorage.getItem('cc.v1'), 'CLOUD');
 });
+
+test('saves over 4096 bytes are never sent (bytes, not characters), on sync or pagehide', async () => {
+  const calls = [];
+  const s = await setup(async (url, opts) => { calls.push([url, opts]); return res({ ok: true, save: null, at: 5 }); });
+  const big = 'é'.repeat(2049); // 2049 characters, 4098 bytes
+  localStorage.setItem('cc.v1', big);
+  assert.equal(await s.syncGame(game), 'none');
+  const handlers = {};
+  globalThis.addEventListener = (t, f) => { handlers[t] = f; };
+  globalThis.removeEventListener = () => {};
+  localStorage.setItem('fp.sync.close-call', JSON.stringify({ hash: hashString('OLDER'), at: 1, user: 'tester' }));
+  s.watch(game);
+  handlers.pagehide();
+  delete globalThis.addEventListener; delete globalThis.removeEventListener;
+  assert.equal(calls.filter(([, o]) => o && o.method === 'POST').length, 0);
+  localStorage.removeItem('fp.sync.close-call');
+  localStorage.setItem('cc.v1', 'é'.repeat(2048)); // exactly 4096 bytes
+  assert.equal(await s.syncGame(game), 'push');
+});

@@ -4,7 +4,8 @@ import { call } from './api.js';
 import * as session from './session.js';
 import { hashString, decideSync } from './sync.js';
 
-const MAX_DATA = 16384;
+const MAX_DATA = 4096; // bytes (UTF-8), the server's cap per save
+const tooBig = (s) => new TextEncoder().encode(s).length > MAX_DATA;
 const recKey = id => 'fp.sync.' + id;
 
 const inflight = new Map();
@@ -48,7 +49,7 @@ async function doSync(game, { keepalive = false, pullBy = 0, pushOnly = false } 
       if (!store.set(game.saveKey, cloud.data)) return 'none';
       store.setJson(recKey(game.id), { hash: hashString(cloud.data), at: cloud.at, user });
     } else if (action === 'push') {
-      if (localRaw.length > MAX_DATA) return 'none';
+      if (tooBig(localRaw)) return 'none';
       const d = await call('/api/fp/save', { body: { game: game.id, data: localRaw }, auth: true, keepalive });
       store.setJson(recKey(game.id), { hash: hashString(localRaw), at: d.at, user });
     } else if (cloud && cloud.data === localRaw) {
@@ -82,7 +83,7 @@ export function watch(game) {
     const raw = store.get(game.saveKey);
     const rec = store.json(recKey(game.id), null);
     const user = session.userKey();
-    if (raw == null || raw.length > MAX_DATA || !session.getToken() || !user) return;
+    if (raw == null || tooBig(raw) || !session.getToken() || !user) return;
     // Only on top of a sync this device made for this account: a save with another account's record (or none yet)
     // waits for the next full sync, which can pull, instead of being pushed blind over the account's cloud save.
     if (!rec || rec.user !== user || rec.hash === hashString(raw)) return;
