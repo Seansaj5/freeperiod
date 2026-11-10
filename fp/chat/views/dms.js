@@ -118,9 +118,10 @@ export function openPeoplePicker(mode, o) {
     list.replaceChildren(...rows.map((p) => {
       const on = picked.has(p.id);
       const blocked = o.isBlocked && o.isBlocked(p.id);
+      const banned = !!p.banned && !!o.showBan && o.showBan(p); // (staff only: members don't see who is banned)
       const full = !on && mode !== 'dm' && picked.size >= max;
-      const b = h('button', { type: 'button', role: 'option', class: 'cx-pp-row' + (on ? ' on' : ''), 'aria-selected': on ? 'true' : 'false', disabled: blocked || full || p.banned,
-        dataset: { uid: p.id }, title: blocked ? 'You blocked them' : p.banned ? 'Banned from chat' : full ? 'The group is full' : '' },
+      const b = h('button', { type: 'button', role: 'option', class: 'cx-pp-row' + (on ? ' on' : ''), 'aria-selected': on ? 'true' : 'false', disabled: blocked || full || banned,
+        dataset: { uid: p.id }, title: blocked ? 'You blocked them' : banned ? 'Banned from chat' : full ? 'The group is full' : '' },
         avatar(p, { size: 32 }), h('span', { class: 'cx-pp-text' }, h('span', { class: 'cx-pp-name' }, nameEl(p, 'span', 'cx-name', { plain: true }), roleMark(p)), h('small', { text: '@' + p.username })),
         blocked ? h('span', { class: 'cx-pp-tag', text: 'Blocked' }) : mode === 'dm' ? icon('right', 'cx-pp-go') : h('span', { class: 'cx-pp-box', 'aria-hidden': 'true' }, on ? icon('check') : null));
       b.addEventListener('click', () => {

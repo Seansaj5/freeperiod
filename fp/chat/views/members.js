@@ -6,7 +6,7 @@ import { icon, avatar, nameEl, nameOf, roleMark, roleOf, hotOnHover } from './co
 const rank = (p) => ({ owner: 0, mod: 1 }[roleOf(p)] ?? 2);
 const byName = (a, b) => rank(a) - rank(b) || nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: 'base' });
 
-export function mountMembers(el, { onBack, onPick, onMenu } = {}) {
+export function mountMembers(el, { onBack, onPick, onMenu, showBan = () => false } = {}) {
   el.classList.add('cx-members');
   const count = h('span', { class: 'cx-mem-count' });
   const title = h('h2', { text: 'Members' });
@@ -22,7 +22,7 @@ export function mountMembers(el, { onBack, onPick, onMenu } = {}) {
     const btn = h('button', { type: 'button', class: 'cx-mem-btn', dataset: { uid: p.id }, 'aria-label': nameOf(p) + (on ? ', online' : ', offline') },
       avatar(p, { size: 34, status: on ? 'online' : 'offline', frame: 'hover' }),
       h('span', { class: 'cx-mem-text' },
-        h('span', { class: 'cx-mem-name' }, nameEl(p), roleMark(p), p.banned ? h('span', { class: 'cx-mem-flag bad', text: 'Banned' }) : null),
+        h('span', { class: 'cx-mem-name' }, nameEl(p), roleMark(p), p.banned && showBan(p) ? h('span', { class: 'cx-mem-flag bad', text: 'Banned' }) : null),
         status ? h('span', { class: 'cx-mem-status', text: status }) : null));
     btn.addEventListener('click', () => onPick && onPick(p, btn));
     btn.addEventListener('contextmenu', (e) => { if (onMenu && onMenu(p, btn)) e.preventDefault(); });

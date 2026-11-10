@@ -160,7 +160,9 @@ export function mountChatApp(root, { compact = false } = {}) {
   // ---------- views ----------
   const rail = mountRail(railEl, { homeLink: !compact, onServer: () => setMode('server'), onDMs: () => setMode('dms'), onFriends: () => setMode('friends') });
   const side = mountChannels(sideEl, { onPick: (c) => openChannel(c, true), onManage: () => openChannelManager(modCx), onTools: (anchor) => openServerTools(anchor), onMe: (anchor) => openCard(myProfile(), anchor), onSettings: () => openEditor() });
-  const memberList = mountMembers(membersEl, { onBack: () => goBack(), onPick: (p, anchor) => openCard(p, anchor), onMenu: (p, anchor) => (isStaff() ? openMemberMenu(anchor, live(p), modCx) : false) });
+  // A ban shows only to staff and to the banned person (like the profile card): a public "Banned" tag is a bullying hook.
+  const showBan = (p) => !!p && (isStaff() || p.id === myId());
+  const memberList = mountMembers(membersEl, { onBack: () => goBack(), onPick: (p, anchor) => openCard(p, anchor), onMenu: (p, anchor) => (isStaff() ? openMemberMenu(anchor, live(p), modCx) : false), showBan });
   const messages = mountMessages(feedEl, {
     me: () => (chatMe() ? { id: myId(), username: chatMe().username } : null),
     profile: (id) => byId.get(id) || null,
@@ -567,10 +569,10 @@ export function mountChatApp(root, { compact = false } = {}) {
     await openDM(dm, true);
   }
   function newDM() {
-    openPeoplePicker('dm', { myId: myId(), isBlocked: (id) => blocked.has(id), onDone: async ([p]) => { if (p) await startDMWith(p); } });
+    openPeoplePicker('dm', { myId: myId(), isBlocked: (id) => blocked.has(id), showBan, onDone: async ([p]) => { if (p) await startDMWith(p); } });
   }
   function newGroup() {
-    openPeoplePicker('group', { myId: myId(), isBlocked: (id) => blocked.has(id), room: 9, onDone: async (people, name) => {
+    openPeoplePicker('group', { myId: myId(), isBlocked: (id) => blocked.has(id), showBan, room: 9, onDone: async (people, name) => {
       const id = await data.createGroup(people.map((p) => p.id), name);
       await loadDMs();
       const dm = dms.find((d) => d.id === id);
@@ -583,7 +585,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     if (!dm || !dm.is_group) return;
     const have = new Set((dm.members || []).map((p) => p.id));
     if (have.size >= 10) { toast('Groups hold up to 10 people', 'err'); return; }
-    openPeoplePicker('add', { myId: myId(), isBlocked: (id) => blocked.has(id), exclude: have, room: 10 - have.size, onDone: async (people) => {
+    openPeoplePicker('add', { myId: myId(), isBlocked: (id) => blocked.has(id), showBan, exclude: have, room: 10 - have.size, onDone: async (people) => {
       try { for (const p of people) await data.addToGroup(dm.id, p.id); }
       finally { await loadDMs(); } // a partial failure still shows who did get in
       toast(people.length === 1 ? nameOf(people[0]) + ' was added' : people.length + ' people were added');
