@@ -3,7 +3,7 @@
 // overlay (one panel at a time, no title or history changes).
 import { h, toast, openSheet } from '../ui.js';
 import * as session from '../session.js';
-import { chatState, onChatState, ensureChatSession, me as chatMe, chatError as sessionError } from './client.js';
+import { chatState, onChatState, ensureChatSession, me as chatMe, chatError as sessionError, getChat } from './client.js';
 import * as data from './data.js';
 import { tabTitle, badge } from './unread.js';
 import { mentionsMe } from './format.js';
@@ -870,6 +870,10 @@ export function mountChatApp(root, { compact = false } = {}) {
     rt = 'connecting'; notLiveSince = 0;
     closeProfileCard(); closeMenu(); messages.closePopups();
     drawConn();
+    // Realtime would keep its socket open for a while with no channels: close it now (it reconnects on resume).
+    setTimeout(() => {
+      try { const c = getChat(); if (paused && c && c.realtime && c.getChannels().length === 0) c.realtime.disconnect(); } catch { /* ignore */ }
+    }, 1500);
   }
   function resumeLive() {
     if (!paused) return;
