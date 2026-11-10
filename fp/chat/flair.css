@@ -1,9 +1,11 @@
 /* Profile flair: name fonts and styles, avatar frames (frames.js), profile effects (effects.js).
-   Bungee + Outfit come from style.css; the four below are SIL Open Font License (licenses next to the files). */
+   Bungee + Outfit come from style.css; the five below are SIL Open Font License (licenses next to the files).
+   Rubik Wet Paint (the symbiote font) is subset to Latin + Latin-1 letters. */
 @font-face { font-family: 'Press Start 2P'; src: url('../../assets/fonts/pressstart2p.woff2') format('woff2'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'Orbitron'; src: url('../../assets/fonts/orbitron.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
 @font-face { font-family: 'Creepster'; src: url('../../assets/fonts/creepster.woff2') format('woff2'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'Pacifico'; src: url('../../assets/fonts/pacifico.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Rubik Wet Paint'; src: url('../../assets/fonts/rubikwetpaint.woff2') format('woff2'); font-weight: 400; font-display: swap; }
 
 /* ---------- display names (paintName in flair.js) ---------- */
 /* font-size-adjust evens the fonts out at whatever size the page sets (Press Start 2P's capitals are a full em tall,
@@ -16,6 +18,12 @@
 .fp-name[data-fill="gradient"] {
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   padding: 0.14em 0.2em; margin: -0.14em -0.2em; -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+
+/* symbiote: goo letters. Layers (flair.js symbioteStyle): wet highlight, oily sheen over the lower half, black body */
+.fp-name[data-font="symbiote"] {
+  font-size-adjust: cap-height 0.76; letter-spacing: 0.015em; background-repeat: no-repeat;
+  background-size: 100% 100%, 100% 58%, 100% 100%; background-position: 0 0, 0 100%, 0 0;
 }
 
 /* ---------- avatar frames ---------- */
@@ -170,6 +178,48 @@
 [data-frame="eclipse"] .l4 { animation: fpf-spin 24s linear infinite; }
 [data-frame="eclipse"] .dm { animation: fpf-flare 1.6s ease-in-out infinite alternate; }
 @keyframes fpf-flare { from { transform: scale(0.8); opacity: 0.75; } to { transform: scale(1.15); opacity: 1; } }
+
+/* symbiote (and its red and white kin): the goo breathes, two sets of tendrils crawl round the ring opposite ways, each
+   tendril lifting and settling about its base, drips stretch, the oily sheen slides round */
+:is([data-frame="symbiote"], [data-frame="symbiote-red"], [data-frame="symbiote-white"]) .l1 { animation: fpf-goo 3.4s ease-in-out infinite alternate; }
+:is([data-frame="symbiote"], [data-frame="symbiote-red"], [data-frame="symbiote-white"]) .l2 { animation: fpf-spin 30s linear infinite; }
+:is([data-frame="symbiote"], [data-frame="symbiote-red"], [data-frame="symbiote-white"]) .l3 { animation: fpf-spin-r 38s linear infinite; }
+:is([data-frame="symbiote"], [data-frame="symbiote-red"], [data-frame="symbiote-white"]) .l4 { animation: fpf-spin 12s linear infinite; }
+.fp-frame .tn { transform-box: view-box; animation: fpf-writhe-a 3s ease-in-out infinite alternate; }
+.fp-frame .tn.tb { animation-name: fpf-writhe-b; }
+:is([data-frame="symbiote"], [data-frame="symbiote-red"], [data-frame="symbiote-white"], [data-frame="ooze"]) .dr {
+  transform-box: fill-box; transform-origin: 50% 0; animation: fpf-stretch 3.2s ease-in-out infinite;
+}
+@keyframes fpf-goo { from { transform: scale(1); } to { transform: scale(1.016); } }
+@keyframes fpf-writhe-a { from { transform: rotate(-4deg) scale(0.95); } to { transform: rotate(6deg) scale(1.04); } }
+@keyframes fpf-writhe-b { from { transform: rotate(5deg) scale(1.04); } to { transform: rotate(-5deg) scale(0.94); } }
+
+/* ember (earned, 7-day streak): the cracks breathe, the flames flicker, embers rise all round */
+[data-frame="ember"] .l1 { animation: fpf-breathe 2.2s ease-in-out infinite alternate; }
+[data-frame="ember"] .l2 { animation: fpf-coals 1.7s ease-in-out infinite alternate; }
+[data-frame="ember"] .l3 { transform-origin: 50% 40%; animation: fpf-flick-a 0.7s ease-in-out infinite alternate; }
+[data-frame="ember"] .l4 { animation: fpf-rise 2.6s linear infinite; }
+[data-frame="ember"] .l5 { animation: fpf-rise 2.6s -1.3s linear infinite; }
+[data-frame="ember"] .tw { animation: fpf-twinkle 2.4s ease-in-out infinite; }
+@keyframes fpf-coals { 0% { opacity: 0.45; } 60% { opacity: 1; } 100% { opacity: 0.8; } }
+
+/* living ooze: beads slide down both sides and pool; the pool swells, the top re-forms; one drop falls from the pool */
+[data-frame="ooze"] .sl { transform-box: view-box; transform-origin: 50px 50px; animation: fpf-slide-r 3.6s infinite; }
+[data-frame="ooze"] .sl.ccw { animation-name: fpf-slide-l; }
+[data-frame="ooze"] .pl { transform-box: view-box; transform-origin: 50px 102px; animation: fpf-pool 1.8s ease-in-out infinite; }
+[data-frame="ooze"] .rs { transform-box: view-box; transform-origin: 50px -1px; animation: fpf-refill 1.8s ease-in-out infinite; }
+[data-frame="ooze"] .l2 { animation: fpf-spin 12s linear infinite; }
+[data-frame="ooze"] .fall { animation: fpf-fall 1.8s 0.45s ease-in infinite backwards; }
+@keyframes fpf-slide-r {
+  0% { transform: rotate(0deg); opacity: 0; animation-timing-function: cubic-bezier(0.5, 0, 0.85, 0.5); }
+  7% { opacity: 1; } 60% { opacity: 1; } 62% { transform: rotate(158deg); } 70%, 100% { transform: rotate(158deg); opacity: 0; }
+}
+@keyframes fpf-slide-l {
+  0% { transform: rotate(0deg); opacity: 0; animation-timing-function: cubic-bezier(0.5, 0, 0.85, 0.5); }
+  7% { opacity: 1; } 60% { opacity: 1; } 62% { transform: rotate(-158deg); } 70%, 100% { transform: rotate(-158deg); opacity: 0; }
+}
+@keyframes fpf-pool { 0%, 100% { transform: scale(0.86, 0.8); } 30% { transform: scale(1.12, 1.18); } 48% { transform: scale(1.06, 1.08); } }
+@keyframes fpf-refill { 0%, 100% { transform: scale(1, 1.05); } 14% { transform: scale(0.82, 0.55); } 40% { transform: scale(0.88, 0.7); } }
 
 /* ---------- profile effects (canvas overlay, effects.js) ---------- */
 :where(.fp-has-effect) { position: relative; }

@@ -1,4 +1,4 @@
-// Avatar frames: 20 animated decorations drawn in code (SVG + CSS animations in flair.css). No outside art.
+// Avatar frames: 24 animated decorations drawn in code (SVG + CSS animations in flair.css). No outside art.
 // mountFrame(el, id) puts the frame over an avatar element (any size; drawn for 40 px and 128 px), returns { el, stop() }.
 // The frame box is the avatar box grown 15% on every side; inside each SVG the avatar is the circle (50,50) r 50.
 // Animations run only on transform/opacity of whole layers where possible (cheap on Chromebooks), pause off-screen
@@ -46,6 +46,141 @@ const trail = (r, a0, a1, color, w, pieces = 10) => {
   }
   return s;
 };
+
+// ---- the symbiote set: living goo (glossy black, crimson or pale) ----
+const wrapDeg = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
+// soft lumps: [center angle, height, width in degrees]
+const lumps = (list) => (a) => list.reduce((sum, [c, h, w]) => sum + h * Math.exp(-((wrapDeg(a - c) / w) ** 2)), 0);
+const P2 = (p) => `${n2(p[0])} ${n2(p[1])}`;
+// a smooth run through points (quadratic curves between midpoints), without the leading M
+const chain = (p) => {
+  let d = '';
+  for (let i = 1; i < p.length - 1; i++) d += `Q${P2(p[i])} ${n2((p[i][0] + p[i + 1][0]) / 2)} ${n2((p[i][1] + p[i + 1][1]) / 2)}`;
+  return d + `L${P2(p[p.length - 1])}`;
+};
+// a closed smooth ring whose radius follows fn(deg)
+const blob = (fn, steps = 90) => {
+  const p = [];
+  for (let i = 0; i < steps; i++) p.push(P(fn((i * 360) / steps), (i * 360) / steps));
+  let d = `M${n2((p[0][0] + p[1][0]) / 2)} ${n2((p[0][1] + p[1][1]) / 2)}`;
+  for (let i = 1; i <= steps; i++) { const a = p[i % steps], b = p[(i + 1) % steps]; d += `Q${P2(a)} ${n2((a[0] + b[0]) / 2)} ${n2((a[1] + b[1]) / 2)}`; }
+  return d + 'Z';
+};
+// a crescent of light along radius r (a number, or a function of the angle, to follow a lumpy edge), thickest in the middle
+const lens = (a0, a1, r, t, steps = 24) => {
+  const rf = typeof r === 'function' ? r : () => r, o = [], i = [];
+  for (let k = 0; k <= steps; k++) {
+    const u = k / steps, a = a0 + (a1 - a0) * u, w = Math.sin(Math.PI * u) ** 0.9 * t;
+    o.push(P(rf(a) + w * 0.5, a)); i.push(P(rf(a) - w * 0.5, a));
+  }
+  return `M${P2(o[0])}${chain(o)}L${P2(i[i.length - 1])}${chain(i.reverse())}Z`;
+};
+// A tapered ribbon along centerline c (half-width up to wb): its outline and a highlight line on its lit side (light
+// from the top left), from 12% to 80% of its length. grow: the share of the length over which it swells from nothing
+// (a tendril rising out of the goo), 0 for a blunt base.
+function ribbon(c, wb, grow = 0) {
+  const N = c.length - 1, Lp = [], Rp = [], H = [];
+  for (let i = 0; i <= N; i++) {
+    const s = i / N, a = c[Math.max(0, i - 1)], b = c[Math.min(N, i + 1)];
+    let tx = b[0] - a[0], ty = b[1] - a[1];
+    const m = Math.hypot(tx, ty) || 1; tx /= m; ty /= m;
+    const w = (grow ? Math.min(1, s / grow) ** 0.5 : 1) * wb * (1 - s) ** 0.75 + 0.15, nx = -ty, ny = tx, lit = nx + ny < 0 ? 1 : -1;
+    Lp.push([c[i][0] + nx * w, c[i][1] + ny * w]); Rp.push([c[i][0] - nx * w, c[i][1] - ny * w]);
+    H.push([c[i][0] + nx * w * 0.5 * lit, c[i][1] + ny * w * 0.5 * lit]);
+  }
+  const from = Math.round(N * 0.12), to = Math.round(N * 0.8);
+  return { d: `M${P2(Lp[0])}${chain(Lp)}L${P2(Rp[N])}${chain(Rp.reverse())}Z`, hi: `M${P2(H[from])}${chain(H.slice(from, to + 1))}` };
+}
+// A tendril crawling round the ring: it rises out of the goo at angle a0, runs `sweep` degrees along it (negative =
+// counterclockwise) wavering in and out, and its tip lifts off and hooks back outward.
+function crawler(a0, sweep, wb, lift = 9, wave = 1.5) {
+  const N = 32, c = [];
+  for (let i = 0; i <= N; i++) {
+    const s = i / N;
+    c.push(P(53.8 + wave * Math.sin(Math.PI * 2 * s) * (1 - s) + lift * s ** 2.6, a0 + sweep * (s - 0.32 * s ** 5)));
+  }
+  return { ...ribbon(c, wb, 0.16), base: c[0] };
+}
+// a drip hanging straight down from radius r at angle a: wide where it leaves the goo, a short neck, then a fat drop
+const gooDrip = (a, len, w, r = 53) => {
+  const [x, y] = P(r, a), h = w / 2, b = w * 0.42, cy = y + len - b;
+  return `M${n2(x - h * 1.5)} ${n2(y - 3)}C${n2(x - h * 0.9)} ${n2(y + len * 0.12)} ${n2(x - b * 0.62)} ${n2(y + len * 0.3)} ${n2(x - b * 0.8)} ${n2(cy - b * 0.6)}` +
+    `A${n2(b)} ${n2(b)} 0 1 0 ${n2(x + b * 0.8)} ${n2(cy - b * 0.6)}C${n2(x + b * 0.62)} ${n2(y + len * 0.3)} ${n2(x + h * 0.9)} ${n2(y + len * 0.12)} ${n2(x + h * 1.5)} ${n2(y - 3)}Z`;
+};
+const GOO = {
+  // body (lit top left -> shadow bottom right), highlight, soft volume light, oily sheen, rim light on the shadow side
+  // (fades in toward the bottom right; the last colors give it an oily tint), fine outline (not for black goo)
+  symbiote: { body: ['#4a505e', '#16181e', '#050506', '#0a0b0e'], hi: '#ffffff', vol: 0.3, sheen: ['#7fd8ff', '#9dffc4', '#ffe7a0'], rim: ['#cfe0ff', '#9ee7ff', '#b6ffd2'], line: null },
+  'symbiote-red': { body: ['#ff6a52', '#c0122a', '#6a0514', '#2a0207'], hi: '#fff3ec', vol: 0.3, sheen: ['#ffd27a', '#ff8a5c', '#ffe7a0'], rim: ['#ffb4a0', '#ff8a5c', '#ffd27a'], line: '#250207' },
+  'symbiote-white': { body: ['#ffffff', '#eceff5', '#bfc7d5', '#8792a8'], hi: '#ffffff', vol: 0.5, sheen: ['#9ee7ff', '#3de0ff', '#c9f6ff'], rim: ['#c9f6ff', '#9ee7ff', '#ffffff'], line: '#263046' },
+};
+// gradient defs, one id per layer (each layer is its own <svg>)
+const stops = (list) => list.map((c, i) => `<stop offset="${n2(i / (list.length - 1))}" stop-color="${c}"/>`).join('');
+const gooBody = (g, id) => `<linearGradient id="@@${id}" gradientUnits="userSpaceOnUse" x1="10" y1="-8" x2="90" y2="108">` +
+  `<stop offset="0" stop-color="${g.body[0]}"/><stop offset=".32" stop-color="${g.body[1]}"/><stop offset=".62" stop-color="${g.body[2]}"/><stop offset="1" stop-color="${g.body[3]}"/></linearGradient>`;
+// the rim light sits on the shadow side only (bottom right), fading out toward the lit top left
+const gooRim = (g, id) => `<linearGradient id="@@${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="100">` +
+  `<stop offset="0" stop-color="${g.rim[0]}" stop-opacity="0"/><stop offset=".4" stop-color="${g.rim[0]}" stop-opacity=".18"/>` +
+  `<stop offset=".72" stop-color="${g.rim[1]}" stop-opacity=".7"/><stop offset="1" stop-color="${g.rim[2]}" stop-opacity=".9"/></linearGradient>`;
+// soft light over the top left of the goo, for volume
+const gooVolume = (g, id) => `<linearGradient id="@@${id}" gradientUnits="userSpaceOnUse" x1="14" y1="0" x2="62" y2="64">` +
+  `<stop offset="0" stop-color="${g.hi}" stop-opacity="${g.vol}"/><stop offset=".55" stop-color="${g.hi}" stop-opacity="${n2(g.vol * 0.25)}"/><stop offset="1" stop-color="${g.hi}" stop-opacity="0"/></linearGradient>`;
+const gooSheen = (g, id) => `<linearGradient id="@@${id}" gradientUnits="userSpaceOnUse" x1="0" y1="50" x2="100" y2="50">${stops(g.sheen)}</linearGradient>`;
+
+// One symbiote frame: a thick lumpy goo ring that creeps over the avatar's edge in places, with tendrils crawling round
+// it (two sets that travel opposite ways, each tendril also lifting and settling about its base: .tn), fat drips, a soft
+// sheen for volume, wet highlights that follow the lumps, rim light on the shadow side (drawn under the fill, so only its
+// outer half shows) and an oily sheen sliding round.
+function gooFrame(kind, { crawlA, crawlB, drips, out, inn, seed }) {
+  const g = GOO[kind], rnd = seeded(seed);
+  const outerR = (a) => 55.6 + 0.7 * Math.sin(rad(3 * a + 40)) + 0.45 * Math.sin(rad(7 * a + 10)) + lumps(out)(a);
+  const innerR = (a) => 48.7 - lumps(inn)(a);
+  const outerD = blob(outerR, 96), innerD = blob(innerR, 90);
+  const line = g.line ? `stroke="${g.line}" stroke-opacity=".5" stroke-linejoin="round" style="${sw(0.6)}"` : '';
+  // one set of crawlers: rims first (under every fill), then the goo, its soft sheen and a highlight line
+  const crawlers = (set, k) => {
+    let rims = '', fills = '';
+    set.forEach(([a, sweep, wb, lift, minor]) => {
+      const t = crawler(a, sweep, wb, lift);
+      const cls = `tn ${(a + k) % 2 ? 'tb' : 'ta'}${minor ? ' d' : ''}`;
+      const st = `transform-origin:${n2(t.base[0])}px ${n2(t.base[1])}px;animation-duration:${n2(2.6 + rnd() * 1.8)}s;animation-delay:${n2(-rnd() * 3)}s`;
+      rims += `<g class="${cls}" style="${st}"><path d="${t.d}"/></g>`;
+      fills += `<g class="${cls}" style="${st}"><path d="${t.d}" fill="url(#@@t${k})" ${line}/><path d="${t.d}" fill="url(#@@v${k})"/>` +
+        `<path d="${t.hi}" fill="none" stroke="${g.hi}" stroke-opacity=".75" stroke-linecap="round" style="${sw(0.55)}"/></g>`;
+    });
+    return `<g fill="none" stroke="url(#@@q${k})" style="${sw(1.1)}">${rims}</g>${fills}`;
+  };
+  const dripRims = drips.map(([a, len, w], i) => `<g class="dr" style="animation-delay:${n2(-i * 1.4)}s"><path d="${gooDrip(a, len, w)}"/></g>`).join('');
+  const dripsD = drips.map(([a, len, w], i) => {
+    const [x, y] = P(53, a), b = w * 0.42;
+    return `<g class="dr" style="animation-delay:${n2(-i * 1.4)}s"><path d="${gooDrip(a, len, w)}" fill="url(#@@gb)" ${line}/>` +
+      `<path d="M${n2(x - b * 0.5)} ${n2(y + len - b * 1.6)}A${n2(b * 0.62)} ${n2(b * 0.62)} 0 0 0 ${n2(x - b * 0.15)} ${n2(y + len - b * 0.4)}" fill="none" stroke="${g.hi}" stroke-opacity=".85" stroke-linecap="round" style="${sw(0.55)}"/>` +
+      `<circle cx="${n2(x + b * 0.35)}" cy="${n2(y + len - b * 1.35)}" r="${n2(b * 0.2)}" fill="${g.hi}" fill-opacity=".7"/></g>`;
+  }).join('');
+  // creeps over the avatar's edge get a glint each
+  const creeps = inn.filter(([, h]) => h >= 2.5).map(([a]) => { const [x, y] = P(innerR(a) + 1.6, a - 4); return `<circle cx="${x}" cy="${y}" r=".7" fill="${g.hi}" fill-opacity=".8"/>`; }).join('');
+  const body = `<g fill="none" stroke="url(#@@gr)" style="${sw(1.3)}"><path d="${outerD}"/>${dripRims}</g>` +
+    `<path d="${outerD}${innerD}" fill="url(#@@gb)" fill-rule="evenodd" ${line}/>` + dripsD +
+    `<path d="${outerD}${innerD}" fill="url(#@@gv)" fill-rule="evenodd"/>`;
+  const sheen = [[-40, 22], [80, 145], [188, 238]].map(([a0, a1]) => `<path d="${lens(a0, a1, 52, 3.4)}" fill="url(#@@gs)" fill-opacity=".3"/>`).join('');
+  const glints = [[-132, -2.5, 1.15], [-150, -3.1, 0.6], [-70, -2.3, 0.7]].map(([a, dr, s], i) => {
+    const [x, y] = P(outerR(a) + dr, a);
+    return `<circle${i ? ' class="d"' : ''} cx="${x}" cy="${y}" r="${s}" fill="${g.hi}"/>`;
+  }).join('');
+  return L('l1', body, gooBody(g, 'gb') + gooRim(g, 'gr') + gooVolume(g, 'gv')) +
+    L('l2', crawlers(crawlA, 1), gooBody(g, 't1') + gooRim(g, 'q1') + gooVolume(g, 'v1')) +
+    L('l3', crawlers(crawlB, 2), gooBody(g, 't2') + gooRim(g, 'q2') + gooVolume(g, 'v2')) +
+    L('l4', sheen, gooSheen(g, 'gs')) +
+    L('l5', `<path d="${lens(-178, -98, (a) => outerR(a) - 2, 2.2)}" fill="${g.hi}" fill-opacity=".9"/>` +
+      `<path d="${lens(-84, -50, (a) => outerR(a) - 1.8, 1.2)}" fill="${g.hi}" fill-opacity=".6"/>` +
+      `<path class="d" d="${lens(150, 196, (a) => outerR(a) - 1.7, 0.9)}" fill="${g.hi}" fill-opacity=".4"/>` + glints + creeps);
+}
+// crawlers: [start angle, sweep (degrees along the ring; negative = counterclockwise), base half-width, tip lift, minor
+// (hidden on small avatars)]. Set A travels clockwise, set B counterclockwise.
+const CRAWL_A = [[-160, 74, 3.2, 10], [-28, 62, 2.8, 9], [104, 58, 2.9, 8.5, 1]];
+const CRAWL_B = [[-70, -66, 3, 9.5], [64, -56, 2.7, 8.5, 1], [196, -62, 3, 9]];
+const SYMBIOTE_OUT = [[-120, 1.6, 12], [-4, 1.4, 10], [60, 1.2, 10], [150, 1.6, 12], [88, 1.8, 14]];
+const SYMBIOTE_IN = [[200, 4.4, 8], [-24, 3, 6], [112, 3.6, 7], [-128, 1.6, 6], [60, 1.4, 6]];
 
 const L = (cls, body, defs = '') =>
   `<svg class="fl ${cls}" viewBox="-15 -15 130 130" aria-hidden="true" focusable="false">${defs ? `<defs>${defs}</defs>` : ''}${body}</svg>`;
@@ -433,10 +568,123 @@ const BUILD = {
         `<radialGradient id="@@ray2" gradientUnits="userSpaceOnUse" cx="50" cy="50" r="65"><stop offset=".78" stop-color="#fff4d6"/><stop offset="1" stop-color="#ffb347" stop-opacity="0"/></radialGradient>`) +
       L('l4', `<circle cx="${dx}" cy="${dy}" r="6" fill="#fff6d0" opacity=".35"/><path class="dm fb" d="${glint(dx, dy, 8, 1.1)}" fill="#ffffff"/><circle cx="${dx}" cy="${dy}" r="2.2" fill="#ffffff"/>`);
   },
+
+  symbiote() {
+    return gooFrame('symbiote', { crawlA: CRAWL_A, crawlB: CRAWL_B, drips: [[70, 10, 4.6], [100, 13, 5]], out: SYMBIOTE_OUT, inn: SYMBIOTE_IN, seed: 51 });
+  },
+
+  'symbiote-red'() {
+    // the same creature mirrored left to right, so the set doesn't look copy-pasted
+    const m = (a) => 180 - a;
+    const flip = (set) => set.map(([a, sweep, ...rest]) => [m(a), -sweep, ...rest]);
+    return gooFrame('symbiote-red', {
+      crawlA: flip(CRAWL_B), crawlB: flip(CRAWL_A), drips: [[80, 12, 4.8], [110, 9, 4.2]],
+      out: SYMBIOTE_OUT.map(([a, h, w]) => [m(a), h, w]), inn: SYMBIOTE_IN.map(([a, h, w]) => [m(a), h, w]), seed: 53,
+    });
+  },
+
+  ember() {
+    // Earned (7-day streak): a ring of glowing coals with cracks of fire that breathe, a low flame along the top, embers
+    // rising. Cheap: whole-layer opacity / transform only.
+    const rnd = seeded(61);
+    const coal = blob((a) => 56.2 + 1.1 * Math.sin(rad(5 * a + 30)) + 0.7 * Math.sin(rad(11 * a + 5)) + 0.4 * Math.sin(rad(23 * a)), 120) +
+      blob((a) => 48.8 - 0.5 * Math.sin(rad(7 * a)), 60);
+    let cracks = '';
+    for (let k = 0; k < 16; k++) {
+      let a = k * (360 / 16) + rnd() * 10, r = 50 + rnd() * 5;
+      const pts = [P(r, a)];
+      for (let j = 0; j < 4; j++) { a += 3 + rnd() * 6; r = Math.min(55.4, Math.max(49.6, r + (rnd() - 0.5) * 5)); pts.push(P(r, a)); }
+      cracks += 'M' + pts.map(P2).join('L');
+    }
+    const tongue = (a, len, w) => {
+      const [bx, by] = P(53, a), ux = Math.cos(rad(a)), uy = Math.sin(rad(a)), dx0 = ux * 0.55, dy0 = uy * 0.55 - 0.9;
+      const m = Math.hypot(dx0, dy0), dx = dx0 / m, dy = dy0 / m, nx = -dy, ny = dx, h = w / 2, c = (rnd() - 0.5) * w * 0.6;
+      return `M${n2(bx + nx * h)} ${n2(by + ny * h)}Q${n2(bx + nx * h * 1.25 + dx * len * 0.55)} ${n2(by + ny * h * 1.25 + dy * len * 0.55)} ${n2(bx + dx * len + nx * c)} ${n2(by + dy * len + ny * c)}` +
+        `Q${n2(bx - nx * h * 1.25 + dx * len * 0.55)} ${n2(by - ny * h * 1.25 + dy * len * 0.55)} ${n2(bx - nx * h)} ${n2(by - ny * h)}Z`;
+    };
+    const crown = [];
+    for (let k = 0; k <= 12; k++) { const a = -168 + k * 13, up = Math.max(0, -Math.sin(rad(a))); crown.push([a, 4 + up * 8 + rnd() * 3, 8 + up * 2]); }
+    const back = crown.map(([a, l, w]) => tongue(a, l, w)).join(''), mid = crown.map(([a, l, w]) => tongue(a + 4, l * 0.72, w * 0.7)).join('');
+    const core = crown.filter((_, i) => i % 2).map(([a, l, w]) => tongue(a - 2, l * 0.42, w * 0.45)).join('');
+    const embers = (seed, n) => {
+      const r2 = seeded(seed);
+      let d = '';
+      for (let k = 0; k < n; k++) {
+        const [x, y] = P(57 + r2() * 7, -175 + r2() * 170 + (k % 3 === 2 ? 180 : 0)), sz = 0.6 + r2() * 0.6;
+        d += `<circle cx="${x}" cy="${y}" r="${n2(sz * 2.4)}" fill="#ff7a1a" fill-opacity=".35"/><circle cx="${x}" cy="${y}" r="${n2(sz * 1.35)}" fill="#ffb347" fill-opacity=".7"/>` +
+          `<circle cx="${x}" cy="${y}" r="${n2(sz * 0.75)}" fill="#fff6d6"/>`;
+      }
+      return d;
+    };
+    return L('l1', ring(53, '#ff5a1a', 13, 'stroke-opacity=".1"') + ring(52.5, '#ff6a1a', 8, 'stroke-opacity=".2"') +
+        `<path d="${coal}" fill="url(#@@ch)" fill-rule="evenodd"/>` +
+        `<path d="${cracks}" fill="none" stroke="#ff4a10" stroke-opacity=".6" stroke-linejoin="round" stroke-linecap="round" style="${sw(2.4)}"/>`,
+      `<radialGradient id="@@ch" gradientUnits="userSpaceOnUse" cx="50" cy="50" r="58"><stop offset=".83" stop-color="#8a2a0c"/><stop offset=".87" stop-color="#2a0f08"/>` +
+        `<stop offset=".93" stop-color="#160806"/><stop offset="1" stop-color="#3a1209"/></radialGradient>`) +
+      L('l2', `<path d="${cracks}" fill="none" stroke="#ff9a2e" stroke-linejoin="round" stroke-linecap="round" style="${sw(1.1)}"/>` +
+        `<path d="${cracks}" fill="none" stroke="#fff1b8" stroke-linejoin="round" stroke-linecap="round" style="${sw(0.45)}"/>`) +
+      L('l3', `<path d="${back}" fill="#ff4a14" fill-opacity=".85"/><path d="${mid}" fill="#ff9a2e"/><path d="${core}" fill="#ffe680"/>`) +
+      L('l4', embers(71, 8)) + L('l5 d', embers(73, 7)) +
+      L('l6 d', [[-60, 63], [-130, 64], [20, 62]].map(([a, r], i) => { const [x, y] = P(r, a); return `<path class="tw fb" style="animation-delay:${-i * 0.8}s" d="${glint(x, y, 2.6)}" fill="#fff1b8"/>`; }).join(''));
+  },
+
+  'symbiote-white'() {
+    const r = (a) => a + 24;
+    const turn = (set) => set.map(([a, ...rest]) => [r(a), ...rest]);
+    return gooFrame('symbiote-white', {
+      crawlA: turn(CRAWL_A), crawlB: turn(CRAWL_B), drips: [[74, 11, 4.6], [104, 8, 4]],
+      out: SYMBIOTE_OUT.map(([a, h, w]) => [r(a), h, w]), inn: SYMBIOTE_IN.map(([a, h, w]) => [r(a), h, w]), seed: 57,
+    });
+  },
+
+  ooze() {
+    // Beads slide down both sides of the ring and pool under the avatar; the pool swells, then the goo climbs back and
+    // the top re-forms for the next beads (.sl beads, .pl pool, .rs reservoir). Rim light under every fill keeps joins clean.
+    const g = GOO.symbiote;
+    const outerR = (a) => 54.6 + 0.5 * Math.sin(rad(5 * a + 20)) + lumps([[-90, 3.6, 22], [90, 2.6, 26], [-150, 1.4, 9], [-30, 1.2, 8], [160, 1.4, 9], [25, 1.2, 8]])(a);
+    const innerR = (a) => 48.8 - lumps([[-90, 2.8, 8], [-130, 1.4, 6], [-52, 1.6, 6], [200, 1.6, 6]])(a);
+    const ringOut = blob(outerR, 96), ringIn = blob(innerR, 90);
+    const res = 'M34 -3C35.2 -10 42 -13.2 50 -13.2C58 -13.2 64.8 -10 66 -3Z';
+    const pool = 'M28 103.6C30.4 110 39.6 112.6 50 112.6C60.4 112.6 69.6 110 72 103.6C64 101.8 36 101.8 28 103.6Z';
+    // a bead with a tail along the ring's outside: head at hd degrees, tail toward tl
+    const bead = (tl, hd) => {
+      const o = [], i = [], n = 14, R = 57.6;
+      for (let k = 0; k <= n; k++) { const u = k / n, a = tl + (hd - tl) * u, w = 0.15 + 3.4 * u ** 1.4; o.push(P(R + w, a)); i.push(P(R - w, a)); }
+      const [hx, hy] = P(R, hd), back = hd > tl ? -1 : 1;
+      return { d: `M${P2(o[0])}${chain(o)}L${P2(i[n])}${chain(i.reverse())}Z` + `M${n2(hx - 4)} ${hy}a4 4 0 1 0 8 0a4 4 0 1 0 -8 0Z`,
+        hi: P(R + 1.6, hd + back * 2.2), streak: `M${P2(P(R + 1.2, tl + (hd - tl) * 0.45))}${chain([P(R + 1.2, tl + (hd - tl) * 0.45), P(R + 2, tl + (hd - tl) * 0.75), P(R + 2.4, hd + back * 3.4)])}` };
+    };
+    const beads = [[-112, -88, 'cw', -0.15], [-68, -92, 'ccw', -0.15], [-112, -88, 'cw', -1.95], [-68, -92, 'ccw', -1.95]].map(([tl, hd, cls, delay]) => ({ ...bead(tl, hd), cls, delay }));
+    const bd = (b, inner) => `<g class="sl ${b.cls}" style="animation-delay:${b.delay}s">${inner}</g>`;
+    const rims = `<g fill="none" stroke="url(#@@gr)" stroke-opacity=".75" style="${sw(1.3)}"><path d="${ringOut}"/>` +
+      `<g class="rs"><path d="${res}"/></g><g class="pl"><path d="${pool}"/><g class="dr"><path d="${gooDrip(90, 4, 3.8, 61)}"/></g></g>` +
+      `${beads.map((b) => bd(b, `<path d="${b.d}"/>`)).join('')}</g>`;
+    const fills = `<g fill="url(#@@gb)"><path d="${ringOut}${ringIn}" fill-rule="evenodd"/><g class="rs"><path d="${res}"/></g>` +
+      `<g class="pl"><path d="${pool}"/><g class="dr"><path d="${gooDrip(90, 4, 3.8, 61)}"/></g></g>` +
+      beads.map((b) => bd(b, `<path d="${b.d}"/><path d="${b.d}" fill="url(#@@gv)"/><path d="${b.streak}" fill="none" stroke="${g.hi}" stroke-opacity=".7" stroke-linecap="round" style="${sw(0.6)}"/>` +
+        `<circle cx="${n2(b.hi[0])}" cy="${n2(b.hi[1])}" r="1.1" fill="${g.hi}"/>`)).join('') + '</g>';
+    const sheen = [[-60, -10], [60, 120], [170, 220]].map(([a0, a1]) => `<path d="${lens(a0, a1, 51.8, 3.2)}" fill="url(#@@gs)" fill-opacity=".3"/>`).join('');
+    return L('l1', rims + fills + `<path d="${ringOut}${ringIn}" fill="url(#@@gv)" fill-rule="evenodd"/><g class="rs"><path d="${res}" fill="url(#@@gv)"/></g>`,
+      gooBody(g, 'gb') + gooRim(g, 'gr') + gooVolume(g, 'gv')) +
+      L('l2', sheen, gooSheen(g, 'gs')) +
+      L('l3', `<path d="${lens(-178, -104, (a) => outerR(a) - 2, 2.2)}" fill="${g.hi}" fill-opacity=".9"/>` +
+        `<path d="M40 -8.4Q45 -11.1 51 -11" fill="none" stroke="${g.hi}" stroke-linecap="round" stroke-opacity=".85" style="${sw(0.8)}"/>` +
+        `<path d="${lens(-76, -48, (a) => outerR(a) - 1.8, 1.2)}" fill="${g.hi}" fill-opacity=".6"/>` +
+        `<path d="M37 106.6Q43 109.6 50 109.8" fill="none" stroke="${g.hi}" stroke-linecap="round" stroke-opacity=".5" style="${sw(0.6)}"/>` +
+        `<circle cx="${P(outerR(-132) - 2.6, -132)[0]}" cy="${P(outerR(-132) - 2.6, -132)[1]}" r="1.1" fill="${g.hi}"/>`) +
+      L('l4 d', `<path class="fall" d="M50 116.4q1.8 2.8 0 3.9q-1.8 -1.1 0 -3.9Z" fill="url(#@@gx)" stroke="url(#@@gy)" style="${sw(0.5)}"/>`, gooBody(g, 'gx') + gooRim(g, 'gy'));
+  },
 };
 
 const markup = new Map();
 let uid = 0;
+
+/** The raw markup of frame `id` ('@@' marks where mountFrame puts a unique id prefix), or null for an unknown id. */
+export function frameMarkup(id) {
+  if (!FRAMES.includes(id) || !Object.prototype.hasOwnProperty.call(BUILD, id)) return null;
+  if (!markup.has(id)) markup.set(id, BUILD[id]());
+  return markup.get(id);
+}
 let io = null;
 
 function observer() {
@@ -459,8 +707,8 @@ function observer() {
 export function mountFrame(el, id, opts = {}) {
   const old = el.querySelector(':scope > .fp-frame');
   if (old && old._fpStop) old._fpStop();
-  if (!FRAMES.includes(id)) { el.classList.remove('fp-has-frame'); return { el: null, stop() {} }; }
-  if (!markup.has(id)) markup.set(id, BUILD[id]());
+  const art = frameMarkup(id);
+  if (art === null) { el.classList.remove('fp-has-frame'); return { el: null, stop() {} }; }
   const root = document.createElement('span');
   root.className = 'fp-frame';
   root.dataset.frame = id;
@@ -471,7 +719,7 @@ export function mountFrame(el, id, opts = {}) {
   if (opts.motion === 'off') root.classList.add('is-still');
   // constant, code-built SVG (never user text); ids made unique so several copies can share a page
   const tpl = document.createElement('template');
-  tpl.innerHTML = markup.get(id).replaceAll('@@', `fpf${++uid}-`);
+  tpl.innerHTML = art.replaceAll('@@', `fpf${++uid}-`);
   root.append(tpl.content);
   el.classList.add('fp-has-frame');
   el.append(root);

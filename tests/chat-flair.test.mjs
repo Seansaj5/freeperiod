@@ -2,15 +2,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { roleOfProfile } from '../fp/chat/perms.js';
-import { FONTS, FRAMES, EFFECTS, validFlair, nameStyle, badgesFor, badgeInfo, cardTheme } from '../fp/chat/flair.js';
+import { FONTS, FRAMES, EFFECTS, FONT_LABELS, FRAME_LABELS, EFFECT_LABELS, SYMBIOTE_EFFECTS, EARNED, validFlair, nameStyle, badgesFor, badgeInfo,
+  cardTheme, earnedFlair, flairLocked, unlockHint } from '../fp/chat/flair.js';
+import { frameMarkup } from '../fp/chat/frames.js';
+import { effectMaker } from '../fp/chat/effects.js';
 
 const fields = (r) => r.errors.map((e) => e.field).sort();
 
-test('id lists are exactly the Global Constraints values, in order', () => {
-  assert.deepEqual(FONTS, ['bungee', 'outfit', 'press-start', 'orbitron', 'creepster', 'pacifico']);
+test('id lists are exactly the Global Constraints values, in order (0003, then 0009: symbiote set + earned streak flair)', () => {
+  assert.deepEqual(FONTS, ['bungee', 'outfit', 'press-start', 'orbitron', 'creepster', 'pacifico', 'symbiote']);
   assert.deepEqual(FRAMES, ['neon-ring', 'pulse', 'orbit', 'flame', 'frost', 'circuit', 'glitch', 'halo', 'thorns', 'sparkle',
-    'wave', 'hex', 'crown', 'lightning', 'pixel', 'vortex', 'stars', 'shield', 'drip', 'eclipse']);
-  assert.deepEqual(EFFECTS, ['sparkles', 'snow', 'embers', 'glitch', 'stars', 'bubbles', 'lightning', 'confetti', 'matrix', 'aurora']);
+    'wave', 'hex', 'crown', 'lightning', 'pixel', 'vortex', 'stars', 'shield', 'drip', 'eclipse',
+    'symbiote', 'symbiote-red', 'symbiote-white', 'ooze', 'ember']);
+  assert.deepEqual(EFFECTS, ['sparkles', 'snow', 'embers', 'glitch', 'stars', 'bubbles', 'lightning', 'confetti', 'matrix', 'aurora',
+    'tendrils', 'goo', 'inferno']);
   assert.ok(Object.isFrozen(FONTS) && Object.isFrozen(FRAMES) && Object.isFrozen(EFFECTS), 'lists cannot be changed by a caller');
 });
 
@@ -78,7 +83,7 @@ test('nameStyle: defaults (no flair) are Outfit in the page text color', () => {
 
 test('nameStyle: every font id maps to its own family', () => {
   const fams = FONTS.map((f) => nameStyle({ name_font: f }).fontFamily.split(',')[0]);
-  assert.deepEqual(fams, ["'Bungee'", "'Outfit'", "'Press Start 2P'", "'Orbitron'", "'Creepster'", "'Pacifico'"]);
+  assert.deepEqual(fams, ["'Bungee'", "'Outfit'", "'Press Start 2P'", "'Orbitron'", "'Creepster'", "'Pacifico'", "'Rubik Wet Paint'"]);
 });
 
 test('nameStyle: gradient fills left to right from color 1 to color 2', () => {
@@ -159,4 +164,124 @@ test('cardTheme: two theme colors make a top-to-bottom gradient; bad or missing 
   assert.equal(cardTheme({ theme_a: 'red', theme_b: '#12304a' }), 'linear-gradient(180deg, #12304a, #12304a)');
   assert.equal(cardTheme({}), null);
   assert.equal(cardTheme(null), null);
+});
+
+// ---------------------------------------------------------------------------------------------- symbiote set + earned
+
+test('every font, frame and effect has a picker label; no Marvel names anywhere in them', () => {
+  for (const id of FONTS) assert.equal(typeof FONT_LABELS[id], 'string', id);
+  for (const id of FRAMES) assert.equal(typeof FRAME_LABELS[id], 'string', id);
+  for (const id of EFFECTS) assert.equal(typeof EFFECT_LABELS[id], 'string', id);
+  const all = [...FONTS, ...FRAMES, ...EFFECTS, ...Object.values(FONT_LABELS), ...Object.values(FRAME_LABELS), ...Object.values(EFFECT_LABELS)].join(' ');
+  assert.doesNotMatch(all, /venom|carnage|spider|marvel/i);
+  assert.ok(SYMBIOTE_EFFECTS.every((id) => EFFECTS.includes(id)));
+});
+
+test('nameStyle: symbiote is glossy goo letters (Rubik Wet Paint, three paint layers, an outline in the name color)', () => {
+  const s = nameStyle({ name_font: 'symbiote' });
+  assert.match(s.fontFamily, /^'Rubik Wet Paint'/);
+  assert.equal(s.color, '#eef2ff', 'the default accent is the page text color');
+  assert.equal(s.backgroundImage.split(/,\s*(?=linear-gradient)/).length, 3, 'highlight, sheen, body (flair.css sizes three layers)');
+  assert.equal(s.webkitTextStroke, '0.05em rgba(238, 242, 255, 0.92)', 'the outline keeps black letters readable on the dark page');
+  assert.equal(s.filter, 'drop-shadow(0 0 3px rgba(238, 242, 255, 0.35))');
+  assert.equal(s.textShadow, undefined, 'a text shadow would paint over the goo');
+  assert.equal(nameStyle({ name_font: 'bungee' }).webkitTextStroke, undefined, 'only symbiote names are outlined');
+  const red = nameStyle({ name_font: 'symbiote', name_color: '#ff2a3d', name_fill: 'solid' });
+  assert.match(red.backgroundImage, /rgba\(255, 42, 61, 0\.55\)/, 'the sheen takes the accent');
+  assert.match(red.webkitTextStroke, /rgba\(255, 42, 61, 0\.92\)/);
+  assert.doesNotMatch(red.backgroundImage, /rgba\(61, 224, 255, 0\.55\)/, 'solid: one accent');
+});
+
+test('nameStyle: symbiote with a gradient runs the accent into color 2; glow widens the halo; bad colors never reach CSS', () => {
+  const g = nameStyle({ name_font: 'symbiote', name_fill: 'gradient', name_color: '#c6ff3d', name_color2: '#3de0ff' });
+  assert.match(g.backgroundImage, /rgba\(198, 255, 61, 0\.55\).*rgba\(61, 224, 255, 0\.55\)/);
+  const plain = nameStyle({ name_font: 'symbiote', name_color: '#c6ff3d' });
+  const glow = nameStyle({ name_font: 'symbiote', name_color: '#c6ff3d', name_glow: true });
+  assert.equal(plain.filter.split('drop-shadow').length - 1, 1);
+  assert.equal(glow.filter.split('drop-shadow').length - 1, 2);
+  assert.match(glow.filter, /0 0 10px rgba\(198, 255, 61, 0\.45\)/, 'solid + glow: one accent');
+  const bad = nameStyle({ name_font: 'symbiote', name_color: 'url(javascript:1)', name_color2: 'red', name_fill: 'gradient' });
+  assert.doesNotMatch(bad.backgroundImage + bad.filter, /javascript|red\b/);
+  assert.match(bad.backgroundImage, /rgba\(238, 242, 255, 0\.55\).*rgba\(61, 224, 255, 0\.55\)/, 'defaults: page text, then cyan');
+});
+
+test('earned flair: ember (7-day streak) and inferno (30-day streak) are locked until game_stats.flair lists them', () => {
+  assert.deepEqual(Object.keys(EARNED), ['ember', 'inferno']);
+  assert.ok(FRAMES.includes('ember') && EFFECTS.includes('inferno'));
+  const none = { game_stats: { bb: { level: 3 } } };
+  assert.equal(flairLocked(none, 'ember'), true);
+  assert.equal(flairLocked(none, 'inferno'), true);
+  assert.equal(flairLocked(null, 'ember'), true);
+  assert.equal(flairLocked({ game_stats: { flair: 'ember' } }, 'ember'), true, 'flair must be an array');
+  const seven = { game_stats: { flair: ['ember'] } };
+  assert.equal(flairLocked(seven, 'ember'), false);
+  assert.equal(flairLocked(seven, 'inferno'), true);
+  assert.deepEqual([...earnedFlair({ game_stats: { flair: ['inferno', 'ember', 'bogus', 7, null] } })].sort(), ['ember', 'inferno']);
+  for (const free of ['symbiote', 'tendrils', 'neon-ring', 'aurora', null, undefined, 'toString']) assert.equal(flairLocked(none, free), false, String(free));
+  assert.equal(unlockHint('ember'), 'Reach a 7-day streak');
+  assert.equal(unlockHint('inferno'), 'Reach a 30-day streak');
+  assert.equal(unlockHint('symbiote'), '');
+  assert.equal(validFlair({ frame: 'ember', effect: 'inferno' }).ok, true, 'the id lists allow them; the database checks the unlock');
+});
+
+test('validFlair accepts the symbiote set and refuses look-alikes', () => {
+  for (const patch of [{ name_font: 'symbiote' }, { frame: 'symbiote' }, { frame: 'symbiote-red' }, { frame: 'symbiote-white' }, { frame: 'ooze' },
+    { effect: 'tendrils' }, { effect: 'goo' }]) assert.equal(validFlair(patch).ok, true, JSON.stringify(patch));
+  for (const patch of [{ frame: 'symbiote-blue' }, { frame: 'Symbiote' }, { effect: 'tendril' }, { name_font: 'rubik-wet-paint' }, { name_fill: 'symbiote' }])
+    assert.equal(validFlair(patch).ok, false, JSON.stringify(patch));
+});
+
+test('every frame id has a drawing: well-formed SVG layers, no NaN / undefined, ids made unique per mount', () => {
+  assert.equal(frameMarkup('nope'), null);
+  assert.equal(frameMarkup('toString'), null);
+  for (const id of FRAMES) {
+    const m = frameMarkup(id);
+    assert.equal(typeof m, 'string', id);
+    assert.match(m, /^<svg class="fl /, id);
+    assert.doesNotMatch(m, /NaN|undefined|Infinity|\[object/, id);
+    assert.equal((m.match(/<svg /g) || []).length, (m.match(/<\/svg>/g) || []).length, id);
+    const ids = [...m.matchAll(/ id="([^"]+)"/g)].map((x) => x[1]);
+    assert.ok(ids.every((x) => x.startsWith('@@')), id + ': every id gets the per-mount prefix');
+    assert.equal(new Set(ids).size, ids.length, id + ': no id twice in one frame');
+    for (const [, ref] of m.matchAll(/url\(#([^)]+)\)/g)) assert.ok(ids.includes(ref), `${id}: url(#${ref}) is defined`);
+  }
+});
+
+// a canvas 2D context that fails on any non-finite number (a NaN coordinate draws nothing and hides a bug)
+function fakeCtx() {
+  const calls = { n: 0 };
+  const grad = { addColorStop(o, c) { assert.ok(Number.isFinite(o) && o >= 0 && o <= 1, 'stop ' + o); assert.equal(typeof c, 'string'); } };
+  const ctx = new Proxy({}, {
+    get(t, k) {
+      if (k === 'createLinearGradient' || k === 'createRadialGradient') return (...a) => { a.forEach((v) => assert.ok(Number.isFinite(v), k + ' ' + a)); return grad; };
+      if (k in t) return t[k];
+      return (...a) => { calls.n++; for (const v of a) if (typeof v === 'number') assert.ok(Number.isFinite(v), `${String(k)}(${a.join(', ')})`); };
+    },
+    set(t, k, v) { if (typeof v === 'number') assert.ok(Number.isFinite(v), `${String(k)} = ${v}`); t[k] = v; return true; },
+  });
+  return { ctx, calls };
+}
+
+test('the new effects (tendrils, goo, inferno) run 12 s at card and tile sizes and only ever draw finite numbers', () => {
+  const had = globalThis.document;
+  const { ctx: spriteCtx } = fakeCtx();
+  globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => spriteCtx }) }; // glow sprites
+  try {
+    assert.equal(effectMaker('nope'), null);
+    for (const id of EFFECTS) assert.equal(typeof effectMaker(id), 'function', id);
+    for (const id of ['tendrils', 'goo', 'inferno']) {
+      for (const [w, h] of [[340, 520], [390, 640], [140, 86]]) {
+        let seed = 5;
+        const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+        const fx = effectMaker(id)(rand, { accent: id === 'goo' ? '#ff2a3d' : undefined });
+        const { ctx, calls } = fakeCtx();
+        fx.init(w, h);
+        let t = 0;
+        for (let i = 0; i < 720; i++) { t += 1 / 60; fx.step(1 / 60, t); if (i % 24 === 0) fx.draw(ctx, w, h, t, 2); }
+        if (fx.still) fx.still(t);
+        fx.draw(ctx, w, h, t, 2);
+        assert.ok(calls.n > 50, `${id} ${w}x${h} draws something`);
+      }
+    }
+  } finally { globalThis.document = had; }
 });
