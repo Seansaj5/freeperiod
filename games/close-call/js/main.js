@@ -18,6 +18,7 @@ import { clamp, damp, fmt } from './util.js';
 import { SERVER_URL } from './config.js';
 import { Puffs, Wreck, blast } from './wreck.js';
 import { account, accountToken, initAccount, saved, logIn, logOut, saveNow, framed } from './account.js';
+import { Liquid, markLiquid, cameThroughLiquid } from './liquid.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -205,6 +206,7 @@ function show(name) {
   $('keys').classList.toggle('hidden', name !== 'menu' || isTouch);
   $('touch').classList.toggle('hidden', !(isTouch && name === 'play'));
   $('w-acct').classList.toggle('hidden', inGame || name === 'over');
+  $('b-kart').classList.toggle('hidden', name !== 'menu');
   if (name === 'menu') { refreshWallet(); pollOnline(); $('b-route').textContent = routeLabel(); }
 }
 const routeLabel = () => `${mapById(save.route.map).name} · ${save.route.lanes} lanes${save.lives ? ' · two lives' : ''}`;
@@ -1030,8 +1032,39 @@ initAccount({ reload: reloadSave, pullOk: () => !['play', 'pause', 'garage', 'ov
 
 function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
 
+// ---------------- kart racing (kart/): a glowing button with a pixel flag, and the liquid glass water both ways
+const liquid = new Liquid(60);
+const fromKart = cameThroughLiquid();
+if (fromKart) liquid.cover();
+{
+  // a 16x16 checkered flag on a pole, two frames so it waves
+  const px = (ph) => {
+    let r = '';
+    for (let y = 0; y < 16; y++) r += `<rect x="2" y="${y}" width="2" height="1" fill="${y ? '#b8c0d4' : '#ffc21a'}"/>`;
+    for (let x = 4; x < 15; x++) {
+      const off = Math.round(Math.sin((x - 4) * 0.7 + ph));
+      for (let y = 1; y < 9; y++) r += `<rect x="${x}" y="${y + off}" width="1" height="1" fill="${(((x - 4) >> 1) + ((y - 1) >> 1)) % 2 ? '#10131c' : '#f4f6fb'}"/>`;
+    }
+    return r;
+  };
+  $('kb-px').innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><g class="fa">${px(0)}</g><g class="fb">${px(Math.PI)}</g></svg>`;
+  // start fetching the kart page's code as soon as you point at the button
+  const pre = () => { for (const f of ['main', 'parts', 'track', 'tracks', 'kart', 'race', 'items', 'ai', 'music']) { const l = document.createElement('link'); l.rel = 'modulepreload'; l.href = `kart/js/${f}.js`; document.head.appendChild(l); } };
+  $('b-kart').addEventListener('pointerenter', pre, { once: true }); $('b-kart').addEventListener('focus', pre, { once: true });
+}
+$('b-kart').onclick = async () => {
+  if (liquid.busy) return;
+  sound.click();
+  $('liq-t2').innerHTML = 'K<i>A</i>RTS';
+  await liquid.fill();
+  $('liq-logo').classList.add('on');
+  markLiquid();
+  setTimeout(() => { location.href = 'kart/'; }, 250);
+};
+
 show('menu');
 renderer.setAnimationLoop(frame);
+if (fromKart) requestAnimationFrame(() => requestAnimationFrame(() => { document.documentElement.classList.remove('liq'); $('liq-cover').remove(); liquid.drain(); }));
 
 // A friend's Join button on Free Period: ?join=CODE opens Multiplayer and joins that room (solo play is unchanged).
 // Only inside Free Period's play page, which first checks that a chat friend is in that room: a bare game link with

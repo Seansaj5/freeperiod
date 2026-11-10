@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Close Call Karts</title>
+  <meta name="theme-color" content="#04182c" />
+  <link rel="icon" href="../icon.svg" type="image/svg+xml" />
+  <style>
+    @font-face { font-family: 'Bungee'; src: url('../../../assets/fonts/bungee.woff2') format('woff2'); font-display: swap; }
+    @font-face { font-family: 'Outfit'; src: url('../../../assets/fonts/outfit.woff2') format('woff2'); font-weight: 400 800; font-display: swap; }
+    @font-face { font-family: 'PressStart'; src: url('../../../assets/fonts/pressstart2p.woff2') format('woff2'); font-display: swap; }
+    :root { --amber: #ffb020; --cyan: #3de0ff; --red: #ff3b4e; --green: #6dff8a; --ink: #eef2ff; --muted: #9aa3bd; --panel: rgba(8, 12, 24, 0.84); --line: rgba(255, 255, 255, 0.1); }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #05101e; color: var(--ink); font-family: 'Outfit', system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; touch-action: none; }
+    canvas { display: block; }
+    button { font: inherit; color: inherit; cursor: pointer; }
+    .hidden { display: none !important; }
+    .disp { font-family: 'Bungee', sans-serif; font-weight: 400; }
+    .btn { height: 50px; border-radius: 12px; border: 1px solid var(--line); background: rgba(16, 22, 40, 0.88); font-family: 'Bungee', sans-serif; font-size: 16px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; transition: transform 0.12s, background 0.12s, border-color 0.12s; }
+    .btn:hover, .btn:focus-visible { transform: translateY(-2px); border-color: rgba(255, 176, 32, 0.6); outline: none; }
+    .btn.primary { background: linear-gradient(135deg, #ffc443, #ff8a1a); color: #1a0f00; border: 0; box-shadow: 0 10px 30px -10px rgba(255, 150, 30, 0.8); }
+    .btn.on { border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); color: #ffd27a; }
+    .btn small { font-family: 'Outfit', sans-serif; font-size: 12px; color: var(--muted); font-weight: 700; }
+    .btn.primary small { color: rgba(26, 15, 0, 0.7); }
+    .pill { padding: 8px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-weight: 700; font-size: 15px; display: inline-flex; align-items: center; gap: 8px; }
+    .lbl { font-size: 12px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; display: flex; align-items: center; gap: 10px; }
+    .lbl b { color: var(--ink); letter-spacing: 0.04em; font-size: 13px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+    .screen { position: fixed; inset: 0; pointer-events: none; }
+    .screen > * { pointer-events: auto; }
+    .coin { width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff2a8, #ffc21a 45%, #c47a00); box-shadow: 0 0 8px rgba(255, 194, 26, 0.6); display: inline-block; flex: none; }
+
+    /* ---------- the water's logo (shown over the liquid while loading) ---------- */
+    #liq-cover { position: fixed; inset: 0; z-index: 59; background: radial-gradient(ellipse at 50% 20%, #1c86b8 0%, #0a3c66 45%, #031428 100%); }
+    #liq-logo { position: fixed; inset: 0; z-index: 61; display: grid; place-items: center; pointer-events: none; transition: opacity 0.35s; }
+    #liq-logo .wrap { text-align: center; animation: bob 2.6s ease-in-out infinite; }
+    #liq-logo .t1 { font: 400 clamp(16px, 2.4vw, 26px) 'PressStart', monospace; letter-spacing: 0.2em; color: #dff8ff; text-shadow: 0 2px 0 #0a4a7a, 0 0 18px rgba(160, 240, 255, 0.8); }
+    #liq-logo .t2 { font: 400 clamp(64px, 12vw, 150px)/0.95 'Bungee', sans-serif; margin-top: 10px; background: linear-gradient(180deg, #ffffff 0%, #c8f4ff 38%, #49c6f2 52%, #1a86c4 70%, #bff0ff 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 6px 0 rgba(4, 40, 80, 0.7)) drop-shadow(0 0 26px rgba(120, 230, 255, 0.55)); }
+    #liq-logo .t2 i { font-style: normal; background: linear-gradient(180deg, #fff6c8 0%, #ffd24a 45%, #ff9a1a 60%, #ffe08a 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    #liq-logo .load { width: min(320px, 60vw); height: 8px; margin: 26px auto 0; border-radius: 6px; background: rgba(255, 255, 255, 0.18); overflow: hidden; box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4); }
+    #liq-logo .load i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #8af7ff, #ffffff); border-radius: 6px; transition: width 0.25s; }
+    #liq-logo .msg { margin-top: 12px; font: 700 13px 'Outfit', sans-serif; letter-spacing: 0.2em; color: rgba(225, 248, 255, 0.85); text-transform: uppercase; }
+    @keyframes bob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-10px) rotate(1deg); } }
+    #liq-logo.off { opacity: 0; }
+
+    /* ---------- customize (the garage) ---------- */
+    #garage { display: flex; }
+    .g-left { width: min(560px, 50vw); height: 100%; padding: 22px 0 22px 26px; display: flex; flex-direction: column; gap: 14px; background: linear-gradient(90deg, rgba(3, 7, 16, 0.92) 0%, rgba(3, 7, 16, 0.75) 75%, rgba(3, 7, 16, 0) 100%); }
+    .g-title { display: flex; align-items: baseline; gap: 12px; }
+    .g-title h1 { font: 400 34px 'Bungee', sans-serif; margin: 0; }
+    .g-title span { font: 400 11px 'PressStart', monospace; color: var(--cyan); letter-spacing: 0.1em; }
+    .row-wrap { display: flex; flex-direction: column; gap: 6px; }
+    .strip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 26px 8px 2px; scrollbar-width: thin; scroll-behavior: smooth; }
+    .tile { position: relative; flex: none; width: 104px; height: 92px; border-radius: 12px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(40, 52, 84, 0.6), rgba(12, 16, 30, 0.85)); padding: 0; overflow: hidden; transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s; }
+    .tile img { width: 100%; height: 70px; object-fit: contain; display: block; pointer-events: none; }
+    .tile b { display: block; font: 700 12px 'Outfit', sans-serif; text-align: center; margin-top: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+    .tile:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.3); }
+    .tile.on { border-color: var(--amber); box-shadow: 0 0 0 2px var(--amber), 0 8px 24px -10px rgba(255, 170, 30, 0.9); background: linear-gradient(180deg, rgba(90, 70, 30, 0.6), rgba(30, 20, 8, 0.85)); }
+    .tile.cur { outline: 2px dashed rgba(61, 224, 255, 0.7); outline-offset: 2px; }
+    .tile.locked img { filter: grayscale(1) brightness(0.35); }
+    .tile.locked::after { content: attr(data-lock); position: absolute; inset: 0 0 22px 0; display: grid; place-items: center; font: 800 11px 'Outfit', sans-serif; color: #ffd27a; text-align: center; line-height: 1.3; white-space: pre; }
+    .tile .new { position: absolute; top: 5px; right: 5px; font: 800 9px 'Outfit', sans-serif; letter-spacing: 0.1em; background: var(--green); color: #052010; padding: 2px 5px; border-radius: 6px; }
+    .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+    .sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.15); padding: 0; }
+    .sw.on { border-color: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25); }
+    .g-foot { margin-top: auto; display: flex; gap: 10px; padding-right: 26px; }
+    .g-right { position: absolute; right: 22px; bottom: 22px; width: min(340px, 40vw); }
+    .stats .st { display: grid; grid-template-columns: 92px 1fr 34px; align-items: center; gap: 10px; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; color: var(--muted); margin: 7px 0; text-transform: uppercase; }
+    .stats .st span:last-child { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+    .bar { position: relative; height: 10px; border-radius: 5px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+    .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #3de0ff, #8af7ff); border-radius: 5px; transition: width 0.25s; }
+    .bar i.d { background: rgba(109, 255, 138, 0.85); }
+    .bar i.d.neg { background: rgba(255, 80, 90, 0.85); }
+    .g-name { font: 400 22px 'Bungee', sans-serif; margin: 0 0 4px; }
+    .g-sub { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+    .topbar { position: fixed; top: 16px; right: 20px; display: flex; gap: 10px; align-items: center; z-index: 5; }
+    .unl { display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
+    .unl small { font-size: 11px; color: var(--muted); font-weight: 700; }
+    .unl .bar { height: 6px; }
+    .unl .bar i { background: linear-gradient(90deg, #ffc21a, #ffe58a); }
+    .pill.acct i { width: 8px; height: 8px; border-radius: 50%; background: #666; }
+    .pill.acct.in i { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .role { font: 800 10px/1 'Outfit', sans-serif; text-transform: uppercase; letter-spacing: 0.1em; padding: 4px 7px; border-radius: 999px; background: var(--amber); color: #1a0f00; }
+
+    /* ---------- race setup ---------- */
+    #setup { display: flex; align-items: center; justify-content: flex-start; padding: 0 5vw; background: linear-gradient(90deg, rgba(3, 7, 16, 0.9) 0%, rgba(3, 7, 16, 0.65) 55%, rgba(3, 7, 16, 0.1) 100%); }
+    #setup .panel { width: min(560px, 100%); max-height: calc(100vh - 30px); overflow-y: auto; }
+    #setup h2 { font: 400 28px 'Bungee', sans-serif; margin: 0 0 14px; }
+    .seg { display: flex; gap: 8px; margin-bottom: 16px; }
+    .seg .btn { flex: 1; height: 46px; font-size: 14px; flex-direction: column; gap: 0; line-height: 1.1; }
+    .tracks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+    .tcard { border-radius: 14px; border: 1px solid var(--line); background: rgba(16, 22, 40, 0.85); padding: 8px; text-align: left; transition: transform 0.12s, border-color 0.12s; }
+    .tcard canvas { width: 100%; height: auto; border-radius: 9px; display: block; }
+    .tcard b { display: block; font: 400 13px 'Bungee', sans-serif; margin-top: 6px; }
+    .tcard small { display: block; color: var(--muted); font-size: 11px; font-weight: 700; margin-top: 2px; }
+    .tcard.on { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber); }
+    .tcard.dim { opacity: 0.55; }
+    .cup { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); margin-bottom: 14px; font-size: 13px; color: var(--muted); }
+    .cup .tro { width: 40px; height: 40px; flex: none; }
+    .cup b { color: var(--ink); font: 400 15px 'Bungee', sans-serif; display: block; }
+    .s-note { color: var(--muted); font-size: 13px; line-height: 1.45; min-height: 20px; margin-bottom: 10px; }
+
+    /* ---------- HUD ---------- */
+    #hud { position: fixed; inset: 0; pointer-events: none; }
+    .itembox { position: absolute; top: 16px; left: 18px; width: 92px; height: 92px; border-radius: 22px; background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.06) 60%), rgba(8, 14, 30, 0.6); border: 3px solid rgba(255, 255, 255, 0.75); box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35), inset 0 0 18px rgba(120, 220, 255, 0.3); display: grid; place-items: center; }
+    .itembox svg { width: 66px; height: 66px; filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.5)); }
+    .itembox .n { position: absolute; right: -8px; bottom: -8px; font: 400 18px 'Bungee', sans-serif; background: var(--amber); color: #1a0f00; border-radius: 10px; padding: 1px 7px; }
+    .itembox.roll svg { animation: roll 0.08s steps(1) infinite; }
+    @keyframes roll { 50% { transform: translateY(-3px) scale(0.92); } }
+    .itembox.got { animation: got 0.4s ease-out; }
+    @keyframes got { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+    .coins { position: absolute; top: 120px; left: 22px; display: flex; align-items: center; gap: 8px; font: 400 26px 'Bungee', sans-serif; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7); }
+    .coins .coin { width: 26px; height: 26px; }
+    .coins.max { color: #ffd24a; }
+    .lap { position: absolute; top: 16px; right: 20px; text-align: right; font: 400 30px 'Bungee', sans-serif; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7); }
+    .lap small { font-size: 16px; color: var(--muted); }
+    .clock { font: 700 18px 'Outfit', sans-serif; font-variant-numeric: tabular-nums; color: #dfe6ff; margin-top: 2px; }
+    .clock.best { color: var(--green); }
+    .place { position: absolute; right: 26px; bottom: 14px; font: 400 clamp(64px, 11vw, 120px)/1 'Bungee', sans-serif; background: linear-gradient(180deg, #fff 0%, #cfe4ff 40%, #5aa2ff 60%, #a8d4ff 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 5px 0 rgba(0, 20, 60, 0.75)) drop-shadow(0 0 14px rgba(0, 0, 0, 0.5)); transition: transform 0.2s; }
+    .place sup { font-size: 0.42em; vertical-align: 0.95em; }
+    .place.p1 { background-image: linear-gradient(180deg, #fffbe0 0%, #ffe066 40%, #ffae1a 62%, #ffe9a0 100%); }
+    .place.p2 { background-image: linear-gradient(180deg, #ffffff 0%, #e6ebf2 40%, #9aa6b8 62%, #eef2f8 100%); }
+    .place.p3 { background-image: linear-gradient(180deg, #ffe8d0 0%, #ffb27a 40%, #b8642a 62%, #ffd0a8 100%); }
+    .place.bump { transform: scale(1.18); }
+    #minimap { position: absolute; left: 14px; bottom: 14px; width: 190px; height: 190px; opacity: 0.92; }
+    #count { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); font: 400 150px/1 'Bungee', sans-serif; color: #fff; text-shadow: 0 8px 0 rgba(0, 0, 0, 0.35), 0 0 40px rgba(255, 200, 80, 0.7); opacity: 0; }
+    #count.show { animation: countIn 0.9s ease-out forwards; }
+    #count.go { color: #6dff8a; text-shadow: 0 8px 0 rgba(0, 40, 10, 0.5), 0 0 40px rgba(109, 255, 138, 0.8); }
+    @keyframes countIn { 0% { opacity: 0; transform: translate(-50%, -50%) scale(1.8); } 18% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); } }
+    #banner { position: absolute; left: 50%; top: 24%; transform: translate(-50%, -50%); text-align: center; font: 400 clamp(32px, 5.5vw, 64px) 'Bungee', sans-serif; white-space: nowrap; opacity: 0; text-shadow: 0 5px 0 rgba(0, 0, 0, 0.4), 0 0 26px rgba(255, 180, 40, 0.6); color: #ffd24a; }
+    #banner small { display: block; font: 800 16px 'Outfit', sans-serif; color: #fff; margin-top: 6px; letter-spacing: 0.06em; }
+    #banner.show { animation: banner 2s ease-out forwards; }
+    @keyframes banner { 0% { opacity: 0; transform: translate(-50%, -50%) scale(1.4); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 78% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -62%); } }
+    #pops { position: absolute; left: 50%; top: 58%; }
+    .pop { position: absolute; left: 0; top: 0; transform: translate(-50%, 0); white-space: nowrap; font: 400 22px 'Bungee', sans-serif; animation: rise 1s ease-out forwards; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8); }
+    @keyframes rise { 0% { opacity: 0; transform: translate(-50%, 10px) scale(0.7); } 15% { opacity: 1; transform: translate(-50%, 0) scale(1.1); } 100% { opacity: 0; transform: translate(-50%, -60px); } }
+    .warn { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); font: 400 18px 'Bungee', sans-serif; color: #ff5a4e; text-shadow: 0 0 14px rgba(255, 60, 60, 0.8); animation: blink 0.35s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: 0.2; } }
+    .mt { position: absolute; left: 50%; bottom: 32px; transform: translateX(-50%); display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
+    .mt.on { opacity: 1; }
+    .mt i { width: 34px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.15); }
+    .mt i.l1 { background: #4aa8ff; box-shadow: 0 0 10px #4aa8ff; } .mt i.l2 { background: #ff8a1a; box-shadow: 0 0 10px #ff8a1a; } .mt i.l3 { background: #ffe066; box-shadow: 0 0 12px #ffe066; }
+    .hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 13px; color: var(--muted); text-shadow: 0 1px 6px #000; transition: opacity 1s; white-space: nowrap; }
+    kbd { font: 700 11px 'Outfit', sans-serif; padding: 2px 6px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, 0.25); color: var(--ink); }
+    .skip { position: absolute; right: 20px; bottom: 20px; font-size: 13px; color: var(--muted); }
+    .intro-name { position: absolute; left: 6vw; bottom: 12vh; }
+    .intro-name b { display: block; font: 400 clamp(36px, 6vw, 72px) 'Bungee', sans-serif; text-shadow: 0 5px 0 rgba(0, 0, 0, 0.35); }
+    .intro-name span { font: 400 12px 'PressStart', monospace; color: var(--cyan); letter-spacing: 0.12em; }
+
+    /* ---------- pause / results ---------- */
+    .center { display: grid; place-items: center; background: rgba(2, 6, 14, 0.55); }
+    .menu { width: min(380px, 92vw); display: flex; flex-direction: column; gap: 10px; }
+    .menu h2 { font: 400 40px 'Bungee', sans-serif; margin: 0 0 8px; text-align: center; }
+    .menu .btn { width: 100%; justify-content: space-between; }
+    #results .panel { width: min(560px, 94vw); max-height: calc(100vh - 30px); overflow-y: auto; }
+    #results h2 { font: 400 30px 'Bungee', sans-serif; margin: 0; }
+    .r-sub { color: var(--muted); font-size: 14px; margin: 2px 0 12px; }
+    .rt { width: 100%; border-collapse: collapse; font-size: 15px; }
+    .rt td { padding: 6px 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+    .rt td:first-child { font: 400 16px 'Bungee', sans-serif; width: 44px; color: var(--muted); }
+    .rt td.t { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+    .rt td.pts { text-align: right; font: 400 15px 'Bungee', sans-serif; width: 70px; }
+    .rt td.pts small { color: var(--green); font: 800 11px 'Outfit', sans-serif; margin-right: 4px; }
+    .rt tr.me td { color: var(--amber); background: rgba(255, 176, 32, 0.08); }
+    .rt .dot { display: inline-block; width: 12px; height: 12px; border-radius: 4px; margin-right: 8px; vertical-align: -1px; }
+    .r-earn { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    .r-earn .pill { font-size: 14px; }
+    .r-earn .pill.new { border-color: var(--green); color: var(--green); }
+    .r-foot { display: flex; gap: 10px; margin-top: 8px; }
+    .r-foot .btn { flex: 1; }
+    .trophy { text-align: center; margin: 4px 0 6px; }
+    .trophy svg { width: 120px; height: 120px; filter: drop-shadow(0 0 24px rgba(255, 200, 60, 0.6)); animation: tro 2.4s ease-in-out infinite; }
+    @keyframes tro { 0%, 100% { transform: rotate(-4deg) scale(1); } 50% { transform: rotate(4deg) scale(1.06); } }
+    #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 40; }
+
+    /* ---------- touch ---------- */
+    #touch { position: fixed; inset: auto 0 0 0; height: 50vh; pointer-events: none; }
+    #touch .tz { position: absolute; bottom: 18px; width: 80px; height: 80px; border-radius: 22px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.22); display: grid; place-items: center; font: 400 14px 'Bungee', sans-serif; pointer-events: auto; }
+    #touch .tz.on { background: rgba(255, 176, 32, 0.35); }
+    #t-left { left: 16px; } #t-right { left: 106px; } #t-brake { right: 284px; width: 64px !important; } #t-item { right: 196px; } #t-drift { right: 108px; } #t-gas { right: 18px; height: 112px !important; }
+    body.touch #minimap { left: auto; right: 14px; top: 70px; bottom: auto; width: 130px; height: 130px; }
+    body.touch .place { bottom: auto; top: 200px; right: 22px; font-size: 64px; }
+    body.touch .hint { display: none; }
+    @media (max-height: 560px) {
+      /* phones sideways: compact picker that scrolls, Race button and stats pinned on the right */
+      .g-left { width: min(470px, 56vw); padding: 10px 0 12px 14px; gap: 6px; overflow-y: auto; }
+      .g-title h1 { font-size: 20px; } .g-title span { display: none; }
+      .lbl { margin-bottom: 3px; font-size: 10px; }
+      .row-wrap { gap: 2px; } .strip { padding-bottom: 4px; gap: 6px; }
+      .tile { width: 74px; height: 62px; border-radius: 10px; } .tile img { height: 46px; } .tile b { font-size: 10px; }
+      .tile.locked::after { font-size: 9px; }
+      .sw { width: 24px; height: 24px; }
+      .g-foot { position: fixed; right: 12px; bottom: 12px; width: min(300px, 40vw); margin: 0; padding: 0; }
+      .g-foot .btn { height: 42px; font-size: 13px; padding: 0 12px; }
+      .g-right { top: 54px; bottom: auto; right: 12px; width: min(300px, 40vw); padding: 10px 12px; }
+      .stats .st { margin: 2px 0; font-size: 9px; grid-template-columns: 70px 1fr 26px; gap: 6px; } .bar { height: 7px; }
+      .g-name { font-size: 15px; } .g-sub { display: none; }
+      .topbar { top: 8px; right: 10px; } .topbar .pill { padding: 5px 10px; font-size: 13px; } .unl { min-width: 120px; }
+      .itembox { width: 66px; height: 66px; border-radius: 16px; } .itembox svg { width: 46px; height: 46px; } .coins { top: 88px; font-size: 20px; } .coins .coin { width: 20px; height: 20px; }
+      .lap { font-size: 22px; } .clock { font-size: 14px; }
+      #minimap { width: 120px; height: 120px; }
+      #count { font-size: 100px; }
+      .tracks canvas { display: none; } #setup .panel { padding: 14px; } .seg { margin-bottom: 8px; } .seg .btn { height: 40px; } .cup { margin-bottom: 8px; padding: 6px 10px; } .s-note { display: none; }
+      #setup h2 { font-size: 20px; margin-bottom: 8px; }
+    }
+    @media (max-width: 760px) { .g-left { width: 100vw; background: rgba(3, 7, 16, 0.86); } .g-right { display: none; } }
+  </style>
+  <script type="importmap">{ "imports": { "three": "../../../lib/three.module.min.js", "three/addons/": "../../../lib/addons/" } }</script>
+  <link rel="modulepreload" href="../../../lib/three.module.min.js" />
+</head>
+<body>
+  <div id="liq-cover"></div>
+  <div id="liq-logo"><div class="wrap"><div class="t1">CLOSE CALL</div><div class="t2">K<i>A</i>RTS</div><div class="load"><i id="load-bar"></i></div><div class="msg" id="load-msg">Filling the tank…</div></div></div>
+
+  <!-- customize your kart -->
+  <section id="garage" class="screen hidden">
+    <div class="g-left">
+      <div class="g-title"><h1>Your kart</h1><span>CUSTOMIZE</span></div>
+      <div class="row-wrap"><div class="lbl">Body <b id="n-body"></b></div><div class="strip" id="s-body"></div></div>
+      <div class="row-wrap"><div class="lbl">Wheels <b id="n-wheels"></b></div><div class="strip" id="s-wheels"></div></div>
+      <div class="row-wrap"><div class="lbl">Glider <b id="n-glider"></b></div><div class="strip" id="s-glider"></div></div>
+      <div class="row-wrap"><div class="lbl">Paint</div><div class="swatches" id="s-paint"></div></div>
+      <div class="g-foot">
+        <button class="btn" id="g-back">‹ Close Call</button>
+        <button class="btn primary" id="g-go" style="flex:1">Race ›</button>
+      </div>
+    </div>
+    <div class="g-right panel">
+      <div class="g-name" id="g-name">Classic</div>
+      <div class="g-sub" id="g-sub">Drag the kart to spin it</div>
+      <div class="stats" id="g-stats"></div>
+    </div>
+  </section>
+
+  <div class="topbar" id="topbar">
+    <div class="pill unl"><div style="display:flex;align-items:center;gap:8px"><span class="coin"></span><b id="c-total">0</b><small style="margin-left:auto" id="c-next"></small></div><div class="bar"><i id="c-bar"></i></div></div>
+    <button class="pill acct" id="w-acct" title="Your Free Period account"><i></i><span id="w-acct-name">Sign in</span><span class="role hidden" id="w-acct-role">Owner</span></button>
+  </div>
+
+  <!-- pick the race -->
+  <section id="setup" class="screen hidden">
+    <div class="panel">
+      <h2>Race</h2>
+      <div class="lbl">Mode</div>
+      <div class="seg" id="m-mode"><button class="btn" data-mode="gp">Grand Prix<small>3 races, points</small></button><button class="btn" data-mode="vs">Single race<small>any track</small></button><button class="btn" data-mode="tt">Time trial<small>beat your best</small></button></div>
+      <div class="lbl">Speed class</div>
+      <div class="seg" id="m-cls"><button class="btn" data-cls="rookie">Rookie</button><button class="btn" data-cls="pro">Pro</button><button class="btn" data-cls="elite">Elite</button></div>
+      <div class="cup" id="m-cup"></div>
+      <div class="lbl" id="m-tl">Track</div>
+      <div class="tracks" id="m-tracks"></div>
+      <div class="s-note" id="m-note"></div>
+      <div style="display:flex;gap:10px">
+        <button class="btn" id="m-back">‹ Kart</button>
+        <button class="btn primary" id="m-go" style="flex:1">Start</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- racing -->
+  <div id="hud" class="hidden">
+    <div class="itembox" id="h-item"><span class="n hidden" id="h-itemn"></span></div>
+    <div class="coins" id="h-coins"><span class="coin"></span><span id="h-coinn">0</span></div>
+    <div class="lap"><div>LAP <span id="h-lap">1</span><small>/<span id="h-laps">3</span></small></div><div class="clock" id="h-time">0:00.00</div></div>
+    <canvas id="minimap" width="380" height="380"></canvas>
+    <div class="place p1" id="h-place">1<sup>st</sup></div>
+    <div id="count"></div>
+    <div id="banner"></div>
+    <div id="pops"></div>
+    <div class="warn hidden" id="h-warn">⚠ ROCKET</div>
+    <div class="mt" id="h-mt"><i></i><i></i><i></i></div>
+    <div class="hint" id="h-hint"><kbd>W</kbd> gas · <kbd>A</kbd><kbd>D</kbd> steer · hold <kbd>Space</kbd> + steer to drift · <kbd>E</kbd> item · <kbd>Esc</kbd> pause</div>
+    <div class="intro-name hidden" id="h-intro"><span id="h-introsub"></span><b id="h-introname"></b></div>
+    <div class="skip hidden" id="h-skip">Press any key to skip</div>
+  </div>
+
+  <section id="pause" class="screen center hidden">
+    <div class="menu">
+      <h2>Paused</h2>
+      <button class="btn primary" id="p-resume">Resume <small>Esc</small></button>
+      <button class="btn" id="p-restart">Restart race</button>
+      <button class="btn" id="p-music">Music <small id="p-musicv">on</small></button>
+      <button class="btn" id="p-quit">Quit to garage</button>
+    </div>
+  </section>
+
+  <section id="results" class="screen center hidden">
+    <div class="panel">
+      <div class="trophy hidden" id="r-trophy"></div>
+      <h2 id="r-title">Race results</h2>
+      <div class="r-sub" id="r-sub"></div>
+      <table class="rt" id="r-table"></table>
+      <div class="r-earn" id="r-earn"></div>
+      <div class="r-foot" id="r-foot"></div>
+    </div>
+  </section>
+
+  <canvas id="confetti" class="hidden"></canvas>
+
+  <div id="touch" class="hidden">
+    <div class="tz" id="t-left">◀</div><div class="tz" id="t-right">▶</div>
+    <div class="tz" id="t-brake">BRK</div><div class="tz" id="t-item">ITEM</div><div class="tz" id="t-drift">DRIFT</div><div class="tz" id="t-gas">GAS</div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
