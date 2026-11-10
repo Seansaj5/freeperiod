@@ -171,11 +171,9 @@ export function badgeMarks(p) {
   for (const id of ids) {
     const info = badgeInfo(id);
     if (!info) continue;
-    {
-      const lv = p.game_stats && p.game_stats.bb && Number(p.game_stats.bb.level);
-      const label = 'Bing Ball ' + info.label + (lv > 0 ? ' · Level ' + Math.floor(lv) : '');
-      box.append(h('span', { class: 'cx-bdg rank', title: label, role: 'img', 'aria-label': label, style: '--bc:' + info.color, text: info.label }));
-    }
+    const lv = p.game_stats && p.game_stats.bb && Number(p.game_stats.bb.level);
+    const label = 'Bing Ball ' + info.label + (lv > 0 ? ' · Level ' + Math.floor(lv) : '');
+    box.append(h('span', { class: 'cx-bdg rank', title: label, role: 'img', 'aria-label': label, style: '--bc:' + info.color, text: info.label }));
   }
   return box.childElementCount ? box : null;
 }

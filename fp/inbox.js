@@ -12,6 +12,7 @@ export async function openInbox({ tab = 'suggestions' } = {}) {
   const suggestPane = h('div', { class: 'fp-inbox-pane' });
   const reportsPane = h('div', { class: 'fp-inbox-pane', hidden: true });
   sheet.body.append(tabs, suggestPane, reportsPane);
+  drawSuggestions(suggestPane);
 
   // Reports need chat; with no chat config the tab is not offered and nothing chat-related loads.
   let chatOn = false;
@@ -46,7 +47,6 @@ export async function openInbox({ tab = 'suggestions' } = {}) {
       });
     } catch (ex) { reportsPane.replaceChildren(h('p', { class: 'fp-err', text: errText(ex) })); }
   }
-  drawSuggestions(suggestPane);
   setTab(tab);
   sheet.focus();
 }
