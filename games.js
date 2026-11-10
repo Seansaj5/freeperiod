@@ -61,8 +61,6 @@ window.GAMES = [
     tagline: 'Five zones, two worlds, and one friend who might be EXE. Finish the zone tasks, cross into the corrupted world and escape.',
     url: 'games/horror-exe/',
     thumb: 'assets/horror-exe.jpg',
-    hero: 'assets/horror-exe-hero.jpg',
-    preview: 'assets/horror-exe.webm',
     tags: ['3D', 'Multiplayer', 'Horror'],
     controls: 'WASD move · Shift sprint · Space jump · E power · EXE: click attack, Q sense, F disguise · Esc pause',
     accent: '#ff2a3a',
