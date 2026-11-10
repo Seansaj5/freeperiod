@@ -4,6 +4,7 @@ import { createClient } from '../vendor/supabase.js';
 import { CHAT } from './config.js';
 import { getToken, getUser, onChange } from '../session.js';
 import { call } from '../api.js';
+import * as store from '../store.js';
 
 let config = CHAT;
 let make = createClient;
@@ -53,26 +54,77 @@ function setMe(session) {
 let gen = 0;
 let inflightFor = '';
 let lastError = '';
-const hubKey = () => { const u = getUser(); return u && getToken() ? chatEmail(u.username) : ''; };
+// Who the hub says is signed in. fp.user is read from storage first: another tab may have logged in or out meanwhile
+// (this tab's session.js only learns that from the storage event, which can come after Supabase's own tab broadcast).
+const hubKey = () => {
+  if (!getToken()) return '';
+  const u = store.json('fp.user', null) || getUser();
+  return u && typeof u.username === 'string' ? chatEmail(u.username) : '';
+};
+// Sign out on THIS device only ('local': the account's other devices keep their chat), and drop the stored session
+// even when Supabase can't be reached (a global sign-out removes it only after the server answers).
+async function signOutHere(c) {
+  try { await c.auth.signOut({ scope: 'local' }); } catch { /* removed locally first */ }
+  try { if (globalThis.localStorage) globalThis.localStorage.removeItem('fp.chat.auth'); } catch { /* storage blocked */ }
+}
 
 export function chatError() { return lastError; }
 
-// Follow hub login / logout / account switch.
+// The chat account changes under this tab: drop it at once (the app resets exactly as for a switch in this tab), then
+// sign in as whoever the hub says now (or show the guest view).
+function resetTo(key) {
+  gen++; inflight = null; inflightFor = ''; meUser = null; lastError = '';
+  setState(key ? 'waking' : 'guest');
+  return ensureChatSession();
+}
+// Lost sessions come back by themselves, but not in a loop: after 3 in a minute chat shows an error with Try again.
+let lost = [];
+function onLostSession() {
+  const key = hubKey();
+  if (!key) { resetTo(''); return; }
+  const now = Date.now();
+  lost = lost.filter((t) => now - t < 60000);
+  if (lost.length >= 3) {
+    gen++; inflight = null; inflightFor = ''; meUser = null;
+    lastError = 'Chat signed you out. Try again in a moment.';
+    setState('error');
+    return;
+  }
+  lost.push(now);
+  resetTo(key);
+}
+
+// Follow hub login / logout / account switch (this tab, or another one: session.js follows the storage event), and the
+// Supabase session itself (signed out or replaced from another tab, or a refresh that failed).
 function wire() {
   if (wired) return;
   wired = true;
   onChange(async (u) => {
     if (!configured()) return;
-    if (!u) {
+    if (!u || !getToken()) {
       gen++; inflight = null; inflightFor = ''; meUser = null; lastError = '';
       setState('guest');
-      try { await getChat().auth.signOut(); } catch { /* ignore */ }
+      await signOutHere(getChat());
       return;
     }
     const key = chatEmail(u.username);
     if (state === 'ready' && meUser && chatEmail(meUser.username) === key) return;
+    if (state === 'ready' && meUser) { resetTo(key); return; } // another account (another tab switched): reset first
     ensureChatSession(); // new login/switch, or a retry from guest/error/asleep/off-by-route
   });
+  const c = client;
+  if (c && c.auth && typeof c.auth.onAuthStateChange === 'function') {
+    c.auth.onAuthStateChange((event, session) => {
+      // (auth-js calls this inside its lock: anything that calls auth again runs after it)
+      setTimeout(() => {
+        if (!configured() || inflight) return; // a sign-in of ours is running: it decides
+        if (state !== 'ready' && state !== 'waking') return;
+        const email = session && session.user ? String(session.user.email || '').toLowerCase() : '';
+        if (event === 'SIGNED_OUT' || !session) { if (state === 'ready') onLostSession(); return; }
+        if (meUser && email && email !== chatEmail(meUser.username)) resetTo(hubKey()); // another tab's account
+      }, 0);
+    });
+  }
 }
 
 function isPaused(e) {
@@ -105,7 +157,7 @@ async function run(g, key) {
   const c = getChat();
   if (!key) {
     meUser = null;
-    try { const { data } = await c.auth.getSession(); if (data && data.session) await c.auth.signOut(); } catch { /* ignore */ }
+    try { const { data } = await c.auth.getSession(); if (data && data.session) await signOutHere(c); } catch { /* ignore */ }
     return done('guest');
   }
   try {
@@ -113,7 +165,7 @@ async function run(g, key) {
     if (stale()) return state || baseState();
     const s = data && data.session;
     if (s && s.user && String(s.user.email || '').toLowerCase() === key) { setMe(s); return done('ready'); }
-    if (s) { await c.auth.signOut(); if (stale()) return state || baseState(); }
+    if (s) { await signOutHere(c); if (stale()) return state || baseState(); }
   } catch (e) {
     if (isPaused(e)) return done('asleep');
   }
@@ -138,7 +190,7 @@ async function run(g, key) {
   if (stale() || !session || !session.user || String(session.user.email || '').toLowerCase() !== hubKey()) {
     let cur = null;
     try { const r = await c.auth.getSession(); cur = r && r.data && r.data.session; } catch { /* ignore */ }
-    if (cur && cur.user && String(cur.user.email || '').toLowerCase() !== hubKey()) { try { await c.auth.signOut(); } catch { /* ignore */ } }
+    if (cur && cur.user && String(cur.user.email || '').toLowerCase() !== hubKey()) await signOutHere(c);
     if (stale()) return state || baseState();
     return done('error', "Chat can't be reached right now");
   }
@@ -162,5 +214,5 @@ export function ensureChatSession() {
 export function _inject({ config: cfg, createClient: cc } = {}) {
   if (cfg) config = cfg;
   if (cc) make = cc;
-  client = null; state = null; meUser = null; inflight = null; inflightFor = ''; lastError = ''; gen = 0; wired = false;
+  client = null; state = null; meUser = null; inflight = null; inflightFor = ''; lastError = ''; gen = 0; wired = false; lost = [];
 }

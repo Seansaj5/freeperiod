@@ -6,7 +6,9 @@ import { hashString } from './sync.js';
 let user = null;
 let memToken = null; // the token when storage is blocked: signed in for this page's lifetime at least
 const listeners = new Set();
-function emit() { for (const fn of [...listeners]) { try { fn(user); } catch { /* ignore */ } } }
+const keyOf = (u) => (u && typeof u.username === 'string' ? u.username + '|' + (u.role || '') : '');
+let seenKey = null; // the account this tab last told its listeners about (null: as loaded)
+function emit() { seenKey = keyOf(getUser()); for (const fn of [...listeners]) { try { fn(user); } catch { /* ignore */ } } }
 
 // Cached user (fp.user) lets the UI show the signed-in state while a sleeping server wakes.
 export function getUser() {
@@ -18,6 +20,23 @@ useToken(getToken);
 // Who is signed in, lowercase ('' for a guest): the account that sync records and fp.meta belong to.
 export function userKey() { const u = getUser(); return u && typeof u.username === 'string' ? u.username.toLowerCase() : ''; }
 export function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+
+// Another tab logged in, logged out or switched accounts (it wrote fp.token / fp.user): this tab follows, exactly as if
+// it had happened here, so nothing of the previous account (chat DMs, saves, the name in the header) stays on screen.
+// A tab whose storage is blocked keeps its own in-memory session (memToken) and never sees these events.
+function followOtherTab(e) {
+  if (memToken || (e && e.key !== null && e.key !== 'fp.token' && e.key !== 'fp.user')) return;
+  const t = store.get('fp.token');
+  const u = t ? store.json('fp.user', null) : null;
+  const next = u && typeof u.username === 'string' ? { username: u.username, role: u.role } : null;
+  user = next;
+  if (keyOf(next) === seenKey) return;
+  emit();
+}
+try {
+  if (typeof addEventListener === 'function') addEventListener('storage', followOtherTab);
+  seenKey = keyOf(getUser()); // what this page started with (from storage)
+} catch { /* no window */ }
 
 // fp.loggedOut: someone pressed Log out here (hub button, or the game frame's logout). Until the next login the hub
 // never offers to take a login from the game frame (play.js); a hub that never logged out does.

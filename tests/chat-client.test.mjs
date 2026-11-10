@@ -7,11 +7,15 @@ function fakeStorage() {
   return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k) };
 }
 const res = (status, body) => ({ ok: status < 400, status, json: async () => body });
+// a window-like event target, so session.js can follow the storage events of "other tabs" (registered on first import)
+const tabEvents = new EventTarget();
+globalThis.addEventListener = tabEvents.addEventListener.bind(tabEvents);
+globalThis.dispatchEvent = tabEvents.dispatchEvent.bind(tabEvents);
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(r => setImmediate(r)); };
 const emailOf = u => u.toLowerCase() + '@users.freeperiod.example';
 
 let n = 0;
-async function setup(t, { signedIn = 'Saj', config = { url: 'http://127.0.0.1:54321', key: 'anon' }, session = null, route = () => res(200, { ok: true, tokenHash: 'th1' }), otp = null, verifyAs = null } = {}) {
+async function setup(t, { signedIn = 'Saj', config = { url: 'http://127.0.0.1:54321', key: 'anon' }, session = null, route = () => res(200, { ok: true, tokenHash: 'th1' }), otp = null, verifyAs = null, signOutThrows = false } = {}) {
   globalThis.localStorage = fakeStorage();
   globalThis.sessionStorage = fakeStorage();
   globalThis.location = { search: '', hostname: 'localhost' };
@@ -19,14 +23,15 @@ async function setup(t, { signedIn = 'Saj', config = { url: 'http://127.0.0.1:54
     localStorage.setItem('fp.token', 'tok');
     localStorage.setItem('fp.user', JSON.stringify({ username: signedIn, role: 'player' }));
   }
-  const log = { fetches: [], timeouts: [], signOuts: 0, otps: [], gets: 0 };
+  const log = { fetches: [], timeouts: [], signOuts: 0, signOutArgs: [], otps: [], gets: 0 };
   const realSet = globalThis.setTimeout;
   t.mock.method(globalThis, 'setTimeout', (fn, ms, ...a) => { log.timeouts.push(ms); return realSet(fn, ms, ...a); });
   globalThis.fetch = async (url, opts) => { log.fetches.push({ url, opts }); return route(url, opts); };
-  const state = { session };
+  const subs = new Set();
+  const state = { session, emit: (event, s) => { for (const fn of [...subs]) fn(event, s); } };
   const auth = {
     getSession: async () => { log.gets++; return { data: { session: state.session }, error: null }; },
-    signOut: async () => { log.signOuts++; state.session = null; return { error: null }; },
+    signOut: async (a) => { log.signOuts++; log.signOutArgs.push(a); if (signOutThrows) throw new TypeError('fetch failed'); state.session = null; return { error: null }; },
     verifyOtp: async (p) => {
       log.otps.push(p);
       if (otp) return otp(p);
@@ -34,7 +39,7 @@ async function setup(t, { signedIn = 'Saj', config = { url: 'http://127.0.0.1:54
       state.session = { user: { id: 'u-1', email: emailOf(username), app_metadata: { username } } };
       return { data: { session: state.session, user: state.session.user }, error: null };
     },
-    onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+    onAuthStateChange: (fn) => { subs.add(fn); return { data: { subscription: { unsubscribe() { subs.delete(fn); } } } }; },
   };
   const created = [];
   const chat = await import('../fp/chat/client.js?n=' + (++n));
@@ -93,6 +98,97 @@ test('existing supabase session for the same email -> ready without network', as
   assert.equal(await chat.ensureChatSession(), 'ready');
   assert.equal(log.fetches.length, 0);
   assert.equal(chat.me().id, 'u-1');
+});
+
+test('sign-outs are local to this device (scope local), never global', async (t) => {
+  const session = { user: { id: 'u-9', email: emailOf('Other'), app_metadata: { username: 'Other' } } };
+  const { chat, log, sess } = await setup(t, { session });
+  await chat.ensureChatSession();
+  await sess.logout();
+  await flush();
+  assert.ok(log.signOutArgs.length >= 2);
+  assert.ok(log.signOutArgs.every((a) => a && a.scope === 'local'), JSON.stringify(log.signOutArgs));
+});
+
+test('logout drops the stored chat session even when Supabase cannot be reached', async (t) => {
+  const { chat, sess, log } = await setup(t, { signOutThrows: true });
+  await chat.ensureChatSession();
+  localStorage.setItem('fp.chat.auth', '{"access_token":"x"}');
+  await sess.logout();
+  await flush();
+  assert.equal(localStorage.getItem('fp.chat.auth'), null);
+  assert.equal(chat.chatState(), 'guest');
+  assert.ok(log.signOuts >= 1);
+});
+
+test('the Supabase session is lost while the hub is signed in (SIGNED_OUT) -> chat signs in again, not a silent dead "ready"', async (t) => {
+  const { chat, log, state } = await setup(t);
+  assert.equal(await chat.ensureChatSession(), 'ready');
+  const seen = [];
+  chat.onChatState((s) => seen.push(s));
+  state.session = null;
+  state.emit('SIGNED_OUT', null);
+  for (let i = 0; i < 6; i++) await flush();
+  assert.equal(chat.chatState(), 'ready');
+  assert.ok(seen.includes('waking'), JSON.stringify(seen));
+  assert.equal(log.otps.length, 2);
+});
+
+test('lost sessions in a loop stop after 3 a minute with a readable error', async (t) => {
+  const { chat, state } = await setup(t);
+  await chat.ensureChatSession();
+  for (let i = 0; i < 4; i++) {
+    state.session = null;
+    state.emit('SIGNED_OUT', null);
+    for (let k = 0; k < 6; k++) await flush();
+  }
+  assert.equal(chat.chatState(), 'error');
+  assert.match(chat.chatError(), /signed you out/);
+});
+
+test('another tab puts another account session here -> reset and sign in as the hub user', async (t) => {
+  const { chat, state, log } = await setup(t);
+  await chat.ensureChatSession();
+  const seen = [];
+  chat.onChatState((s) => seen.push(s));
+  const other = { user: { id: 'u-2', email: emailOf('Bob'), app_metadata: { username: 'Bob' } } };
+  state.session = other;
+  localStorage.setItem('fp.user', JSON.stringify({ username: 'Bob', role: 'player' }));
+  state.emit('SIGNED_IN', other);
+  for (let i = 0; i < 6; i++) await flush();
+  assert.ok(seen.includes('waking'), JSON.stringify(seen));
+  assert.equal(chat.chatState(), 'ready');
+  assert.equal(chat.me().id, 'u-2');
+  assert.equal(log.otps.length, 1); // Bob's session from the other tab is reused
+});
+
+test('another tab logs the hub out (storage event) -> this tab goes guest and signs chat out', async (t) => {
+  const { chat, log } = await setup(t);
+  await chat.ensureChatSession();
+  assert.equal(chat.chatState(), 'ready');
+  globalThis.dispatchEvent(Object.assign(new Event('storage'), { key: 'fp.token' })); // (this tab now knows it is Saj)
+  await flush();
+  localStorage.removeItem('fp.token'); localStorage.removeItem('fp.user');
+  globalThis.dispatchEvent(Object.assign(new Event('storage'), { key: 'fp.token' }));
+  for (let i = 0; i < 4; i++) await flush();
+  assert.equal(chat.chatState(), 'guest');
+  assert.equal(chat.me(), null);
+  assert.ok(log.signOuts >= 1);
+});
+
+test('another tab switches the hub account (storage event) -> reset, then ready as the new account', async (t) => {
+  const { chat } = await setup(t, { verifyAs: () => JSON.parse(localStorage.getItem('fp.user')).username }); // Bing Ball signs in whoever the token is
+  localStorage.setItem('fp.user', JSON.stringify({ username: 'Bob', role: 'player' })); // first sign-in as Bob to get going
+  await chat.ensureChatSession();
+  globalThis.dispatchEvent(Object.assign(new Event('storage'), { key: 'fp.user' })); // (this tab now knows it is Bob)
+  for (let i = 0; i < 4; i++) await flush();
+  const seen = [];
+  chat.onChatState((s) => seen.push(s));
+  localStorage.setItem('fp.token', 'tok2'); localStorage.setItem('fp.user', JSON.stringify({ username: 'Cara', role: 'player' }));
+  globalThis.dispatchEvent(Object.assign(new Event('storage'), { key: 'fp.user' }));
+  for (let i = 0; i < 6; i++) await flush();
+  assert.equal(seen[0], 'waking', JSON.stringify(seen));
+  assert.equal(chat.chatState(), 'ready');
 });
 
 test('a supabase session for another email is signed out first', async (t) => {
