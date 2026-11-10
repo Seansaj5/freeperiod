@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Leaderboards · Free Period</title>
+  <meta name="description" content="Free Period leaderboards: the top players in Bing Ball, Close Call and horror.exe, and the longest daily streaks." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preload" href="assets/fonts/bungee.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/outfit.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="ui.css" />
+  <link rel="stylesheet" href="boards.css" />
+</head>
+<body class="home lb-page">
+  <div class="sky" aria-hidden="true">
+    <i class="glow g1"></i><i class="glow g2"></i><i class="glow g3"></i>
+    <i class="paper"></i>
+    <i class="sweep"></i>
+  </div>
+
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="logo" href="./" aria-label="Free Period home">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <g class="bell" fill="none" stroke="#c6ff3d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 42h28l-3.5-5V27a10.5 10.5 0 0 0-21 0v10z" /><path d="M28 48a4.5 4.5 0 0 0 8 0" /><path d="M32 12v4" />
+          </g>
+          <circle cx="47" cy="17" r="6" fill="#3de0ff" />
+        </svg>
+        <span class="wordmark">FREE <b>PERIOD</b></span>
+      </a>
+      <a class="lb-home" href="./">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="M11 6l-6 6 6 6" /></svg>
+        <span>All games</span>
+      </a>
+      <div class="chat-slot" id="chat-btn" hidden></div>
+      <div class="account-slot" id="account"></div>
+    </div>
+  </header>
+
+  <main class="wrap lb-main">
+    <section class="lb-hero" aria-labelledby="lb-h">
+      <div class="lb-hero-copy">
+        <span class="eyebrow">Hall of fame</span>
+        <h1 id="lb-h">Leaderboards</h1>
+        <p>The top 50 in every game on Free Period, plus the longest daily streaks. Updated every minute.</p>
+      </div>
+      <div class="lb-hero-art" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v6a4 4 0 0 1-8 0z" /><path d="M8 6H5.5a2.5 2.5 0 0 0 2.6 4.4" /><path d="M16 6h2.5a2.5 2.5 0 0 1-2.6 4.4" /><path d="M12 14v3.5" /><path d="M8.5 20.5h7" /><path d="M10 17.5h4v3h-4z" /></svg>
+        <i class="spark s1"></i><i class="spark s2"></i><i class="spark s3"></i>
+      </div>
+    </section>
+
+    <div class="lb-tabs" id="tabs" role="tablist" aria-label="Game"></div>
+
+    <section class="lb-panel" id="panel" role="tabpanel">
+      <div class="lb-bar">
+        <div class="lb-chips" id="chips" role="tablist" aria-label="Board"></div>
+        <div class="lb-tools" id="tools"></div>
+      </div>
+      <div class="lb-body" id="body" aria-live="polite"></div>
+      <div class="lb-foot" id="foot"></div>
+    </section>
+  </main>
+
+  <footer class="wrap foot">
+    <span class="foot-brand"><b>FREE PERIOD</b> · games made by us, for us</span>
+    <a class="lb-foot-link" href="./">Back to all games</a>
+  </footer>
+
+  <script src="games.js"></script>
+  <script type="module" src="fp/leaderboards.js"></script>
+</body>
+</html>
