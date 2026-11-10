@@ -1,7 +1,10 @@
 // Friends' activity (chat migration 0010): "Amy is playing Bing Ball" with a Join button.
 //   play page: startActivity(gameId) sends a heartbeat (set_activity) about every 90 s while the game is open and the page
-//              is visible, signed in to chat; games in this repo report their room code (fp:room) and it rides along.
-//              Leaving the page clears it (best effort; a row nobody refreshes goes stale after 3 minutes anyway).
+//              is visible, signed in to chat, and the person's own "Show friends what I'm playing" is on (read before
+//              every beat; while it is off nothing about the game or room is sent). Games in this repo report their room
+//              code (fp:room) and it rides along. Turning the setting off (any tab of this browser) stops it at once and
+//              clears the row; leaving the page or logging out clears it too (best effort; a row nobody refreshes goes
+//              stale after 3 minutes anyway). A Join link's room is only used when a friend is in it (friendInRoom).
 //   home page: mountFriendsNow(section) polls friends_playing about once a minute while the page is visible and shows
 //              the "Friends playing now" row only when at least one friend is playing.
 // With chat not set up both do nothing and load nothing else. Who sees what is decided by the database (accepted friends,
@@ -10,8 +13,8 @@ import { h } from '../ui.js';
 import { CHAT } from './config.js';
 
 export const HEARTBEAT_MS = 90000;   // set_activity while playing (rows count as "playing now" for 3 minutes)
-export const OFF_RETRY_MS = 600000;  // the person's setting is off: look again every 10 minutes
 export const POLL_MS = 60000;        // the home page asks who is playing
+export const JOIN_CHECK_MS = 6000;   // play page: how long a Join link waits to confirm a friend is in that room
 const ROOM_RE = /^[A-Z0-9]{3,8}$/;   // the database's rule (0010)
 
 const configured = () => !!(CHAT && CHAT.url && CHAT.key);
@@ -47,6 +50,13 @@ export function sinceText(secs) {
   return 'Started ' + hr + (hr === 1 ? ' hour' : ' hours') + ' ago';
 }
 
+/** The tile's button: Join when there is a room to go into, else Play (the game's menu: solo, or a game that can't deep-join). */
+export function joinLabel({ game, room, name }) {
+  return room
+    ? { text: 'Join', label: 'Join ' + (name || 'them') + ' in ' + game.title + ' (room ' + room + ')' }
+    : { text: 'Play', label: 'Play ' + game.title + (name ? ' (' + name + ' is playing)' : '') };
+}
+
 /** friendsPlaying() rows -> what the row shows: only known games, one entry per friend, newest first. */
 export function friendsNowItems(rows, games) {
   const byId = new Map((games || []).map((g) => [g.id, g]));
@@ -64,36 +74,57 @@ export function friendsNowItems(rows, games) {
 
 // ---------------------------------------------------------------------------------------------------- heartbeat
 /**
- * The heartbeat's timing, without the network (unit-tested): `send(game, room)` resolves true (shown) or false (the
- * setting is off), `exit()` is the page-close call. Beats only while chat is ready and the page is visible.
+ * The heartbeat's timing, without the network (unit-tested). Before every beat `check()` reads the person's own setting:
+ * off = nothing is sent (and a shown row is cleared with `clear()`); on = `send(game, room)` (true = shown, false = the
+ * database found the setting off). `setAllowed(false)` (the setting was just turned off) stops sending at once and clears;
+ * `setAllowed(true)` beats at once. `exit()` is the page-close call. Beats only while chat is ready and the page is visible.
  */
-export function createHeartbeat({ game, send, exit, every = HEARTBEAT_MS, offEvery = OFF_RETRY_MS, settle = 1500, now = () => Date.now(), timers = globalThis } = {}) {
+export function createHeartbeat({ game, send, exit, check = async () => true, clear = async () => {}, every = HEARTBEAT_MS, settle = 1500, now = () => Date.now(), timers = globalThis } = {}) {
   let room = null, ready = false, visible = true, stopped = false, off = false, shown = false;
-  let timer = 0, busy = false, again = false, last = -Infinity;
-  const clear = () => { if (timer) { timers.clearTimeout(timer); timer = 0; } };
+  let timer = 0, busy = false, again = false, last = -Infinity, gen = 0; // gen: bumped by setAllowed
+  const stopTimer = () => { if (timer) { timers.clearTimeout(timer); timer = 0; } };
   const live = () => !stopped && ready && visible;
-  function plan(ms) { clear(); if (live()) timer = timers.setTimeout(beat, Math.max(0, ms)); }
+  function plan(ms) { stopTimer(); if (live()) timer = timers.setTimeout(beat, Math.max(0, ms)); }
+  function hide() { if (shown) { shown = false; Promise.resolve().then(clear).catch(() => { /* the row goes stale in 3 min */ }); } }
   async function beat() {
     timer = 0;
     if (!live()) return;
     if (busy) { again = true; return; }
     busy = true;
+    const g0 = gen;
     try {
-      const r = await send(game, room);
-      shown = r === true;
-      off = r === false;
+      const on = await check();
+      if (gen === g0 && live()) {          // (a setting change meanwhile has planned what comes next)
+        if (!on) { off = true; hide(); }   // opted out: only the setting was read, nothing was sent
+        else {
+          off = false;
+          const r = await send(game, room);
+          if (gen !== g0 && off) { if (r === true) { shown = true; hide(); } }   // turned off while in flight: take it back
+          else { shown = r === true; off = r === false; }
+        }
+      }
       last = now();
     } catch (e) {
       if (e && e.code === 'banned') stopped = true; // slow_down, network, not set up yet: the next beat tries again
     } finally { busy = false; }
-    if (again) { again = false; plan(off ? offEvery : 0); return; }
-    plan(off ? offEvery : every);
+    if (again) { again = false; plan(off ? every : 0); return; }
+    plan(every);
   }
   // back from hidden: keep the cadence (a quick tab switch sends nothing extra), but beat at once if a beat is due
-  const resume = () => plan(off ? Math.max(0, last + offEvery - now()) : Math.max(0, last + every - now()));
+  const resume = () => plan(Math.max(0, last + every - now()));
   return {
-    setReady(v) { ready = !!v; if (ready) resume(); else { clear(); shown = false; } },
-    setVisible(v) { visible = !!v; if (visible) resume(); else clear(); },
+    setReady(v) {
+      ready = !!v;
+      if (ready) { resume(); return; }
+      stopTimer();
+      if (shown) { shown = false; try { exit(); } catch { /* best effort */ } }   // logged out / switched: the row goes now
+    },
+    setVisible(v) { visible = !!v; if (visible) resume(); else stopTimer(); },
+    setAllowed(on) {
+      gen++;
+      if (!on) { off = true; hide(); plan(every); return; }   // stop now; the next beats only read the setting
+      off = false; last = -Infinity; plan(0);   // (a hidden page beats as soon as it is visible again)
+    },
     setRoom(r) {
       const next = cleanRoom(r);
       if (next === room) return;
@@ -102,12 +133,13 @@ export function createHeartbeat({ game, send, exit, every = HEARTBEAT_MS, offEve
     },
     leave() {
       stopped = true;
-      clear();
+      stopTimer();
       if (shown) { shown = false; try { exit(); } catch { /* best effort */ } }
     },
     back() { if (stopped) { stopped = false; last = -Infinity; resume(); } },   // the page came back from the back/forward cache
     get room() { return room; },
     get shown() { return shown; },
+    get off() { return off; },
   };
 }
 
@@ -118,17 +150,42 @@ export function startActivity(gameId) {
   if (!configured() || typeof document === 'undefined') return api;
   Promise.all([import('./client.js'), import('./data.js')]).then(([client, data]) => {
     if (!data.ACTIVITY_GAMES.includes(gameId)) return;
-    hb = createHeartbeat({ game: gameId, send: (g, r) => data.setActivity(g, r), exit: () => data.clearActivityOnExit() });
+    hb = createHeartbeat({
+      game: gameId,
+      check: () => data.myShowActivity(),
+      send: (g, r) => data.setActivity(g, r),
+      clear: () => data.clearActivity(),
+      exit: () => data.clearActivityOnExit(),
+    });
     if (pending !== undefined) hb.setRoom(pending);
     hb.setVisible(document.visibilityState !== 'hidden');
     document.addEventListener('visibilitychange', () => hb.setVisible(document.visibilityState !== 'hidden'));
     addEventListener('pagehide', () => hb.leave());
     addEventListener('pageshow', (e) => { if (e.persisted) hb.back(); });
+    data.onActivitySetting(({ uid, on }) => { const m = client.me(); if (m && m.id === uid) hb.setAllowed(on); });
     client.onChatState((s) => hb.setReady(s === 'ready'));
     hb.setReady(client.chatState() === 'ready');
     client.ensureChatSession().catch(() => {});
   }).catch(() => { /* chat is optional */ });
   return api;
+}
+
+/**
+ * Play page, opened from a Join link (play.html?g=<game>&room=<CODE>): is an accepted friend in that game and room right
+ * now? Only then does the game get ?join=CODE; any other link (a stranger's room posted in chat) opens the game normally.
+ * Gives up (false) after `timeout` ms: chat signing in slowly never holds the game back for long.
+ */
+export async function friendInRoom(gameId, room, { timeout = JOIN_CHECK_MS } = {}) {
+  const r = cleanRoom(room);
+  if (!r || !configured()) return false;
+  const late = new Promise((res) => setTimeout(() => res(false), timeout));
+  const look = (async () => {
+    const [client, data] = await Promise.all([import('./client.js'), import('./data.js')]);
+    if ((await client.ensureChatSession()) !== 'ready') return false;
+    const rows = await data.friendsPlaying();
+    return rows.some((x) => x.game === gameId && cleanRoom(x.room) === r);
+  })().catch(() => false);
+  return Promise.race([look, late]);
 }
 
 // ------------------------------------------------------------------------------------------ home: Friends playing now
@@ -149,7 +206,7 @@ export function friendTile(item, { avatar, nameEl }) {
   const thumb = h('img', { alt: '', src: game.thumb, decoding: 'async', loading: 'lazy' });
   thumb.addEventListener('error', () => thumb.classList.add('broken'));
   const who = nameEl(profile, 'strong', 'fn-name', { plain: true });
-  const label = 'Join ' + (who.textContent || 'them') + ' in ' + game.title + (room ? ' (room ' + room + ')' : '');
+  const btn = joinLabel({ game, room, name: who.textContent });
   return h('div', { class: 'fn-tile', style: '--accent:' + accent, dataset: { uid: item.id, game: game.id } },
     h('span', { class: 'fn-art' },
       h('span', { class: 'fn-thumb' }, thumb, room ? h('span', { class: 'fn-room', title: 'Room ' + room, text: room }) : null),
@@ -157,8 +214,8 @@ export function friendTile(item, { avatar, nameEl }) {
     h('span', { class: 'fn-text' },
       who,
       h('span', { class: 'fn-what' }, 'is playing ', h('b', { text: game.title })),
-      h('span', { class: 'fn-when' }, h('i', { class: 'fn-live', 'aria-hidden': 'true' }), sinceText(secs))),
-    h('a', { class: 'fn-join', href, title: label, 'aria-label': label }, joinIcon(), 'Join'));
+      h('span', { class: 'fn-when' }, h('i', { class: 'fn-live', 'aria-hidden': 'true' }), h('span', { class: 'fn-since', text: sinceText(secs) }))),
+    h('a', { class: 'fn-join' + (room ? '' : ' fn-play'), href, title: btn.label, 'aria-label': btn.label }, joinIcon(), btn.text));
 }
 
 /** Home page: fills `section` (hidden until a friend is playing). games = the resolved games.js list. */
@@ -175,9 +232,16 @@ export function mountFriendsNow(section, { games = [] } = {}) {
   Promise.all([import('./client.js'), import('./data.js'), import('./views/common.js'), ensureChatCss()]).then(([client, data, common]) => {
     let timer = 0, seq = 0, lastKey = '';
     function draw(items) {
-      const key = JSON.stringify(items.map((i) => [i.id, i.game.id, i.room, Math.floor(i.secs / 60), i.profile.updated_at]));
+      const key = JSON.stringify(items.map((i) => [i.id, i.game.id, i.room, i.profile.updated_at]));
       section.hidden = !items.length;
-      if (key === lastKey) return;  // nothing changed: leave the row (and any focused Join) alone
+      if (key === lastKey) {   // same friends, games and rooms: only the times move, in place (a focused Join keeps focus)
+        for (const it of items) {
+          const el = [...row.children].find((t) => t.dataset.uid === it.id);
+          const since = el && el.querySelector('.fn-since');
+          if (since && since.textContent !== sinceText(it.secs)) since.textContent = sinceText(it.secs);
+        }
+        return;
+      }
       lastKey = key;
       common.stopFrames(row);
       row.replaceChildren(...items.map((it) => { const t = friendTile(it, common); t.setAttribute('role', 'listitem'); return t; }));
