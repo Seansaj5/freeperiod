@@ -13,6 +13,8 @@ export function roleOfProfile(p) {
   return 'member';
 }
 export const isStaffRole = (r) => r === 'owner' || r === 'mod';
+/** The owner hands out badges (grant_badge, 0011: owner only). Early Member is never handed out: the database decides it. */
+export const canGrantBadges = (me) => roleOfProfile(me) === 'owner';
 export const timedOut = (p, now = Date.now()) => !!(p && p.muted_until && Date.parse(p.muted_until) > now);
 
 // ---------- messages ----------
@@ -95,7 +97,8 @@ export function checkProfile(patch) {
   for (const e of validFlair(Object.fromEntries(Object.entries(p).filter(([k]) => ['name_color', 'name_color2', 'theme_a', 'theme_b', 'name_font', 'name_fill', 'name_glow', 'frame', 'effect'].includes(k)))).errors) out.push(e);
   return out;
 }
-/** The editable profile columns (the column grant), in one place. */
+/** The editable profile columns (the column grant), in one place. Server-owned columns (role, is_mod, game_stats, is_bot,
+ *  early_member, granted_badges, ...) are never here: members can't write them. */
 export const PROFILE_FIELDS = Object.freeze(['display_name', 'pronouns', 'about', 'status_emoji', 'status_text', 'avatar_path', 'banner_path', 'banner_color',
   'name_color', 'theme_a', 'theme_b', 'name_color2', 'name_font', 'name_fill', 'name_glow', 'frame', 'effect', 'dm_policy', 'show_activity']);
 /** Only what changed (empty strings count as null): one updateProfile call per Save (profile updates are rate limited). */

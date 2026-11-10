@@ -1,11 +1,13 @@
 // Profile card: banner (picture or color), avatar with its frame, styled name, @username, pronouns, badges, status,
 // About me, member since, game stats, and the profile effect over the card. mountCard() is shared by the popout (any
 // name or avatar) and the editor's live preview. Text only through textContent; pictures only through mediaSrc.
+// The badge row is Discord-style icons (common.js badgePills); in the popout the owner also gets a "Give badges" section
+// with a switch per owner-granted badge (grant_badge, 0011): only the owner ever sees it.
 import { h } from '../../ui.js';
-import { cardTheme, isHex, badgeInfo, SYMBIOTE_EFFECTS } from '../flair.js';
+import { cardTheme, isHex, badgeInfo, badgeSvg, GRANTED_BADGES, SYMBIOTE_EFFECTS } from '../flair.js';
 import { mountEffect } from '../effects.js';
-import { roleOfProfile, timedOut, isStaffRole } from '../perms.js';
-import { icon, avatar, stopFrames, nameEl, nameOf, badgePills, mediaSrc, timeoutLeft, finePointer } from './common.js';
+import { roleOfProfile, timedOut, isStaffRole, canGrantBadges } from '../perms.js';
+import { icon, avatar, stopFrames, nameEl, nameOf, badgePills, hideBadgeTip, mediaSrc, timeoutLeft, finePointer } from './common.js';
 
 const fmtMoney = (n) => (n >= 1e6 ? '$' + (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M' : n >= 1e3 ? '$' + Math.round(n / 1e3) + 'K' : '$' + n);
 const num = (v) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n > 0 ? n : 0; };
@@ -83,7 +85,18 @@ export function mountCard(el, profile, opts = {}) {
     el.style.setProperty('--pc-ring', isHex(p.theme_a) ? p.theme_a : isHex(p.theme_b) ? p.theme_b : '#0f1522');
     el.dataset.uid = p.id || '';
     drawBanner(); drawAvatar(); drawEffect();
+    // a redraw (a badge switched, a Realtime profile update) rebuilds the badges and the owner's switches: keep keyboard
+    // focus on the same one
+    const fa = document.activeElement;
+    const refocus = fa && el.contains(fa) && fa.dataset && fa.dataset.badge && fa.matches('.cx-pbdg, .cx-gbtn') ? (fa.matches('.cx-pbdg') ? '.cx-pbdg' : '.cx-gbtn') + '[data-badge="' + fa.dataset.badge + '"]' : '';
+    if (pills.contains(fa) || pills.querySelector('.cx-pbdg.tip')) hideBadgeTip();
     pills.replaceChildren(...badgePills(p));
+    const nb = pills.childElementCount;
+    pills.setAttribute('aria-label', 'Badges');
+    pills.setAttribute('role', nb ? 'group' : 'presentation');
+    pills.classList.toggle('dense', nb === 8);        // flair.css: 8 sit tighter, 9+ make two even rows
+    pills.classList.toggle('rows', nb >= 9);
+    pills.style.setProperty('--cols', String(Math.ceil(nb / 2)));
     const kids = [];
     const nm = nameEl(p, 'h3', 'cx-pc-name');
     kids.push(h('div', { class: 'cx-pc-names' }, nm,
@@ -106,12 +119,13 @@ export function mountCard(el, profile, opts = {}) {
     const acts = o.actions ? o.actions() : null;
     if (acts) kids.push(acts);
     body.replaceChildren(...kids);
+    if (refocus) { const again = el.querySelector(refocus); if (again) again.focus({ preventScroll: true }); }
   }
   draw();
   return {
     el,
     update(next, more) { p = next || p; if (more) o = { ...o, ...more }; draw(); },
-    stop() { stopFrames(avBox); if (fx) fx.stop(); fx = null; fxKey = null; },
+    stop() { hideBadgeTip(); stopFrames(avBox); if (fx) fx.stop(); fx = null; fxKey = null; },
   };
 }
 
@@ -122,7 +136,8 @@ export function closeProfileCard() { if (open) open.close(); }
 /**
  * Opens the card next to `anchor` (a bottom sheet on phones). cx: { me(), myId(), profile(id), online(), isBlocked(id),
  * isStaff(), message(profile) -> Promise, block(profile, on) -> Promise, editProfile(), memberMenu(anchor, profile) -> bool,
- * friendState(id) -> 'none' | 'friends' | 'out' | 'in' (asked me), friend(profile, 'add' | 'accept' | 'remove') -> Promise }
+ * friendState(id) -> 'none' | 'friends' | 'out' | 'in' (asked me), friend(profile, 'add' | 'accept' | 'remove') -> Promise,
+ * grantBadge(profile, badge, on) -> Promise<string[]> (owner only: the new granted_badges, also merged into profile(id)) }
  */
 export function openProfileCard(profile, anchor, cx) {
   if (open && open.uid === profile.id && open.anchor === anchor) { open.close(); return null; }
@@ -153,13 +168,42 @@ export function openProfileCard(profile, anchor, cx) {
     });
     return b;
   }
+  // Owner only: a switch per owner-granted badge. The database decides (grant_badge is owner-only and rate limited);
+  // the switches wait for its answer, and a refusal shows on the error line.
+  function grantBox(me) {
+    if (!cx.grantBadge || !canGrantBadges(me)) return null;
+    const have = new Set(Array.isArray(p.granted_badges) ? p.granted_badges : []);
+    const list = h('div', { class: 'cx-pc-grant-list', role: 'group', 'aria-label': 'Badges you give ' + nameOf(p) });
+    for (const id of GRANTED_BADGES) {
+      const info = badgeInfo(id);
+      const on = have.has(id);
+      const b = h('button', { type: 'button', class: 'cx-gbtn', 'aria-pressed': on ? 'true' : 'false', dataset: { badge: id }, style: '--bc:' + info.color,
+        title: (on ? 'Take away ' : 'Give ') + info.label }, badgeSvg(id, 18), h('span', { text: info.label }), h('i', { class: 'cx-gbtn-tick', 'aria-hidden': 'true' }));
+      b.addEventListener('click', async () => {
+        if (busy) return;
+        busy = true; errEl.textContent = '';
+        for (const x of list.children) x.setAttribute('aria-disabled', 'true'); // (not disabled: that would drop keyboard focus)
+        b.classList.add('busy');
+        try {
+          const now = await cx.grantBadge(p, id, !on);
+          p = cx.profile(p.id) || { ...p, granted_badges: Array.isArray(now) ? now : p.granted_badges };
+        }
+        catch (e) { errEl.textContent = (e && e.shown) || 'Couldn’t change that badge'; }
+        finally { busy = false; card.update(p); }
+      });
+      list.append(b);
+    }
+    return h('section', { class: 'cx-pc-sec cx-pc-grant' },
+      h('h4', {}, h('span', { text: 'Give badges' }), h('small', { class: 'cx-pc-grant-only' }, icon('lock'), 'Only you see this')), list);
+  }
   function actions() {
     const me = cx.me();
     const box = h('div', { class: 'cx-pc-actions' });
     if (!me) return null;
+    const grants = grantBox(me);
     if (me.id === p.id) {
       box.append(h('button', { type: 'button', class: 'cx-btn', onclick: () => { close(); cx.editProfile(); } }, icon('edit'), 'Edit profile'));
-      return h('div', {}, box, errEl);
+      return h('div', {}, grants, box, errEl);
     }
     const blocked = cx.isBlocked(p.id);
     const msg = h('button', { type: 'button', class: 'cx-btn cx-pc-msg', disabled: blocked }, icon('chat'), 'Message');
@@ -178,14 +222,14 @@ export function openProfileCard(profile, anchor, cx) {
       catch (e) { errEl.textContent = (e && e.shown) || 'Couldn’t do that'; }
       finally { busy = false; }
     });
-    box.append(msg, friendBtn(), blk);
+    box.append(...[msg, friendBtn(), blk].filter(Boolean)); // (friendBtn is null for bots, banned and blocked people)
     if (cx.isStaff()) {
       const mod = h('button', { type: 'button', class: 'cx-iconbtn cx-pc-mod-btn', title: 'Moderate', 'aria-label': 'Moderate ' + nameOf(p), 'aria-haspopup': 'menu' }, icon('dots'));
       mod.addEventListener('click', () => { if (!cx.memberMenu(mod, p)) errEl.textContent = 'There’s nothing you can change for ' + nameOf(p) + '.'; });
       box.append(mod);
     }
     const note = blocked ? h('p', { class: 'cx-pc-note', text: 'You blocked them. Their messages are hidden and they can’t DM you.' }) : null;
-    return h('div', {}, box, note, errEl);
+    return h('div', {}, grants, box, note, errEl);
   }
   const card = mountCard(cardEl, p, { online: cx.online().has(p.id), viewer: cx.me(), actions });
   wrap.append(cardEl);

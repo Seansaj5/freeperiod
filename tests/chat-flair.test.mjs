@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { roleOfProfile } from '../fp/chat/perms.js';
 import { FONTS, FRAMES, EFFECTS, FONT_LABELS, FRAME_LABELS, EFFECT_LABELS, SYMBIOTE_EFFECTS, EARNED, validFlair, nameStyle, badgesFor, badgeInfo,
-  cardTheme, earnedFlair, flairLocked, unlockHint } from '../fp/chat/flair.js';
+  badgeLabel, badgeGlyph, GRANTED_BADGES, streakDays, cardTheme, earnedFlair, flairLocked, unlockHint } from '../fp/chat/flair.js';
 import { frameMarkup } from '../fp/chat/frames.js';
 import { effectMaker } from '../fp/chat/effects.js';
 
@@ -105,14 +105,17 @@ test('nameStyle: glow adds a soft text shadow in the name color', () => {
   assert.equal(g.filter, 'drop-shadow(0 0 5px rgba(198, 255, 61, 0.55)) drop-shadow(0 0 9px rgba(61, 224, 255, 0.35))');
 });
 
-test('badgesFor: order is owner, mod, early, Bing Ball tier', () => {
-  const all = { id: 'u1', role: 'owner', is_mod: true, joined_at: '2026-11-10T12:00:00Z', game_stats: { bb: { level: 40, tier: 'egoist' } } };
-  assert.deepEqual(badgesFor(all), ['owner', 'early', 'bb:egoist'], 'the owner is not also listed as a mod');
-  assert.deepEqual(badgesFor({ id: 'u2', role: 'mod', joined_at: '2026-11-20T00:00:00Z', game_stats: { bb: { tier: 'ace' } } }),
-    ['mod', 'early', 'bb:ace']);
-  assert.deepEqual(badgesFor({ id: 'u3', role: 'member', is_mod: true, joined_at: '2027-01-02T00:00:00Z' }), ['mod']);
-  assert.deepEqual(badgesFor({ role: 'member', joined_at: '2027-01-02T00:00:00Z', game_stats: { bb: { tier: 'WORLD CLASS' } } }),
-    ['bb:worldclass'], 'tier names are normalized to keys');
+test('badgesFor: order is owner / mod, bot, early, granted, Bing Ball tier, streak', () => {
+  const all = { id: 'u1', role: 'owner', is_mod: true, early_member: true, granted_badges: ['og', 'vip', 'bug-hunter'],
+    game_stats: { bb: { level: 40, tier: 'egoist' }, badges: ['streak-7', 'streak-30', 'streak-3'] } };
+  assert.deepEqual(badgesFor(all), ['owner', 'bug-hunter', 'vip', 'og', 'bb:egoist', 'streak:30'],
+    'the owner is not also a mod, and never an early member (they have the crown)');
+  assert.deepEqual(badgesFor({ id: 'u2', role: 'mod', early_member: true, granted_badges: ['helper'], game_stats: { bb: { tier: 'ace' }, badges: ['streak-14'] } }),
+    ['mod', 'early', 'helper', 'bb:ace', 'streak:14']);
+  assert.deepEqual(badgesFor({ id: 'b', role: 'member', is_bot: true, username: 'hallpass', early_member: true, granted_badges: ['helper'] }),
+    ['bot', 'helper'], 'a bot is never an early member');
+  assert.deepEqual(badgesFor({ id: 'u3', role: 'member', is_mod: true }), ['mod']);
+  assert.deepEqual(badgesFor({ role: 'member', game_stats: { bb: { tier: 'WORLD CLASS' } } }), ['bb:worldclass'], 'tier names are normalized to keys');
   assert.deepEqual(badgesFor({ role: 'member' }), []);
   assert.deepEqual(badgesFor({ role: 'member', game_stats: { bb: { tier: null } } }), []);
   assert.deepEqual(badgesFor({ role: 'member', game_stats: { bb: { tier: '' } } }), []);
@@ -123,7 +126,7 @@ test('badgesFor: order is owner, mod, early, Bing Ball tier', () => {
   assert.deepEqual(badgesFor(null), []);
 });
 
-test('badgesFor: the Mod pill follows perms.js roleOfProfile (banned or demoted staff get none)', () => {
+test('badgesFor: the Mod badge follows perms.js roleOfProfile (banned or demoted staff get none)', () => {
   const mod = { id: 'u9', role: 'mod' };
   assert.deepEqual(badgesFor(mod), ['mod']);
   assert.deepEqual(badgesFor({ ...mod, banned: true }), [], 'a banned mod is a plain member');
@@ -136,26 +139,90 @@ test('badgesFor: the Mod pill follows perms.js roleOfProfile (banned or demoted 
   }
 });
 
-test('badgesFor: Early Member means joined chat before midnight US Eastern on 2026-12-01 (05:00Z)', () => {
-  assert.deepEqual(badgesFor({ joined_at: '2026-12-01T04:59:59Z' }), ['early']);
-  assert.deepEqual(badgesFor({ joined_at: '2026-12-01T05:00:00Z' }), []);
-  assert.deepEqual(badgesFor({ joined_at: '2026-11-30' }), ['early']);
-  assert.deepEqual(badgesFor({ joined_at: '2026-11-30T23:59:59.999Z' }), ['early']);
-  assert.deepEqual(badgesFor({ joined_at: '2026-11-30T23:30:00+00:00' }), ['early'], 'Postgres timestamptz text');
-  assert.deepEqual(badgesFor({ joined_at: '2026-12-01T00:00:00Z' }), ['early'], 'still 7 pm Eastern on Nov 30');
-  assert.deepEqual(badgesFor({ joined_at: '2026-12-01T12:00:00Z' }), []);
-  assert.deepEqual(badgesFor({ joined_at: '2027-03-01T10:00:00Z' }), []);
-  assert.deepEqual(badgesFor({ joined_at: 'not a date' }), []);
+test('badgesFor: Early Member is the server-set early_member flag only (no date rule any more); kept after a ban', () => {
+  assert.deepEqual(badgesFor({ id: 'a', early_member: true }), ['early']);
+  assert.deepEqual(badgesFor({ id: 'a', early_member: true, banned: true }), ['early'], 'stored: a ban does not take it');
+  assert.deepEqual(badgesFor({ id: 'a', early_member: false, joined_at: '2026-11-02T00:00:00Z' }), [], 'joining early is not enough');
+  assert.deepEqual(badgesFor({ id: 'a', joined_at: '2026-11-02T00:00:00Z' }), [], 'older rows without the column');
+  for (const v of ['true', 1, 'yes', null, undefined, {}]) assert.deepEqual(badgesFor({ id: 'a', early_member: v }), [], String(v));
 });
 
-test('badgeInfo labels every badge, including tiers Bing Ball adds later', () => {
+test('badgesFor: granted badges come in the fixed order, unknown or repeated ids are dropped', () => {
+  assert.deepEqual(GRANTED_BADGES, ['bug-hunter', 'helper', 'artist', 'tester', 'vip', 'og']);
+  assert.deepEqual(badgesFor({ id: 'a', granted_badges: ['og', 'tester', 'artist', 'helper', 'bug-hunter', 'vip'] }), GRANTED_BADGES);
+  assert.deepEqual(badgesFor({ id: 'a', granted_badges: ['vip', 'vip', 'admin', 'VIP', 'owner', 'early', 7, null] }), ['vip']);
+  assert.deepEqual(badgesFor({ id: 'a', granted_badges: 'vip' }), [], 'not an array');
+  assert.deepEqual(badgesFor({ id: 'a', granted_badges: null }), []);
+});
+
+test('badgesFor: the streak badge is the best one only', () => {
+  assert.deepEqual(badgesFor({ game_stats: { badges: ['streak-3', 'streak-100', 'streak-50'] } }), ['streak:100']);
+  assert.deepEqual(badgesFor({ game_stats: { badges: ['streak-x', 'streak-', 'streak-7.5', 7] } }), []);
+  assert.equal(streakDays(['streak-14', 'streak-7']), 14);
+});
+
+test('badgeInfo labels every badge, including tiers Bing Ball adds later; ids stay as they were', () => {
   assert.equal(badgeInfo('owner').label, 'Owner');
   assert.equal(badgeInfo('mod').label, 'Mod');
   assert.equal(badgeInfo('early').label, 'Early Member');
+  assert.equal(badgeInfo('bot').label, 'Bot');
+  assert.deepEqual(GRANTED_BADGES.map((id) => badgeInfo(id).label), ['Bug Hunter', 'Helper', 'Artist', 'Tester', 'VIP', 'OG']);
   assert.equal(badgeInfo('bb:worldclass').label, 'World Class');
   assert.equal(badgeInfo('bb:newtier').label, 'Newtier');
-  for (const id of ['owner', 'mod', 'early', 'bb:ace', 'bb:newtier']) assert.match(badgeInfo(id).color, /^#[0-9a-f]{6}$/);
+  assert.equal(badgeInfo('streak:7').label, '\u{1F525} 7-day streak');
+  assert.equal(badgeInfo('streak:7').streak, 7);
+  for (const id of ['owner', 'mod', 'bot', 'early', ...GRANTED_BADGES, 'bb:ace', 'bb:newtier', 'streak:3']) assert.match(badgeInfo(id).color, /^#[0-9a-f]{6}$/, id);
+  assert.equal(badgeInfo('owner').color, '#ffc847', 'gold crown');
   assert.equal(badgeInfo('nope'), null);
+  assert.equal(badgeInfo('streak:0'), null);
+  assert.equal(badgeInfo(null), null);
+});
+
+test('streak badges: the flame color heats up with each milestone', () => {
+  const c = (n) => badgeInfo('streak:' + n).color;
+  assert.equal(c(3), '#ffb020');
+  assert.equal(c(7), '#ff7a3d');
+  assert.equal(c(14), '#ff4b3a');
+  assert.equal(c(30), '#3de0ff');
+  assert.equal(c(50), '#c6ff3d');
+  assert.equal(c(100), '#ffe066');
+  assert.equal(c(20), c(14), 'between milestones: the one reached');
+  assert.equal(c(1), c(3));
+  assert.equal(new Set([3, 7, 14, 30, 50, 100].map(c)).size, 6);
+});
+
+test('badgeLabel: a title and a line for every badge, with the "since" date for Early Member', () => {
+  const p = { id: 'a', username: 'mia', early_member: true, joined_at: '2026-11-10T12:00:00Z', game_stats: { bb: { level: 54, tier: 'ace' } } }; // noon UTC: Nov 10 in any US zone
+  assert.deepEqual(badgeLabel('early', p), { title: 'Early Member', detail: 'One of the first 5 members · since Nov 10, 2026',
+    text: 'Early Member. One of the first 5 members · since Nov 10, 2026' });
+  assert.equal(badgeLabel('early', { early_member: true }).detail, 'One of the first 5 members', 'no date: no since');
+  assert.equal(badgeLabel('owner').title, 'Owner');
+  assert.equal(badgeLabel('mod').title, 'Moderator');
+  assert.equal(badgeLabel('bot', { username: 'hallpass' }).detail, 'Hallpass, Free Period’s helper bot');
+  assert.deepEqual(badgeLabel('bb:ace', p), { title: 'Bing Ball: Ace', detail: 'Ranked tier · Level 54', text: 'Bing Ball: Ace. Ranked tier · Level 54' });
+  assert.equal(badgeLabel('bb:ace', {}).detail, 'Ranked tier');
+  assert.equal(badgeLabel('streak:30', p).title, '30-day streak');
+  for (const id of GRANTED_BADGES) { const l = badgeLabel(id); assert.ok(l.title && l.detail && l.text.startsWith(l.title), id); }
+  assert.equal(badgeLabel('nope'), null);
+});
+
+test('badgeGlyph: every badge has a drawing in its own color; only safe path data and colors', () => {
+  const ids = ['owner', 'mod', 'bot', 'early', ...GRANTED_BADGES, 'bb:ace', 'bb:newtier', 'streak:3', 'streak:100'];
+  const seen = new Set();
+  for (const id of ids) {
+    const g = badgeGlyph(id);
+    assert.ok(g && g.shapes.length, id);
+    assert.equal(g.color, badgeInfo(id).color, id);
+    for (const sh of g.shapes) {
+      assert.match(sh.d, /^[MmLlHhVvCcSsQqTtAaZz0-9 .,-]+$/, id + ' path');
+      for (const k of ['f', 's']) if (sh[k]) assert.match(sh[k], /^#[0-9a-f]{6}$/, id + ' color');
+      assert.ok(sh.f || sh.s, id + ' paints something');
+      if (sh.o != null) assert.ok(sh.o > 0 && sh.o <= 1, id + ' opacity');
+    }
+    if (!id.startsWith('bb:') && !id.startsWith('streak:')) { assert.ok(!seen.has(JSON.stringify(g.shapes.map((x) => x.d))), id + ' has its own glyph'); seen.add(JSON.stringify(g.shapes.map((x) => x.d))); }
+  }
+  assert.equal(badgeGlyph('streak:30').shapes[0].f, '#3de0ff', 'the flame takes the tier color');
+  assert.equal(badgeGlyph('nope'), null);
 });
 
 test('cardTheme: two theme colors make a top-to-bottom gradient; bad or missing colors give none', () => {

@@ -2,6 +2,7 @@
 // lengths, and the people filter. Pure: no DOM and no data layer, so it runs in node tests. The menus only show what
 // should work for a role; the database still decides every action, and its refusal is what the person sees.
 import { TIMEOUTS } from './perms.js';
+import { GRANTED_BADGES } from './flair.js';
 
 export const SHRUG = '¯\\_(ツ)_/¯';
 export const TABLEFLIP = '(╯°□°)╯︵ ┻━┻';
@@ -9,8 +10,8 @@ export const UNFLIP = '┬─┬ノ( º _ ºノ)';
 export const PURGE_MAX = 20;
 
 // ---------- the table ----------
-// who: 'everyone' | 'staff' (owner + mods) | 'owner'. Mirrors the database: set_ban, set_mod, bot_settings and the
-// reports table are the owner's alone; timeout_user is staff. posts: the command's purpose is posting a message.
+// who: 'everyone' | 'staff' (owner + mods) | 'owner'. Mirrors the database: set_ban, set_mod, grant_badge, bot_settings
+// and the reports table are the owner's alone; timeout_user is staff. posts: the command's purpose is posting a message.
 const USER = { kind: 'user', key: 'user', label: '@user' };
 const REASON = { kind: 'text', key: 'reason', label: '[reason]', optional: true };
 const def = (name, who, args, desc, extra = {}) => Object.freeze({ name, who, args: Object.freeze(args), desc, hint: args.map((a) => a.label).join(' '), ...extra });
@@ -35,6 +36,9 @@ export const COMMANDS = Object.freeze([
   def('reports', 'owner', [], 'Open the Reports inbox'),
   def('mod', 'owner', [USER], 'Make someone a mod'),
   def('unmod', 'owner', [USER], 'Take someone’s mod tools away'),
+  def('badge', 'owner', [USER, { kind: 'badge', key: 'badge', label: '<badge>' },
+    { kind: 'choice', key: 'state', label: '[off]', options: ['on', 'off'], optional: true }],
+  'Give someone a badge (' + GRANTED_BADGES.join(', ') + '); add off to take it away'),
   def('ai', 'owner', [{ kind: 'choice', key: 'on', label: 'on|off', options: ['on', 'off'] }], 'Turn Hallpass AI answers on or off'),
 ]);
 const BY_NAME = new Map();
@@ -84,7 +88,8 @@ export const userArg = (tok) => (USER_TOKEN.test(String(tok || '')) ? String(tok
 /**
  * The arguments after the command name -> { ok: true, values } or { ok: false, error }.
  * values: user -> 'name' (lowercase, no @); duration -> { minutes, asked, adjusted }; count -> int; choice -> option;
- * text -> the rest of the line ('' when an optional one is left out). Extra words after the last argument are ignored.
+ * badge -> a GRANTED_BADGES id (badgeArg); text -> the rest of the line ('' when an optional one is left out). An optional
+ * argument left out is missing from values. Extra words after the last argument are ignored.
  */
 export function parseArgs(cmd, rest) {
   let s = String(rest ?? '').trim();
@@ -117,9 +122,24 @@ export function parseArgs(cmd, rest) {
       const v = tok.toLowerCase();
       if (!a.options.includes(v)) return { ok: false, error: usage(cmd) };
       values[a.key] = v;
+    } else if (a.kind === 'badge') {
+      const b = badgeArg(tok);
+      if (!b) return { ok: false, error: 'Badges you can give: ' + GRANTED_BADGES.join(', ') };
+      values[a.key] = b;
     }
   }
   return { ok: true, values };
+}
+
+// ---------- badges ----------
+// What people might type for each owner-granted badge (any case; spaces, dashes and underscores ignored).
+const BADGE_WORDS = { bughunter: 'bug-hunter', bug: 'bug-hunter', bugs: 'bug-hunter', hunter: 'bug-hunter', helper: 'helper', help: 'helper',
+  artist: 'artist', art: 'artist', tester: 'tester', test: 'tester', vip: 'vip', og: 'og' };
+/** "Bug-Hunter" / "bughunter" / "bug" -> 'bug-hunter'; null when it names no badge the owner can give. */
+export function badgeArg(tok) {
+  const k = String(tok ?? '').toLowerCase().replace(/[\s_-]+/g, '');
+  const id = Object.prototype.hasOwnProperty.call(BADGE_WORDS, k) ? BADGE_WORDS[k] : null;
+  return id && GRANTED_BADGES.includes(id) ? id : null;
 }
 
 // ---------- time-outs ----------
