@@ -1,4 +1,4 @@
-// Profile sheet: Bing Ball stats, Close Call local save, play time per game.
+// Profile sheet: Bing Ball stats, Close Call and horror.exe local saves, play time per game.
 import * as store from './store.js';
 import * as session from './session.js';
 import { call } from './api.js';
@@ -10,15 +10,25 @@ const fmt = (v) => { const n = num(v); return n == null ? null : n.toLocaleStrin
 
 function stat(label, value) { return value == null || value === '' ? null : h('div', { class: 'fp-stat' }, h('dt', { text: label }), h('dd', { text: String(value) })); }
 
-function closeCall() {
+function saved(key) {
   let d = null;
-  try { d = JSON.parse(store.get('closecall.v1')); } catch { /* none */ }
-  if (!d || typeof d !== 'object') return null;
+  try { d = JSON.parse(store.get(key)); } catch { /* none */ }
+  return d && typeof d === 'object' && !Array.isArray(d) ? d : null;
+}
+export function closeCall() {
+  const d = saved('closecall.v1');
+  if (!d) return null;
   return {
     cash: fmt(d.cash),
-    cars: Array.isArray(d.owned) ? `${new Set(d.owned).size} of 8` : null,
+    cars: Array.isArray(d.owned) ? String(new Set(d.owned).size) : null, // owned so far (the garage keeps growing)
     best: fmt(d.best),
   };
+}
+export function horrorExe() {
+  const d = saved('horrorexe.v1');
+  if (!d) return null;
+  const s = d.stats && typeof d.stats === 'object' ? d.stats : {};
+  return { rounds: fmt(s.rounds), wins: fmt(s.wins), escapes: fmt(s.escapes), played: fmtTime((getMeta().play || {})['horror-exe'] || 0) };
 }
 
 export async function openProfile() {
@@ -29,8 +39,13 @@ export async function openProfile() {
 
   const cc = closeCall();
   sheet.body.append(h('section', { class: 'fp-sec' }, h('h3', { text: 'Close Call' }),
-    cc ? h('dl', { class: 'fp-stats' }, stat('Cash', cc.cash), stat('Cars', cc.cars), stat('Best', cc.best))
+    cc ? h('dl', { class: 'fp-stats' }, stat('Cash', cc.cash), stat('Cars owned', cc.cars), stat('Best', cc.best))
       : h('p', { class: 'fp-note', text: 'No Close Call save on this device yet.' })));
+
+  const hx = horrorExe();
+  sheet.body.append(h('section', { class: 'fp-sec' }, h('h3', { text: 'horror.exe' }),
+    hx ? h('dl', { class: 'fp-stats' }, stat('Rounds', hx.rounds), stat('Wins', hx.wins), stat('Escapes', hx.escapes), stat('Played', hx.played))
+      : h('p', { class: 'fp-note', text: 'No horror.exe save on this device yet.' })));
 
   const play = getMeta().play || {};
   const games = (window.GAMES || []).map(g => [g.title, play[g.id] || 0]);

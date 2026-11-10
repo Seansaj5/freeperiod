@@ -3,7 +3,7 @@ import * as session from './session.js';
 import { call, WAKE_TIMEOUT } from './api.js';
 import { h, toast, errText } from './ui.js';
 
-const ABOUT = [['Free Period', 'fp-site'], ['Bing Ball', 'fp-bingball'], ['Close Call', 'fp-closecall'], ['New game idea', 'fp-newgame']];
+export const ABOUT = [['Free Period', 'fp-site'], ['Bing Ball', 'fp-bingball'], ['Close Call', 'fp-closecall'], ['horror.exe', 'fp-horrorexe'], ['New game idea', 'fp-newgame']];
 const MIN = 4, MAX = 500;
 
 export function mountSuggest(el) {

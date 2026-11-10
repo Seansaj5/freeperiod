@@ -2,7 +2,7 @@
 import { call } from './api.js';
 import { h, openSheet, toast, errText } from './ui.js';
 
-const LABELS = { 'fp-site': 'Free Period', 'fp-bingball': 'Bing Ball', 'fp-closecall': 'Close Call', 'fp-newgame': 'New game idea' };
+export const LABELS = { 'fp-site': 'Free Period', 'fp-bingball': 'Bing Ball', 'fp-closecall': 'Close Call', 'fp-horrorexe': 'horror.exe', 'fp-newgame': 'New game idea' };
 const isSite = (s) => typeof s.category === 'string' && s.category.startsWith('fp-');
 
 export async function openInbox() {
