@@ -1,7 +1,8 @@
 // Play-page chat overlay: a button in the top bar opens a side panel over the game (the game keeps running).
 // With chat not set up (empty config) nothing is shown or loaded. Once configured, the chat app itself is lazy-loaded
-// on first open and torn down (app.destroy()) after every close. While closed it watches for new DMs and @mentions:
-// unread badge on the button and small pop-ups (max one per 3 s) that open the conversation.
+// on first open; closing hides and pauses it (no Realtime connection while closed; unsent messages and drafts stay).
+// While closed, a poll every minute keeps the unread badge and pops up new DMs and @mentions (max one per 3 s), which
+// open the conversation.
 import { h } from '../ui.js';
 import { CHAT } from './config.js';
 
@@ -26,7 +27,7 @@ function ensureCss(rel) {
 }
 
 const NOOP = { open() {}, close() {}, toggle() {}, get isOpen() { return false; } };
-const REFRESH_MS = 45000;
+const REFRESH_MS = 60000;
 
 export function mountChatOverlay(bar) {
   const slot = bar && bar.querySelector('#chat-btn');
@@ -39,7 +40,6 @@ export function mountChatOverlay(bar) {
   let app = null;
   let isOpen = false;
   let epoch = 0;        // bumps on every open/close so late async work gives up
-  let destroyTimer = 0;
   let host = null;
   let pending = null;   // target to open once the app has its channels
 
@@ -60,8 +60,11 @@ export function mountChatOverlay(bar) {
   };
 
   // ---------- badge + pop-ups (closed only) ----------
+  // While the panel is closed the page holds NO Realtime connection (the free plan allows 200 at once: they are for people
+  // actually chatting). The unread counts are polled every minute instead (and when the page comes back into view or the
+  // panel closes), and a DM or an @mention that came in since the last look pops up, with its latest message.
   const counts = { unread: 0, mentions: 0 };
-  let M = null, timer = 0, stops = [], watched = new Set(), names = new Map(), chanName = new Map(), blocked = new Set(), gen = 0;
+  let M = null, timer = 0, gen = 0, seen = null, chanName = new Map();
   function drawBadge() {
     const b = isOpen ? { dot: false, text: '' } : M.unread.badge(counts);
     count.hidden = !b.dot;
@@ -69,6 +72,7 @@ export function mountChatOverlay(bar) {
     count.textContent = b.text;
     btn.setAttribute('aria-label', 'Chat' + (b.text ? ', ' + b.text + ' mentions' : b.dot ? ', unread messages' : ''));
   }
+  const targetOf = (key) => (key.startsWith('d:') ? { dm: key.slice(2) } : { channel: Number(key.slice(2)) });
   async function refresh() {
     if (!M || M.client.chatState() !== 'ready' || document.hidden) return;
     const g = gen;
@@ -76,65 +80,43 @@ export function mountChatOverlay(bar) {
       const rows = await M.data.unreadCounts();
       if (g !== gen) return;
       let u = 0, m = 0;
+      const now = new Map();
       for (const r of Array.isArray(rows) ? rows : []) {
-        u += r.unread || 0;
-        m += String(r.target).startsWith('d:') ? (r.unread || 0) : (r.mentions || 0); // a DM always counts like a mention
+        if (!r || !r.target) continue;
+        const dm = String(r.target).startsWith('d:');
+        const hot = dm ? (r.unread || 0) : (r.mentions || 0); // a DM always counts like a mention
+        u += r.unread || 0; m += hot;
+        now.set(r.target, hot);
       }
       counts.unread = u; counts.mentions = m; drawBadge();
+      const before = seen;
+      seen = now;
+      if (before && !isOpen) for (const [key, hot] of now) if (hot > (before.get(key) || 0)) { popUp(key, g); break; } // one pop-up per look
     } catch { /* keep the last count */ }
-    watch();
   }
-  async function who(id) {
-    if (names.has(id)) return names.get(id);
-    let n = '';
+  async function popUp(key, g) {
     try {
-      const list = await M.data.listMembers();
-      for (const p of list || []) names.set(p.id, p.display_name || p.name || p.username);
-      n = names.get(id) || '';
-      if (!n) { const p = await M.data.getProfile(id); n = p ? (p.display_name || p.name || p.username || '') : ''; names.set(id, n); }
-    } catch { /* fall back */ }
-    return n || 'Someone';
-  }
-  async function incoming(target, row, label) {
-    if (isOpen || !row || row.deleted || !M) return;
-    const me = M.client.me();
-    if (!me || row.author_id === me.id || blocked.has(row.author_id)) return;
-    const isDM = !!target.dm;
-    const mention = isDM || row.mentions_everyone || new RegExp('(^|[^\\w])@' + me.username.replace(/[^\w]/g, '') + '(?![\\w])', 'i').test(row.body || '');
-    counts.unread++; if (mention) counts.mentions++;
-    drawBadge();
-    if (!mention) return;
-    const g = gen;
-    const name = row.author && (row.author.display_name || row.author.username) || await who(row.author_id);
-    if (g !== gen || isOpen) return;
-    M.toast.chatToast({
-      title: isDM ? name : name + ' in #' + label,
-      body: row.body || (Array.isArray(row.attachments) && row.attachments.length ? 'Sent a picture' : ''),
-      onClick: () => api.open(target),
-    });
-  }
-  async function watch() {
-    const g = gen;
-    try {
-      const [chs, dms, bl] = await Promise.all([
-        M.data.listChannels(), Promise.resolve().then(() => M.data.listDMs()).catch(() => []), Promise.resolve().then(() => M.data.listBlocks()).catch(() => []),
-      ]);
-      if (g !== gen) return;
-      blocked = new Set((bl || []).map((b) => (b && typeof b === 'object' ? b.blocked || b.id : b)));
-      for (const c of chs || []) chanName.set(c.id, c.name);
-      const add = (key, target, label) => {
-        if (watched.has(key)) return;
-        watched.add(key);
-        try { const stop = M.data.subscribe(target, { insert: (row) => incoming(target, row, label) }); if (typeof stop === 'function') stops.push(stop); } catch { watched.delete(key); }
-      };
-      for (const c of chs || []) add('c:' + c.id, { channel: c.id }, c.name);
-      for (const d of dms || []) add('d:' + d.id, { dm: d.id }, '');
-    } catch { /* try again on the next refresh */ }
+      const target = targetOf(key);
+      const [rows, bl] = await Promise.all([M.data.loadMessages(target, { limit: 1 }), Promise.resolve().then(() => M.data.listBlocks()).catch(() => [])]);
+      const row = Array.isArray(rows) ? rows[rows.length - 1] : null;
+      const me = M.client.me();
+      const blocked = new Set((bl || []).map((b) => (b && typeof b === 'object' ? b.blocked || b.id : b)));
+      if (g !== gen || isOpen || !row || row.deleted || !me || row.author_id === me.id || blocked.has(row.author_id)) return;
+      if (!target.dm && !chanName.size) { try { for (const c of await M.data.listChannels()) chanName.set(c.id, c.name); } catch { /* label falls back */ } }
+      if (g !== gen || isOpen) return;
+      const a = row.author || {};
+      const name = a.display_name || a.name || a.username || 'Someone';
+      M.toast.chatToast({
+        title: target.dm ? name : name + ' in #' + (chanName.get(target.channel) || 'chat'),
+        body: row.body || (Array.isArray(row.attachments) && row.attachments.length ? 'Sent a picture' : ''),
+        onClick: () => api.open(target),
+      });
+    } catch { /* no pop-up this time */ }
   }
   function unwatch() {
     gen++;
-    for (const s of stops) { try { s(); } catch { /* ignore */ } }
-    stops = []; watched = new Set(); clearInterval(timer);
+    clearInterval(timer); timer = 0;
+    seen = null; chanName = new Map();
     counts.unread = counts.mentions = 0;
     if (M) drawBadge();
   }
@@ -143,6 +125,7 @@ export function mountChatOverlay(bar) {
     unwatch();
     if (s === 'ready') { refresh(); timer = setInterval(refresh, REFRESH_MS); }
     else if (s === 'off' && isOpen) api.close();
+    if (s === 'off') teardown();
   }
   loadMods().then((m) => {
     M = m;
@@ -186,17 +169,22 @@ export function mountChatOverlay(bar) {
     if (host) { host.remove(); host = null; }
   }
 
+  // The app is made on the first open and then only hidden and paused on close (no Realtime while closed): unsent
+  // messages, drafts and the loaded conversations are all there again on the next open, which only catches up.
   async function mountApp(my) {
     let m;
     try { m = await loadMods(); } catch { api.close(); return; }
     if (my !== epoch) return;
-    const { mountChatApp } = await import('./app.js');
-    if (my !== epoch) return;
-    clearTimeout(destroyTimer);
-    teardown();
-    host = h('div', { class: 'fpco-host' });
-    panel.append(host);
-    app = mountChatApp(host, { compact: true });
+    if (app) app.resume();
+    else {
+      const { mountChatApp } = await import('./app.js');
+      if (my !== epoch) return;
+      if (!app) {
+        host = h('div', { class: 'fpco-host' });
+        panel.append(host);
+        app = mountChatApp(host, { compact: true });
+      }
+    }
     // Hold the keyboard in this page: the app has no channel yet, so focus the panel itself (the game frame loses it),
     // then the message box once it exists (not on touch screens: it would raise the keyboard).
     const fine = !matchMedia('(pointer: coarse)').matches;
@@ -254,12 +242,8 @@ export function mountChatOverlay(bar) {
       // Back to the game: it gets the keyboard again.
       const frame = document.querySelector('.stage iframe');
       if (frame) frame.focus();
-      clearTimeout(destroyTimer);
-      destroyTimer = setTimeout(() => {
-        if (my !== epoch) return;
-        teardown();
-      }, 230);
-      if (M) { drawBadge(); setTimeout(() => { if (!isOpen) refresh(); }, 900); }
+      if (app) { try { app.pause(); } catch { /* ignore */ } }
+      if (M) { drawBadge(); setTimeout(() => { if (!isOpen && my === epoch) refresh(); }, 900); }
     },
     toggle() { isOpen ? api.close() : api.open(); },
   };
