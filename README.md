@@ -23,6 +23,13 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   Accounts (`js/account.js`): the menu shows your Free Period sign-in and saves to it (on its own page the game
   syncs itself; inside `play.html` the hub does). The owner account gets every car and the Admin panel; online,
   the server checks the token with the account server before showing OWNER, and guests can't use the owner's names.
+  Kart racing (`games/close-call/kart/`, the glowing KART RACE button on the menu): build a kart from a body, wheels and
+  a glider (`kart/js/parts.js`, stats and models), then Grand Prix (3 races, points, trophies), single race or time trial
+  on three tracks (`kart/js/tracks.js` layouts, `kart/js/track.js` builds them) against seven computer karts (`ai.js`).
+  Drifting with mini-turbos, jumps with tricks, glider ramps, dash pads, coins and items (`items.js`), all in `kart.js`
+  and `race.js`. Coins unlock parts; the save is the `kart` field of `closecall.v1`, so it goes to the account too.
+  Going in and out plays the liquid glass water transition (`games/close-call/js/liquid.js`). The music is made on the
+  fly (`kart/js/music.js`). Headless checks can set `__kart.test.fast` and `__kart.race.autoplay`.
 
 - **horror.exe** lives in `games/horror-exe/`: survivors vs EXE across five zones in two worlds (normal and corrupted,
   swapped through rift portals), with zone tasks and a disguising EXE. The round rules,

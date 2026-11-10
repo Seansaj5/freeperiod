@@ -1,0 +1,280 @@
+// One kart's driving: speed and steering from its parts' stats, drifting (hop, slide, charge sparks, release for a
+// mini-turbo), jumps and tricks, the glider, offroad, walls, getting hit, falling off and being put back.
+// The same code drives your kart and the computer's (they just get their input from ai.js).
+import * as THREE from 'three';
+import { statsOf } from './parts.js';
+
+export const CLASSES = {
+  rookie: { name: 'Rookie', speed: 0.8, ai: 0.86 },
+  pro: { name: 'Pro', speed: 0.9, ai: 0.93 },
+  elite: { name: 'Elite', speed: 1.0, ai: 0.985 },
+};
+export const DRIFT_LV = [1.0, 2.1, 3.3]; // seconds of charge for blue, orange, gold sparks
+const BOOST_LV = [0, 0.65, 1.15, 1.8];
+const GRAV = 30;
+
+const wrapA = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+const damp = (a, b, r, dt) => b + (a - b) * Math.exp(-r * dt);
+
+export class Kart {
+  constructor(track, build, cls, id) {
+    this.track = track; this.id = id;
+    this.setBuild(build, cls);
+    this.pos = new THREE.Vector3();
+    this.push = new THREE.Vector2();
+    this.loc = {};
+    this.input = { gas: false, brake: false, steer: 0, drift: false, item: false };
+    this.reset(0, 0);
+  }
+
+  setBuild(build, cls) {
+    this.build = build;
+    const s = (this.stats = statsOf(build));
+    const c = CLASSES[cls] || CLASSES.pro;
+    this.top0 = (25 + s[0] * 1.55) * c.speed;
+    this.acc = 8.5 + s[1] * 2.3;
+    this.mass = 1 + s[2] * 0.22;
+    this.turn = 1.35 + s[3] * 0.11;
+    this.offK = 0.42 + s[4] * 0.05;
+    this.turboK = 0.82 + s[5] * 0.08;
+  }
+
+  /** On the grid: sample k, d metres right of centre, `total` = progress (negative = behind the line). */
+  reset(k, d, total = 0) {
+    const t = this.track;
+    t.point(k, d, this.pos);
+    this.yaw = t.heading(k);
+    this.v = 0; this.vy = 0; this.ground = true; this.air = 0;
+    this.hint = t.w(k); this.total = total; this.lastS = t.w(k); this.lap = 1; this.lapMax = 1;
+    this.finished = false; this.finishT = 0; this.place = 0;
+    this.drift = 0; this.charge = 0; this.driftAng = 0; this.hopT = 0; this.wantDrift = false; this.prevDrift = false;
+    this.boostT = 0; this.boostMax = 0; this.padT = 0;
+    this.spinT = 0; this.spinMax = 1; this.spinDir = 1; this.shieldT = 0; this.starT = 0;
+    this.coins = 0; this.item = null; this.itemN = 0; this.rollT = 0;
+    this.glide = false; this.trick = 0; this.trickT = 0; this.launchT = 0; this.launchK = 0;
+    this.respawnT = 0; this.lastSafe = this.hint; this.offroad = false; this.wallHit = 0; this.landed = 0;
+    this.push.set(0, 0); this.steerVis = 0; this.pitch = 0; this.roll = 0; this.events = [];
+    this.prevRamp = 0; this.mul = 1; this.got = 0;
+    this.locate();
+  }
+
+  locate() { this.track.locate(this.pos.x, this.pos.z, this.hint, this.loc); this.hint = this.loc.k; return this.loc; }
+
+  get speedTop() { return this.top0 * this.mul * (1 + Math.min(10, this.coins) * 0.006); }
+  get boosting() { return this.boostT > 0 || this.starT > 0; }
+  get driftLevel() { return this.charge >= DRIFT_LV[2] ? 3 : this.charge >= DRIFT_LV[1] ? 2 : this.charge >= DRIFT_LV[0] ? 1 : 0; }
+
+  /** Speed boost for `t` seconds (mini-turbo, dash pad, nitro, trick, start). */
+  boost(t, kind = 'boost') { this.boostT = Math.max(this.boostT, t); this.boostMax = Math.max(this.boostT, 0.01); this.events.push(kind); }
+
+  /** Hit by something. kind: 'spin' (oil, ball) or 'launch' (rocket). Returns false if it bounced off a shield/star. */
+  hit(kind = 'spin') {
+    if (this.starT > 0 || this.respawnT > 0) return false;
+    if (this.shieldT > 0) { this.shieldT = 0; this.events.push('shield-pop'); return false; }
+    this.spinT = this.spinMax = kind === 'launch' ? 1.5 : 1.15; this.spinDir = Math.random() < 0.5 ? -1 : 1;
+    if (kind === 'launch') { this.vy = 8.5; this.ground = false; }
+    this.drift = 0; this.charge = 0; this.boostT = 0;
+    const lost = Math.min(this.coins, 3); this.coins -= lost;
+    this.events.push(kind === 'launch' ? 'launched' : 'spun'); if (lost) this.events.push('coins-lost');
+    return true;
+  }
+
+  step(dt) {
+    const t = this.track, inp = this.input;
+    let L = this.loc;
+    // being put back on the track after falling off
+    if (this.respawnT > 0) {
+      this.respawnT -= dt;
+      const k = this.lastSafe, p = t.point(k, 0, new THREE.Vector3());
+      this.pos.set(p.x, p.y + Math.max(0, this.respawnT) * 5, p.z);
+      this.yaw = t.heading(k); this.v = 0; this.vy = 0; this.drift = 0; this.charge = 0; this.glide = false;
+      this.hint = k; this.locate();
+      if (this.respawnT <= 0) { this.ground = true; this.events.push('dropped'); }
+      return;
+    }
+    const spin = this.spinT > 0;
+    if (spin) this.spinT -= dt;
+    if (this.boostT > 0) this.boostT -= dt;
+    if (this.starT > 0) this.starT -= dt;
+    if (this.shieldT > 0) this.shieldT -= dt;
+    if (this.padT > 0) this.padT -= dt;
+    const gas = !spin && inp.gas, brake = !spin && inp.brake;
+    const steer = spin ? 0 : inp.steer;
+    // ---- speed
+    let top = this.speedTop;
+    const off = this.ground && Math.abs(L.d) > L.hw + t.curb * 0.7 && !L.gap;
+    this.offroad = off;
+    if (off && !this.boosting) top *= this.offK;
+    if (this.boosting) top *= this.starT > 0 ? 1.28 : 1.32;
+    if (this.drift) top *= 0.985;
+    if (this.ground) {
+      if (gas && this.v >= 0) {
+        if (this.v < top) this.v = Math.min(top, this.v + this.acc * Math.max(0.12, 1 - this.v / top) * (this.boosting ? 3 : 1) * dt);
+        else this.v = damp(this.v, top, off ? 2.5 : 1.0, dt);
+      } else if (brake) {
+        if (this.v > 0.5) this.v = Math.max(0, this.v - 26 * dt);
+        else this.v = Math.max(-8, this.v - 9 * dt);
+      } else {
+        this.v = damp(this.v, 0, this.boosting ? 0.05 : 0.45, dt);
+        if (this.boosting) this.v = Math.min(top, this.v + this.acc * 2 * dt);
+        if (Math.abs(this.v) < 0.3) this.v = 0;
+      }
+      if (this.v > top + 0.5) this.v = damp(this.v, top, off ? 2.5 : 0.9, dt);
+    } else if (this.glide) {
+      this.v = damp(this.v, Math.max(top * 0.95, 18), 0.4, dt);
+    }
+    if (spin) this.v = damp(this.v, 0, 2.4, dt);
+    // ---- drifting: press to hop; hold and steer when landing to slide; let go for the boost
+    const press = inp.drift && !this.prevDrift;
+    this.prevDrift = inp.drift;
+    if (press && this.ground && !spin && this.v > 4) { this.vy = 3.4; this.ground = false; this.hopT = 0.3; this.wantDrift = true; this.events.push('hop'); }
+    if (press && !this.ground && this.launchT > 0 && !this.trick) { this.trick = 1; this.trickT = 0; this.events.push('trick'); }
+    if (!inp.drift) {
+      if (this.drift) {
+        const lv = this.driftLevel;
+        if (lv) this.boost(BOOST_LV[lv] * this.turboK, 'mt' + lv);
+        this.drift = 0; this.charge = 0;
+      }
+      this.wantDrift = false;
+    }
+    if (this.wantDrift && !this.drift && this.ground && this.v > 9 && Math.abs(steer) > 0.25) { this.drift = Math.sign(steer); this.charge = 0; this.wantDrift = false; }
+    if (this.drift && (this.v < 7 || spin)) { this.drift = 0; this.charge = 0; }
+    // ---- steering
+    const sp = Math.abs(this.v), topN = Math.max(1, this.top0);
+    const turnK = Math.min(1, sp / 6) * (1 - 0.28 * Math.min(1, sp / topN));
+    let yawRate;
+    if (this.drift) {
+      const s = steer * this.drift; // -1 = wide, +1 = tight
+      yawRate = -this.drift * this.turn * (0.62 + 0.42 * (s + 1)) * Math.min(1, sp / 10);
+      if (this.ground) this.charge += dt * (0.75 + 0.55 * Math.max(0, s)) * this.turboK;
+      this.driftAng = damp(this.driftAng, this.drift * (0.42 + 0.14 * s), 8, dt);
+    } else {
+      yawRate = -steer * this.turn * turnK * Math.sign(this.v || 1) * (this.glide ? 0.75 : this.ground ? 1 : 0.55);
+      this.driftAng = damp(this.driftAng, 0, 7, dt);
+    }
+    if (spin) yawRate = 0;
+    this.yaw = wrapA(this.yaw + yawRate * dt);
+    this.steerVis = damp(this.steerVis, steer, 12, dt);
+    // ---- move
+    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), rx = -fz, rz = fx;
+    const slide = this.drift ? -this.drift * Math.abs(this.v) * 0.09 : 0;
+    this.pos.x += (fx * this.v + rx * slide + this.push.x) * dt;
+    this.pos.z += (fz * this.v + rz * slide + this.push.y) * dt;
+    this.push.multiplyScalar(Math.exp(-5 * dt));
+    L = this.locate();
+    // ---- height: ramps launch you, the glider ramp opens the glider
+    const groundY = L.gap ? -1e3 : L.y + L.ramp;
+    if (this.launchT > 0) this.launchT -= dt;
+    if (this.ground) {
+      if (this.prevRamp > 0.4 && L.ramp < this.prevRamp - 0.02 && this.v > 6) { // just went over the lip
+        let dk = t.w(L.k - (t.glide ? t.glide.ramp : 0)); if (dk > t.N / 2) dk -= t.N;
+        const glider = t.glide && Math.abs(dk) < 4;
+        this.ground = false;
+        this.vy = glider ? 6 + this.v * 0.06 : 4.2 + this.v * 0.16;
+        this.launchT = 0.5; this.trick = 0;
+        if (glider) { this.glide = true; this.events.push('glide'); } else this.events.push('jump');
+      } else if (groundY < this.pos.y - 1.2) {
+        this.ground = false; this.vy = 0; // drove off an edge
+      } else this.pos.y = groundY;
+    }
+    this.prevRamp = this.ground ? L.ramp : 0;
+    if (!this.ground) {
+      // gliding: floats down slowly over the gap, then comes down quickly once there is road underneath
+      if (this.glide) this.vy = L.gap ? Math.max(this.vy - 7 * dt, -3.2) : Math.max(this.vy - 16 * dt, -9);
+      else this.vy -= GRAV * dt;
+      this.pos.y += this.vy * dt;
+      this.air += dt;
+      if (this.trick) this.trickT += dt;
+      if (this.pos.y <= groundY && this.vy <= 0) {
+        this.pos.y = groundY; this.ground = true;
+        if (this.trick) { this.boost(0.75 * this.turboK, 'trickboost'); this.trick = 0; }
+        if (this.air > 0.35) this.events.push(this.glide ? 'glide-land' : 'land');
+        this.landed = Math.min(1, -this.vy / 12);
+        this.glide = false; this.air = 0; this.vy = 0;
+      }
+    }
+    if (this.hopT > 0) this.hopT -= dt;
+    // ---- walls
+    const edge = t.wallAt(L) - 0.85;
+    if (!L.gap && Math.abs(L.d) > edge && this.pos.y < groundY + 2.5) {
+      const s = Math.sign(L.d), over = Math.abs(L.d) - edge;
+      const nx = -L.tz * s, nz = L.tx * s; // outward
+      this.pos.x -= nx * over; this.pos.z -= nz * over;
+      const into = (fx * nx + fz * nz) * Math.sign(this.v || 1);
+      if (into > 0.02) {
+        const hard = Math.abs(this.v) * into;
+        this.v *= 1 - Math.min(0.7, into * 0.75);
+        const tang = Math.atan2(L.tx, L.tz) + (Math.abs(wrapA(this.yaw - Math.atan2(L.tx, L.tz))) > Math.PI / 2 ? Math.PI : 0);
+        this.yaw = wrapA(this.yaw + wrapA(tang - this.yaw) * Math.min(1, into * 1.4));
+        this.push.x -= nx * Math.min(6, hard * 0.5); this.push.y -= nz * Math.min(6, hard * 0.5);
+        if (hard > 5) { this.wallHit = hard; this.events.push('wall'); if (hard > 9) { this.drift = 0; this.charge = 0; } }
+      }
+      L = this.locate();
+    }
+    // ---- dash pads
+    for (const p of t.pads) {
+      const dk = t.w(L.k - p.k + p.len / 2);
+      if (dk <= p.len && Math.abs(L.d - p.d) < p.w / 2 + 0.6 && this.ground) { if (this.padT <= 0) this.boost(1.1, 'pad'); this.padT = 0.25; }
+    }
+    // ---- fell off (into the bay, the canyon, off the skyway)
+    if (this.pos.y < L.cy - 7 || this.pos.y < -30) {
+      this.respawnT = 1.6; this.events.push('fell');
+      const lost = Math.min(this.coins, 3); this.coins -= lost;
+      // over the glide gap you are put down on the far side; anywhere else back where you were safe
+      if (t.glide && (L.gap || this.glide)) this.lastSafe = t.w(t.glide.land + 6);
+      this.glide = false; this.drift = 0; this.boostT = 0;
+      return;
+    }
+    if (this.ground && !L.gap && Math.abs(L.d) < L.hw) this.lastSafe = t.w(L.k - 3);
+    // ---- progress round the lap
+    let ds = L.s - this.lastS;
+    if (ds < -t.N / 2) ds += t.N; else if (ds > t.N / 2) ds -= t.N;
+    this.total += ds; this.lastS = L.s;
+    this.lap = Math.max(1, Math.floor(this.total / t.N) + 1);
+    // ---- tilt with the road (or the jump)
+    const k = L.k, ahead = t.w(k + 2), back = t.w(k - 2);
+    const slope = (t.Y[ahead] + t.RAMP[ahead] - t.Y[back] - t.RAMP[back]) / 4;
+    const along = fx * L.tx + fz * L.tz;
+    const tp = this.ground ? -Math.atan(slope) * along : Math.max(-0.5, Math.min(0.4, -Math.atan2(this.vy, Math.max(8, Math.abs(this.v))) * 0.6));
+    const tr = this.ground ? -Math.atan(L.bank) * along : 0;
+    this.pitch = damp(this.pitch, tp, this.ground ? 14 : 4, dt);
+    this.roll = damp(this.roll, tr + (this.drift ? this.drift * 0.06 : 0), 10, dt);
+  }
+
+  /** Put the model where the kart is. */
+  sync(mesh, dt, time) {
+    const u = mesh.userData;
+    mesh.position.copy(this.pos);
+    let spinA = 0, flip = 0;
+    if (this.spinT > 0) { const k = 1 - this.spinT / this.spinMax; spinA = this.spinDir * (1 - Math.pow(1 - k, 2)) * Math.PI * 4; }
+    if (this.trick && !this.ground) flip = Math.min(1, this.trickT / 0.45) * Math.PI * 2;
+    mesh.rotation.order = 'YXZ';
+    mesh.rotation.set(this.pitch - (this.trick ? 0 : 0), this.yaw + this.driftAng + spinA, this.roll + (this.trick ? flip * (this.id % 2 ? 1 : -1) : 0));
+    // a little squash when landing
+    if (this.landed > 0) { this.landed = Math.max(0, this.landed - dt * 4); }
+    u.body.scale.set(1 + this.landed * 0.08, 1 - this.landed * 0.14, 1);
+    u.body.position.x = 0;
+    u.spin(dt, this.v, this.steerVis);
+    // glider opens with a little overshoot
+    const g = u.glider, want = this.glide ? 1 : 0;
+    g.userData.k = damp(g.userData.k || 0, want, this.glide ? 7 : 10, dt);
+    const gk = g.userData.k;
+    g.visible = gk > 0.02;
+    g.scale.setScalar(Math.max(0.001, gk * (1 + Math.sin(Math.min(1, gk) * Math.PI) * 0.12)));
+    g.rotation.x = this.glide ? Math.sin(time * 3) * 0.04 - 0.08 : 0;
+    // shadow on the road
+    if (u.shadow) {
+      const L = this.loc;
+      const gy = L.gap ? null : L.y + L.ramp;
+      u.shadow.visible = gy != null && this.respawnT <= 0;
+      if (gy != null) {
+        const h = Math.max(0, this.pos.y - gy);
+        u.shadow.position.set(this.pos.x, gy + 0.05, this.pos.z);
+        u.shadow.rotation.set(-Math.PI / 2, 0, this.yaw);
+        u.shadow.material.opacity = 0.85 * Math.max(0.15, 1 - h / 8);
+        u.shadow.scale.setScalar(1 + h * 0.06);
+      }
+    }
+    mesh.visible = !(this.respawnT > 1.2);
+  }
+}
