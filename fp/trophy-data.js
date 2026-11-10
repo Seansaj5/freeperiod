@@ -42,7 +42,7 @@ function localFacts() {
 let toastBox = null;
 function trophyToast(t, { summary = 0 } = {}) {
   if (!toastBox) { toastBox = h('div', { class: 'tr-toasts', role: 'status', 'aria-live': 'polite' }); document.body.append(toastBox); }
-  const el = h('a', { class: 'tr-toast tier-' + (t ? t.tier : 'gold') + (reduced() ? '' : ' shine'), href: 'trophies.html' },
+  const el = h('a', { class: 'tr-toast tier-' + (t ? t.tier : 'gold') + (reduced() ? '' : ' tr-shine'), href: 'trophies.html' },
     h('span', { class: 'tr-medal', 'aria-hidden': 'true' }, icon(t ? t.icon : 'trophy')),
     h('span', { class: 'tr-toast-text' },
       h('small', { text: summary ? 'Trophies' : 'Trophy unlocked' }),
