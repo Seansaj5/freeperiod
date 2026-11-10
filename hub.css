@@ -242,47 +242,47 @@ a.wn-row:hover { background: rgba(255, 255, 255, 0.04); }
 .page-note .ic { width: 18px; height: 18px; color: var(--cyan); }
 
 /* Trophies page */
-.tp-summary {
+.tro-summary {
   position: relative; overflow: hidden; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 18px 28px; padding: 24px 26px; border-radius: 26px;
   background: radial-gradient(60% 120% at 0% 0%, rgba(255, 216, 77, 0.12), transparent 60%), linear-gradient(180deg, rgba(15, 21, 34, 0.94), rgba(9, 12, 20, 0.94));
   border: 1px solid rgba(255, 216, 77, 0.22); box-shadow: 0 40px 90px -60px rgba(255, 216, 77, 0.5);
 }
-.tp-summary .tt-ring { width: 128px; height: 128px; }
-.tp-summary .tt-ring b { font-size: 42px; }
-.tp-stats { display: flex; gap: 12px; flex-wrap: wrap; }
-.tp-stat { display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.035); border: 1px solid var(--line); }
-.tp-stat b { font: 400 22px/1 'Bungee', sans-serif; }
-.tp-stat small { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.tp-filter { display: flex; gap: 8px; margin: 28px 0 0; flex-wrap: wrap; }
-.tp-group { margin-top: 30px; }
-.tp-group h2 { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; font: 400 18px 'Bungee', 'Outfit', sans-serif; }
-.tp-group h2 .count { font: 700 12.5px 'Outfit', sans-serif; }
-.tp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 14px; }
-.tp-card {
+.tro-summary .tt-ring { width: 128px; height: 128px; }
+.tro-summary .tt-ring b { font-size: 42px; }
+.tro-stats { display: flex; gap: 12px; flex-wrap: wrap; }
+.tro-stat { display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.035); border: 1px solid var(--line); }
+.tro-stat b { font: 400 22px/1 'Bungee', sans-serif; }
+.tro-stat small { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.tro-filter { display: flex; gap: 8px; margin: 28px 0 0; flex-wrap: wrap; }
+.tro-group { margin-top: 30px; }
+.tro-group h2 { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; font: 400 18px 'Bungee', 'Outfit', sans-serif; }
+.tro-group h2 .count { font: 700 12.5px 'Outfit', sans-serif; }
+.tro-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 14px; }
+.tro-card {
   position: relative; display: flex; align-items: center; gap: 18px; padding: 16px 16px 16px 20px; border-radius: 20px; min-width: 0;
   background: var(--card); border: 1px solid var(--line); transition: border-color 0.2s, transform 0.2s var(--ease), box-shadow 0.2s;
   scroll-margin-top: 120px;
 }
-.tp-card.done { border-color: rgba(255, 216, 77, 0.22); background: radial-gradient(90% 140% at 0% 50%, rgba(255, 216, 77, 0.07), transparent 60%), var(--card); }
-.tp-card.done.tier-silver { border-color: rgba(213, 221, 232, 0.2); background: radial-gradient(90% 140% at 0% 50%, rgba(213, 221, 232, 0.06), transparent 60%), var(--card); }
-.tp-card.done.tier-bronze { border-color: rgba(255, 160, 96, 0.22); background: radial-gradient(90% 140% at 0% 50%, rgba(255, 140, 70, 0.07), transparent 60%), var(--card); }
-.tp-card:target { border-color: var(--cyan); box-shadow: 0 0 0 3px rgb(var(--cyan-rgb) / 0.2); }
-.tp-card .tr-medal { margin: 4px 2px; }
-.tp-body { flex: 1; min-width: 0; display: grid; gap: 5px; }
-.tp-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; }
-.tp-tier { font: 700 10px/1 'Outfit', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 6px; border-radius: 6px; color: var(--muted); border: 1px solid var(--line-2); }
-.tp-card.done .tp-tier { color: #ffe27a; border-color: rgba(255, 216, 77, 0.35); }
-.tp-card.done.tier-silver .tp-tier { color: #e3e9f8; border-color: rgba(213, 221, 232, 0.35); }
-.tp-card.done.tier-bronze .tp-tier { color: #ffbf8f; border-color: rgba(255, 160, 96, 0.35); }
-.tp-desc { margin: 0; font-size: 13.5px; line-height: 1.4; color: var(--muted); }
-.tp-prog { display: flex; align-items: center; gap: 10px; margin-top: 3px; }
-.tp-prog .tr-bar { flex: 1; }
-.tp-prog span { flex: none; font-size: 12px; font-weight: 700; color: var(--soft); font-variant-numeric: tabular-nums; }
-.tp-won { display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12.5px; font-weight: 700; color: #ffe27a; }
-.tp-won .ic { width: 14px; height: 14px; }
-.tp-card.tier-silver .tp-won { color: #e3e9f8; }
-.tp-card.tier-bronze .tp-won { color: #ffbf8f; }
-.tp-unknown { font-size: 12.5px; color: var(--muted); font-style: italic; }
+.tro-card.done { border-color: rgba(255, 216, 77, 0.22); background: radial-gradient(90% 140% at 0% 50%, rgba(255, 216, 77, 0.07), transparent 60%), var(--card); }
+.tro-card.done.tier-silver { border-color: rgba(213, 221, 232, 0.2); background: radial-gradient(90% 140% at 0% 50%, rgba(213, 221, 232, 0.06), transparent 60%), var(--card); }
+.tro-card.done.tier-bronze { border-color: rgba(255, 160, 96, 0.22); background: radial-gradient(90% 140% at 0% 50%, rgba(255, 140, 70, 0.07), transparent 60%), var(--card); }
+.tro-card:target { border-color: var(--cyan); box-shadow: 0 0 0 3px rgb(var(--cyan-rgb) / 0.2); }
+.tro-card .tr-medal { margin: 4px 2px; }
+.tro-body { flex: 1; min-width: 0; display: grid; gap: 5px; }
+.tro-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; }
+.tro-tier { font: 700 10px/1 'Outfit', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 6px; border-radius: 6px; color: var(--muted); border: 1px solid var(--line-2); }
+.tro-card.done .tro-tier { color: #ffe27a; border-color: rgba(255, 216, 77, 0.35); }
+.tro-card.done.tier-silver .tro-tier { color: #e3e9f8; border-color: rgba(213, 221, 232, 0.35); }
+.tro-card.done.tier-bronze .tro-tier { color: #ffbf8f; border-color: rgba(255, 160, 96, 0.35); }
+.tro-desc { margin: 0; font-size: 13.5px; line-height: 1.4; color: var(--muted); }
+.tro-prog { display: flex; align-items: center; gap: 10px; margin-top: 3px; }
+.tro-prog .tr-bar { flex: 1; }
+.tro-prog span { flex: none; font-size: 12px; font-weight: 700; color: var(--soft); font-variant-numeric: tabular-nums; }
+.tro-won { display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12.5px; font-weight: 700; color: #ffe27a; }
+.tro-won .ic { width: 14px; height: 14px; }
+.tro-card.tier-silver .tro-won { color: #e3e9f8; }
+.tro-card.tier-bronze .tro-won { color: #ffbf8f; }
+.tro-unknown { font-size: 12.5px; color: var(--muted); font-style: italic; }
 
 /* Profile page */
 .pf { margin-top: 30px; display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 22px; align-items: start; }
@@ -363,8 +363,8 @@ a.wn-row:hover { background: rgba(255, 255, 255, 0.04); }
   .home-row { margin-top: 32px; gap: 16px; }
   .tr-toasts { top: auto; bottom: 84px; right: 50%; transform: translateX(50%); }
   .page-head { margin-top: 24px; }
-  .tp-summary { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; padding: 22px 16px; }
-  .tp-stats { justify-content: center; }
+  .tro-summary { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; padding: 22px 16px; }
+  .tro-stats { justify-content: center; }
 }
 @media (max-width: 520px) {
   .hp { padding: 16px 14px; border-radius: 20px; }
@@ -373,7 +373,7 @@ a.wn-row:hover { background: rgba(255, 255, 255, 0.04); }
   .hero .hero-title { font-size: clamp(42px, 12.5vw, 60px); }
   .tt-ring { width: 84px; height: 84px; }
   .tt-ring b { font-size: 26px; }
-  .tp-card { padding: 14px 14px 14px 18px; gap: 16px; }
+  .tro-card { padding: 14px 14px 14px 18px; gap: 16px; }
   .pf-ranks { grid-template-columns: minmax(0, 1fr); }
   .pf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pf-sec { padding: 16px 14px; }
@@ -385,8 +385,8 @@ a.wn-row:hover { background: rgba(255, 255, 255, 0.04); }
 }
 
 /* sub-page bits */
-.tp-sum-r { display: grid; gap: 14px; min-width: 0; }
-.tp-sum-line { margin: 0; font: 400 20px/1.2 'Bungee', 'Outfit', sans-serif; }
+.tro-sum-r { display: grid; gap: 14px; min-width: 0; }
+.tro-sum-line { margin: 0; font: 400 20px/1.2 'Bungee', 'Outfit', sans-serif; }
 .pf-av-chat { position: relative; flex: none; border-radius: 50%; }
 .pf-av-chat > .cx-av { box-shadow: 0 0 0 6px #0c111b; }
 .foot-link { font-weight: 700; color: var(--lime); }
