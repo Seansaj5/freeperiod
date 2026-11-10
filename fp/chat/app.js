@@ -355,7 +355,7 @@ export function mountChatApp(root, { compact = false } = {}) {
   }
   function drawTyping(users) {
     const pool = mode === 'dms' && curDMObj() ? curDMObj().members || [] : [];
-    const names = idsOf(users).filter((id) => id !== myId()).map((id) => nameOf(byId.get(id) || pool.find((p) => p.id === id) || (Array.isArray(users) ? users.find((u) => u && (u.id === id || u.user_id === id)) : null)));
+    const names = idsOf(users).filter((id) => id !== myId() && !blocked.has(id)).map((id) => nameOf(byId.get(id) || pool.find((p) => p.id === id) || (Array.isArray(users) ? users.find((u) => u && (u.id === id || u.user_id === id)) : null)));
     typingEl.replaceChildren();
     typingEl.classList.toggle('on', names.length > 0);
     if (!names.length) return;

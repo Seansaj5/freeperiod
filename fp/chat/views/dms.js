@@ -27,9 +27,10 @@ export function groupIcon(dm, myId, size = 34) {
   return h('span', { class: 'cx-grp-stack', style: `--av:${size}px`, 'aria-hidden': 'true' }, avatar(others[0], { size: Math.round(size * 0.72) }), avatar(others[1], { size: Math.round(size * 0.72) }));
 }
 
-function preview(dm, myId, profile) {
+function preview(dm, myId, profile, isBlocked) {
   const m = dm.last;
   if (!m) return dm.is_group ? (dm.members || []).length + ' members' : 'Say hi 👋';
+  if (m.author_id !== myId && isBlocked && isBlocked(m.author_id)) return 'Blocked message'; // a group's last line from someone you blocked
   const who = m.author_id === myId ? 'You: ' : dm.is_group ? nameOf(profile(m.author_id) || dm.members.find((p) => p.id === m.author_id)) + ': ' : '';
   if (m.deleted) return who + 'message deleted';
   const text = String(m.body || '').replace(/\s+/g, ' ').trim();
@@ -72,7 +73,7 @@ export function dmListNodes(o) {
       h('span', { class: 'cx-dm-text' },
         h('span', { class: 'cx-dm-top' }, one ? nameEl(live, 'span', 'cx-dm-name', { plain: true }) : h('span', { class: 'cx-dm-name', text: title }),
           h('time', { class: 'cx-dm-time', text: when(lastAt(dm)) })),
-        h('span', { class: 'cx-dm-last', text: one && o.isBlocked(one.id) ? 'Blocked' : preview(dm, o.myId, o.profile) })),
+        h('span', { class: 'cx-dm-last', text: one && o.isBlocked(one.id) ? 'Blocked' : preview(dm, o.myId, o.profile, o.isBlocked) })),
       b.text && !on ? h('span', { class: 'cx-ch-badge', 'aria-label': b.text + ' unread', text: b.text }) : null);
     row.setAttribute('aria-label', title + (b.text && !on ? ', ' + b.text + ' unread' : ''));
     return row;
