@@ -163,6 +163,22 @@ export class Sound {
         this.burst(t, 0.8, 0.7, 'highpass', 900);
         break;
       case 'revive': for (const [i, f] of [523, 659, 784, 1047].entries()) this.osc('sine', f, t + i * 0.08, 0.005, 0.2 * v, 0.5); break;
+      // title screen: a bright "press start" jingle, a tape slowing to a stop, and the reveal
+      case 'start':
+        for (const [i, f] of [523, 659, 784, 1047, 1319, 1568].entries()) { this.osc('square', f, t + i * 0.055, 0.003, 0.07, 0.16); this.osc('triangle', f / 2, t + i * 0.055, 0.003, 0.12, 0.2); }
+        this.osc('square', 2093, t + 0.36, 0.003, 0.05, 0.5); this.osc('triangle', 1047, t + 0.36, 0.003, 0.15, 0.6);
+        break;
+      case 'tapestop': {
+        for (const [f, k] of [[523, 0.09], [392, 0.07], [131, 0.2]]) { const o = this.osc(k > 0.1 ? 'triangle' : 'square', f, t, 0.005, k, 0.95, this.mus || m); o.frequency.cancelScheduledValues(t); o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.12, t + 0.95); }
+        this.burst(t + 0.1, 0.8, 0.1, 'lowpass', 1200, 0.7, m, 150);
+        break;
+      }
+      case 'sting':
+        this.osc('sine', 48, t, 0.005, 1.0, 2.6, m, 30);
+        for (const f of [116.5, 123.5, 174.6, 233]) this.osc('sawtooth', f, t, 0.01, 0.09, 2.2, m, f * 0.94);
+        for (const f of [1245, 1318, 1865]) this.osc('sawtooth', f, t + 0.02, 0.02, 0.05, 1.4, this.echo, f * 0.7);
+        this.burst(t, 1.4, 0.55, 'bandpass', 1800, 0.5, m, 300);
+        break;
       case 'exits':
         this.osc('sine', 65, t, 0.01, 0.8, 4, m); this.osc('sine', 131, t, 0.01, 0.4, 3, m); this.osc('triangle', 196, t, 0.02, 0.15, 3, this.echo);
         this.burst(t, 2.5, 0.25, 'bandpass', 200, 0.5, m, 3000);

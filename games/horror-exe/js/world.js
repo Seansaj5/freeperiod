@@ -96,6 +96,7 @@ export class World {
     this.buildTasks();
     this.buildGlitch();
     this.buildAsh();
+    this.buildCritters();
     for (const w of this.windows) w.userData.base = w.material.color.getHex();
     this.swaps.push((wd) => { for (const w of this.windows) w.material.color.setHex(wd ? 0xff3a1a : w.userData.base); });
     this.setTheme(1);
@@ -129,10 +130,10 @@ export class World {
   buildSky() {
     const mat = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
-      uniforms: { time: { value: 0 }, sunDir: { value: SUN_C.clone() }, corrupt: { value: 1 } },
+      uniforms: { time: { value: 0 }, sunDir: { value: SUN_C.clone() }, corrupt: { value: 1 }, blink: { value: 1 }, eyeDir: { value: new THREE.Vector3(0.42, 0.4, 0.86).normalize() } },
       vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
       fragmentShader: `
-        varying vec3 vDir; uniform float time, corrupt; uniform vec3 sunDir;
+        varying vec3 vDir; uniform float time, corrupt, blink; uniform vec3 sunDir, eyeDir;
         float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
           return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
@@ -153,6 +154,25 @@ export class World {
           cc += vec3(1.0, 0.18, 0.05) * (exp(-a * 7.0) * 0.9 + exp(-a * 26.0) * 1.6);
           cc = mix(cc, vec3(0.0), smoothstep(0.072, 0.066, a));
           cc += vec3(1.0, 0.35, 0.15) * smoothstep(0.012, 0.0, abs(a - 0.071)) * 2.0;
+          // two huge eyes in the sky, always watching, bleeding down into the clouds
+          vec3 R = normalize(cross(vec3(0.0, 1.0, 0.0), eyeDir)), U = cross(eyeDir, R);
+          float fd = dot(d, eyeDir);
+          if (fd > 0.3) {
+            vec2 p = vec2(dot(d, R), dot(d, U)) / fd;
+            vec2 look = vec2(sin(time * 0.37) * 0.012, sin(time * 0.23) * 0.006);
+            for (int i = 0; i < 2; i++) {
+              vec2 c = vec2(i == 0 ? -0.21 : 0.21, 0.0);
+              float sx = p.x - c.x;
+              float streak = smoothstep(0.02, 0.008, abs(sx + 0.05)) * step(p.y, c.y) * smoothstep(c.y - 0.5, c.y - 0.12, p.y)
+                           + smoothstep(0.015, 0.006, abs(sx - 0.07)) * step(p.y, c.y) * smoothstep(c.y - 0.34, c.y - 0.08, p.y);
+              cc = mix(cc, vec3(0.22, 0.0, 0.0), streak * 0.9);
+              float r = length((p - c) / vec2(0.16, 0.105 * blink + 0.003));
+              float socket = smoothstep(1.0, 0.9, r);
+              cc = mix(cc, vec3(0.0), socket);
+              float pr = length(p - c - look) / 0.034;
+              cc += (vec3(1.0, 0.06, 0.04) * smoothstep(1.0, 0.55, pr) * 2.4 + vec3(1.0, 0.8, 0.75) * smoothstep(0.4, 0.0, pr) + vec3(0.5, 0.0, 0.0) * exp(-pr * 0.7) * 0.5) * socket;
+            }
+          }
           cc = mix(cc, vec3(0.03, 0.0, 0.0), smoothstep(0.5, 0.82, n) * smoothstep(0.02, 0.25, h) * 0.8);
           gl_FragColor = vec4(mix(nc, cc, corrupt), 1.0);
         }`,
@@ -885,12 +905,64 @@ export class World {
     this.add(this.ash);
   }
 
+  // ---------------------------------------------------------------- little pixel critters
+  // Hopping bunnies and birds in the normal world; in the corrupted world the same ones lie still.
+  buildCritters() {
+    const sprite = (draw) => {
+      const c = document.createElement('canvas'); c.width = c.height = 16;
+      const g = c.getContext('2d'); draw(g);
+      // a dark outline around whatever was drawn
+      const d = g.getImageData(0, 0, 16, 16), a = d.data, o = new Uint8ClampedArray(a);
+      for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+        const i = (y * 16 + x) * 4; if (a[i + 3]) continue;
+        const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => { const X = x + dx, Y = y + dy; return X >= 0 && Y >= 0 && X < 16 && Y < 16 && a[(Y * 16 + X) * 4 + 3] && !(a[(Y * 16 + X) * 4] > 120 && a[(Y * 16 + X) * 4 + 1] < 40 && Y > 12); });
+        if (near) { o[i] = 26; o[i + 1] = 14; o[i + 2] = 18; o[i + 3] = 255; }
+      }
+      g.putImageData(new ImageData(o, 16, 16), 0, 0);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+      return t;
+    };
+    const R = (g, col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+    const bunny = (g) => { R(g, '#ffffff', 6, 1, 2, 5); R(g, '#ffffff', 9, 1, 2, 5); R(g, '#ff9ab0', 7, 2, 1, 3); R(g, '#ff9ab0', 10, 2, 1, 3); R(g, '#ffffff', 7, 5, 6, 5); R(g, '#ffffff', 2, 8, 9, 6); R(g, '#d8d8e4', 2, 12, 9, 2); R(g, '#ffffff', 1, 9, 2, 2); R(g, '#b8b8c8', 3, 14, 3, 1); R(g, '#b8b8c8', 8, 14, 3, 1); R(g, '#ff7a9a', 12, 8, 1, 1); };
+    const bird = (g) => { R(g, '#3a7bff', 4, 5, 8, 7); R(g, '#3a7bff', 2, 6, 2, 2); R(g, '#bfe3ff', 6, 8, 5, 3); R(g, '#1f4ab0', 4, 7, 4, 3); R(g, '#ffb020', 12, 7, 2, 1); R(g, '#ffb020', 6, 12, 1, 2); R(g, '#ffb020', 9, 12, 1, 2); };
+    const eyeAlive = { bunny: [[11, 6, 1, 2]], bird: [[10, 6, 1, 1]] };
+    const alive = (k) => sprite((g) => { (k === 'bunny' ? bunny : bird)(g); for (const e of eyeAlive[k]) R(g, '#000000', ...e); });
+    // dead: on its side with X eyes, in a little puddle
+    const dead = (k) => sprite((g) => {
+      R(g, '#7a0010', 1, 13, 14, 2); R(g, '#7a0010', 3, 12, 10, 1); R(g, '#a0001a', 4, 13, 6, 1);
+      g.save(); g.translate(16, 3); g.rotate(Math.PI / 2); (k === 'bunny' ? bunny : bird)(g); g.restore();
+      g.globalCompositeOperation = 'source-atop'; R(g, 'rgba(70,40,40,0.35)', 0, 0, 16, 12); g.globalCompositeOperation = 'source-over';
+      const [ex, ey] = k === 'bunny' ? [9, 14] : [10, 13];
+      R(g, '#000000', ex - 1, ey - 1, 1, 1); R(g, '#000000', ex + 1, ey - 1, 1, 1); R(g, '#000000', ex, ey, 1, 1); R(g, '#000000', ex - 1, ey + 1, 1, 1); R(g, '#000000', ex + 1, ey + 1, 1, 1);
+    });
+    const mats = {};
+    for (const k of ['bunny', 'bird']) mats[k] = [new THREE.SpriteMaterial({ map: alive(k) }), new THREE.SpriteMaterial({ map: dead(k), color: 0x8a6262 })];
+    const r = rng(77), huts = MAP.props.huts;
+    this.critters = [];
+    for (let n = 0, tries = 0; n < (this.hi ? 30 : 20) && tries < 400; tries++) {
+      const a = r() * Math.PI * 2, d = 14 + r() * 58, x = Math.cos(a) * d, z = Math.sin(a) * d, y = terrainH(x, z);
+      if (y < WATER_Y + 0.4 || huts.some((h) => Math.hypot(h.x - x, h.z - z) < 4.5) || Math.hypot(x - HOLLOW.x, z - HOLLOW.z) < 13) continue;
+      const sx = terrainH(x + 1, z) - terrainH(x - 1, z), sz = terrainH(x, z + 1) - terrainH(x, z - 1);
+      if (Math.hypot(sx, sz) > 1.2) continue;
+      const k = r() < 0.6 ? 'bunny' : 'bird', s = k === 'bunny' ? 0.85 : 0.65;
+      const live = new THREE.Sprite(mats[k][0]); live.scale.set(s, s, 1); live.position.set(x, y + s * 0.45, z); this.add(live, 0);
+      const body = new THREE.Sprite(mats[k][1]); body.scale.set(s * 1.1, s * 1.1, 1); body.position.set(x, y + s * 0.4, z); this.add(body, 1);
+      this.critters.push({ s: live, y: y + s * 0.45, p: r() * 10, k });
+      n++;
+    }
+  }
+
   // ---------------------------------------------------------------- per frame
   update(dt, camera, focus) {
     this.time += dt;
     const t = this.time, c = this.theme === 1;
     this.sky.position.copy(camera.position);
     this.sky.material.uniforms.time.value = t;
+    // the sky eyes blink now and then
+    this.blinkT = (this.blinkT ?? 6) - dt;
+    if (this.blinkT < 0) this.blinkT = 5 + Math.random() * 7;
+    this.sky.material.uniforms.blink.value = this.blinkT < 0.22 ? Math.abs(this.blinkT - 0.11) / 0.11 : 1;
+    if (!c) for (const cr of this.critters) { const h = (t + cr.p) % 3.2; cr.s.position.y = cr.y + (h < 1.2 ? Math.abs(Math.sin(h * Math.PI * (cr.k === 'bunny' ? 2.5 : 3.3))) * (cr.k === 'bunny' ? 0.35 : 0.15) : 0); }
     this.waterTex.offset.set(t * 0.012, t * 0.02);
     this.fallTex.offset.y = t * 1.3;
     this.gooTex.offset.set(t * 0.02, t * 0.015);

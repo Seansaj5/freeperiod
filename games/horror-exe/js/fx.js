@@ -33,6 +33,24 @@ export const GlitchShader = {
     }`,
 };
 
+/**
+ * The 16-bit pass (last, after tone mapping): a small color palette per channel with ordered dithering,
+ * like an old console. Runs on the low-resolution buffer, so the dither pattern shows as big pixels.
+ */
+export const RetroShader = {
+  uniforms: { tDiffuse: { value: null }, levels: { value: 7 }, amount: { value: 0.8 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float levels, amount; varying vec2 vUv;
+    float b2(vec2 p){ return mod(2.0 * p.x + 3.0 * p.y, 4.0); }
+    float bayer(vec2 p){ p = floor(mod(p, 4.0)); return (4.0 * b2(mod(p, 2.0)) + b2(floor(p / 2.0)) + 0.5) / 16.0 - 0.5; }
+    void main(){
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      vec3 q = floor(c * levels + 0.5 + bayer(gl_FragCoord.xy) * amount) / levels;
+      gl_FragColor = vec4(clamp(q, 0.0, 1.0), 1.0);
+    }`,
+};
+
 const WHISPERS = ['BEHIND YOU', "DON'T STOP RUNNING", 'IT SEES YOU', 'STAY', 'YOU CAN\'T HIDE HERE', 'WHY ARE YOU STILL HERE', 'NOT FAST ENOUGH', 'LOOK UP', 'COME BACK', 'I FOUND YOU'];
 
 export class Fx {
@@ -65,9 +83,13 @@ export class Fx {
   }
 
   jumpscare() {
+    // drawn tiny and blown up: a chunky pixel face, with static over it
     const c = this.scareCanvas;
-    c.width = innerWidth; c.height = innerHeight;
-    drawScareFace(c.getContext('2d'), c.width, c.height);
+    c.width = 200; c.height = Math.max(90, Math.round((200 * innerHeight) / Math.max(1, innerWidth)));
+    const g = c.getContext('2d');
+    drawScareFace(g, c.width, c.height);
+    for (let i = 0; i < 700; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.35)'; g.fillRect(Math.random() * c.width, Math.random() * c.height, 1 + Math.random() * 3, 1); }
+    for (let y = 0; y < c.height; y += 2) { g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, y, c.width, 1); }
     this.scare.classList.remove('on'); void this.scare.offsetWidth; this.scare.classList.add('on');
     this.pulse('down');
     clearTimeout(this.scareTimer);

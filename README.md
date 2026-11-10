@@ -25,6 +25,9 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   (`games/horror-exe/server/`, Render service `freeperiod-horror`) for online rooms.
   Test locally: `node games/horror-exe/server/index.js` (port 8790) and open `games/horror-exe/?server=ws://localhost:8790`.
   Rule tests: `node --test games/horror-exe/test/`. Bot-only balance check: `node games/horror-exe/test/sim.mjs 40`.
+  Look: the pixel-art title screen (Dreamy Hills turning into horror.exe) is drawn in `js/title.js`; in game the 3D view
+  renders at about 400 lines with a dithered 16-bit color pass (`RetroShader` in `js/fx.js`, Settings → Look switches it off).
+  The pixel font is Press Start 2P (SIL Open Font License, `games/horror-exe/fonts/OFL.txt`).
 
 Shared libraries for games go in `lib/` (Three.js r170 is there, plus the post-processing addons it needs for bloom in `lib/addons/`, mapped as `three/addons/`).
 

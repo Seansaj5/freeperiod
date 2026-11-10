@@ -7,7 +7,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { World } from './world.js';
 import { Rig, nameTag, glowTex } from './rig.js';
-import { Fx, GlitchShader } from './fx.js';
+import { Fx, GlitchShader, RetroShader } from './fx.js';
+import { Title } from './title.js';
 import { Sound } from './audio.js';
 import { LocalSession, NetSession } from './net.js';
 import { SERVER_URL } from './config.js';
@@ -33,14 +34,18 @@ save.look = sanitizeLook(save.look || defaultLook());
 if (!CHARS[save.char]) save.char = 'bolt';
 if (!VARIANTS[save.variant]) save.variant = 'exe';
 const weak = (navigator.hardwareConcurrency || 4) <= 4 || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent);
-save.settings = Object.assign({ vol: 0.7, sens: 1, quality: weak ? 'low' : 'high', invert: false }, stored.settings || {});
+save.settings = Object.assign({ vol: 0.7, sens: 1, quality: weak ? 'low' : 'high', invert: false, retro: true }, stored.settings || {});
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* private mode */ } };
 const myName = () => save.name.trim() || 'Player';
 
 // ------------------------------------------------------------------ renderer
 const hi = save.settings.quality === 'high';
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, hi ? 1.5 : 1));
+// The 16-bit look renders the 3D world at about 400 lines and blows it up with crisp pixels
+// (it's also much faster). prScale drops if the frame rate does.
+let prScale = 1;
+const pixelRatio = () => (save.settings.retro ? Math.min(1, (hi ? 400 : 330) / Math.max(200, innerHeight)) : Math.min(devicePixelRatio, hi ? 1.5 : 1)) * prScale;
+renderer.setPixelRatio(pixelRatio());
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.3;
@@ -53,32 +58,44 @@ const scene = world.scene;
 scene.add(camera);
 const lantern = new THREE.PointLight(0xffc8a0, hi ? 7 : 10, 24, 1.4);
 scene.add(lantern);
-const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: hi && renderer.getPixelRatio() < 1.5 ? 4 : 0 }));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: hi && !save.settings.retro && renderer.getPixelRatio() < 1.5 ? 4 : 0 }));
 composer.addPass(new RenderPass(scene, camera));
 if (hi) composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.6, 0.5, 0.82));
 const glitchPass = new ShaderPass(GlitchShader);
 composer.addPass(glitchPass);
 composer.addPass(new OutputPass());
+const retroPass = new ShaderPass(RetroShader);
+composer.addPass(retroPass);
 composer.setPixelRatio(renderer.getPixelRatio());
 composer.setSize(innerWidth, innerHeight);
 const fx = new Fx(glitchPass);
 /** Shows the normal (0) or corrupted (1) world. */
 function applyTheme(w) {
   world.setTheme(w);
+  document.body.classList.toggle('corrupt', !!w);
+  retroPass.uniforms.levels.value = w ? 6 : 7;
   renderer.toneMappingExposure = w ? 1.3 : 1.05;
   fx.corrupt = w;
 }
 const sound = new Sound();
 sound.volume = save.settings.vol;
-addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
+function applyRetro() {
+  const on = !!save.settings.retro;
+  renderer.setPixelRatio(pixelRatio()); renderer.setSize(innerWidth, innerHeight);
+  composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight);
+  retroPass.enabled = on;
+  renderer.domElement.classList.toggle('retro', on);
+  document.body.classList.toggle('noretro', !on);
+}
+applyRetro();
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); applyRetro(); });
 let fpsAvg = 60, slowFor = 0;
 function adaptResolution(dt) {
   slowFor = fpsAvg < 42 ? slowFor + dt : 0;
-  const pr = renderer.getPixelRatio();
-  if (slowFor > 3 && pr > 0.7) {
+  if (slowFor > 3 && prScale > 0.55) {
     slowFor = 0;
-    renderer.setPixelRatio(Math.max(0.7, pr - 0.2)); renderer.setSize(innerWidth, innerHeight);
-    composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight);
+    prScale = Math.max(0.55, prScale - 0.15);
+    applyRetro();
   }
 }
 
@@ -939,7 +956,14 @@ class Match {
 
 // ------------------------------------------------------------------ menus
 const screens = ['title', 'soloPick', 'custom', 'lobby', 'results', 'pause', 'settings'];
-function show(id) { for (const s of screens) $(s).classList.toggle('hidden', s !== id); }
+let curScreen = 'title';
+function show(id) { curScreen = id; for (const s of screens) $(s).classList.toggle('hidden', s !== id); }
+// menus that sit on the pixel-art title picture instead of the 3D world
+const PIX_SCREENS = new Set(['title', 'soloPick', 'lobby', 'settings']);
+const title = new Title($('pix'), sound, () => $('title').classList.add('menu'));
+const pressStart = () => { if (!match && curScreen === 'title' && title.state !== 'evil') { sound.start(); title.press(); return true; } return false; };
+$('pix').addEventListener('pointerdown', () => { sound.start(); pressStart(); });
+addEventListener('keydown', (e) => { if (!e.repeat && !(document.activeElement && document.activeElement.tagName === 'INPUT') && pressStart()) e.preventDefault(); });
 let menuMode = 'title'; // what the background camera does: title | custom
 let net = null;
 
@@ -1087,7 +1111,9 @@ function renderSettings() {
   $('sVol').value = s.vol; $('sSens').value = s.sens;
   $('sQuality').innerHTML = ['low', 'high'].map((q) => `<button data-v="${q}" class="${s.quality === q ? 'on' : ''}">${q === 'low' ? 'Fast (school laptops)' : 'Pretty'}</button>`).join('');
   $('sInvert').innerHTML = [false, true].map((q) => `<button data-v="${q}" class="${s.invert === q ? 'on' : ''}">${q ? 'Inverted look' : 'Normal look'}</button>`).join('');
+  $('sRetro').innerHTML = [true, false].map((q) => `<button data-v="${q}" class="${!!s.retro === q ? 'on' : ''}">${q ? '16-bit pixels' : 'Smooth'}</button>`).join('');
 }
+$('sRetro').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; save.settings.retro = b.dataset.v === 'true'; persist(); renderSettings(); applyRetro(); };
 $('sVol').oninput = () => { save.settings.vol = +$('sVol').value; sound.setVolume(save.settings.vol); persist(); };
 $('sSens').oninput = () => { save.settings.sens = +$('sSens').value; persist(); };
 $('sQuality').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; save.settings.quality = b.dataset.v; persist(); renderSettings(); $('sNote').textContent = save.settings.quality === (hi ? 'high' : 'low') ? '' : 'Graphics change after you reload the page.'; };
@@ -1155,13 +1181,22 @@ function menuUpdate(dt, t) {
 }
 
 // ------------------------------------------------------------------ main loop
-let last = performance.now();
+let last = performance.now(), pixWas = null;
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); // the first frame's timestamp can be older than `last`
   last = now;
   fpsAvg = fpsAvg * 0.95 + (1 / Math.max(dt, 1e-3)) * 0.05;
   const t = now / 1000;
+  const pixOn = !match && PIX_SCREENS.has(curScreen);
+  if (pixOn !== pixWas) { pixWas = pixOn; $('pix').classList.toggle('hidden', !pixOn); }
+  if (pixOn) {
+    // the title picture covers the screen, so the 3D world isn't drawn at all
+    title.update(dt); title.draw();
+    document.body.classList.toggle('corrupt', title.state === 'evil');
+    sound.update(dt, title.music, 0.03);
+    return;
+  }
   if (match) { lurker.root.visible = false; match.update(dt); }
   else menuUpdate(dt, t);
   world.update(dt, camera, match && match.camFocus ? match.camFocus : null);
@@ -1174,5 +1209,5 @@ refreshOnline();
 requestAnimationFrame(frame);
 
 // for testing from the console / headless browser
-window.__hx = { get match() { return match; }, world, save, startSolo, leaveToMenu, input, sound, fx, renderer, camera };
+window.__hx = { get match() { return match; }, world, save, startSolo, leaveToMenu, input, sound, fx, renderer, camera, title, show };
 window.__hxGround = (x, z) => supportAt(x, z, terrainH(x, z) + 0.2);
