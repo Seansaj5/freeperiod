@@ -6,6 +6,8 @@ services:
     name: freeperiod-closecall
     runtime: node
     plan: free
+    # Virginia (US East) is the closest to New Jersey. Render can't move a service to another region later.
+    region: virginia
     rootDir: games/close-call/server
     buildCommand: npm install --omit=dev
     startCommand: node index.js
@@ -22,6 +24,8 @@ services:
     name: freeperiod-horror
     runtime: node
     plan: free
+    # Virginia (US East) is the closest to New Jersey. Render can't move a service to another region later.
+    region: virginia
     rootDir: games/horror-exe
     buildCommand: cd server && npm install --omit=dev
     startCommand: node server/index.js
