@@ -1,0 +1,176 @@
+/* Profile flair: name fonts and styles, avatar frames (frames.js), profile effects (effects.js).
+   Bungee + Outfit come from style.css; the four below are SIL Open Font License (licenses next to the files). */
+@font-face { font-family: 'Press Start 2P'; src: url('../../assets/fonts/pressstart2p.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Orbitron'; src: url('../../assets/fonts/orbitron.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'Creepster'; src: url('../../assets/fonts/creepster.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Pacifico'; src: url('../../assets/fonts/pacifico.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+
+/* ---------- display names (paintName in flair.js) ---------- */
+/* font-size-adjust evens the fonts out at whatever size the page sets (Press Start 2P's capitals are a full em tall,
+   Creepster is narrow); browsers without it just show the natural sizes */
+.fp-name { font-synthesis: none; }
+.fp-name[data-font="press-start"] { font-size-adjust: cap-height 0.6; letter-spacing: 0.02em; }
+.fp-name[data-font="orbitron"] { letter-spacing: 0.03em; }
+.fp-name[data-font="creepster"] { font-size-adjust: cap-height 0.92; letter-spacing: 0.05em; }
+/* gradient letters: the padding keeps swashes (Pacifico) inside the painted background; the margins undo it */
+.fp-name[data-fill="gradient"] {
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  padding: 0.14em 0.2em; margin: -0.14em -0.2em; -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+
+/* ---------- avatar frames ---------- */
+:where(.fp-has-frame) { position: relative; }
+.fp-frame { position: absolute; inset: -15%; pointer-events: none; z-index: 1; --k: 1; }
+.fp-frame.is-sm { --k: 1.5; }
+.fp-frame.is-sm .d { display: none; }
+.fp-frame .fl { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.fp-frame .fb { transform-box: fill-box; transform-origin: center; }
+.fp-frame.is-off, .fp-frame.is-off * { animation-play-state: paused !important; }
+.fp-frame.is-still *, :not(:hover) > .fp-frame.is-hover:not(.is-hot) * { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .fp-frame * { animation: none !important; } }
+
+@keyframes fpf-spin { to { transform: rotate(360deg); } }
+@keyframes fpf-spin-r { to { transform: rotate(-360deg); } }
+@keyframes fpf-twinkle { 0%, 100% { transform: scale(0.3) rotate(0deg); opacity: 0.15; } 50% { transform: scale(1) rotate(25deg); opacity: 1; } }
+@keyframes fpf-fade { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* neon ring: a hot spot laps the tube, the tube flickers now and then */
+[data-frame="neon-ring"] .l1 { animation: fpf-flicker 5s linear infinite; }
+[data-frame="neon-ring"] .l2 { animation: fpf-spin 2.8s linear infinite; }
+[data-frame="neon-ring"] .l3 { animation: fpf-spin-r 6s linear infinite; }
+@keyframes fpf-flicker { 0%, 70%, 73%, 76%, 100% { opacity: 1; } 71% { opacity: 0.45; } 74.5% { opacity: 0.75; } }
+
+/* pulse: heartbeat ring, two echoes per beat */
+[data-frame="pulse"] .l1 { animation: fpf-beat 1.4s ease-out infinite; }
+[data-frame="pulse"] .l2 { opacity: 0.35; transform: scale(1.08); animation: fpf-echo 1.4s ease-out infinite; }
+[data-frame="pulse"] .l3 { opacity: 0.18; transform: scale(1.15); animation: fpf-echo 1.4s 0.26s ease-out infinite backwards; }
+@keyframes fpf-beat { 0%, 45%, 100% { transform: scale(1); } 9% { transform: scale(1.04); } 19% { transform: scale(1); } 28% { transform: scale(1.025); } }
+@keyframes fpf-echo { 0% { transform: scale(1); opacity: 0.9; } 100% { transform: scale(1.22); opacity: 0; } }
+
+/* orbit: a ringed planet and a moon on their tracks */
+[data-frame="orbit"] .l2 { animation: fpf-spin 9s linear infinite; }
+[data-frame="orbit"] .l3 { animation: fpf-spin-r 4.5s linear infinite; }
+
+/* flame: three tongue layers flicker at different speeds, embers rise */
+[data-frame="flame"] .l1 { animation: fpf-flick-a 0.9s ease-in-out infinite alternate; }
+[data-frame="flame"] .l2 { animation: fpf-flick-b 0.66s ease-in-out infinite alternate; }
+[data-frame="flame"] .l3 { animation: fpf-flick-c 0.45s ease-in-out infinite alternate; }
+[data-frame="flame"] .l4 { opacity: 0.85; animation: fpf-rise 1.8s linear infinite; }
+[data-frame="flame"] .l5 { opacity: 0.6; animation: fpf-rise 1.8s -0.9s linear infinite; }
+@keyframes fpf-flick-a { from { transform: scale(1) rotate(-1deg); } to { transform: scale(1.035, 1.05) rotate(1deg); } }
+@keyframes fpf-flick-b { from { transform: scale(1.01) rotate(1.2deg); } to { transform: scale(0.98, 1.03) rotate(-1.2deg); } }
+@keyframes fpf-flick-c { from { opacity: 0.88; transform: scale(1); } to { opacity: 1; transform: scale(1.015); } }
+@keyframes fpf-rise { 0% { transform: translateY(2%); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-10%); opacity: 0; } }
+
+/* frost: a sheen slides round the ice, snowflakes drift, glints */
+[data-frame="frost"] .l2 { animation: fpf-spin 6s linear infinite; }
+[data-frame="frost"] .l3 { animation: fpf-sway 7s ease-in-out infinite alternate; }
+[data-frame="frost"] .tw { animation: fpf-twinkle 2.7s ease-in-out infinite; }
+@keyframes fpf-sway { from { transform: rotate(-5deg); } to { transform: rotate(5deg); } }
+
+/* circuit: data packets run the bus, pads blink */
+[data-frame="circuit"] .l2 { animation: fpf-spin 4.5s linear infinite; }
+[data-frame="circuit"] .bl { opacity: 0.25; animation: fpf-blink 2.52s linear infinite; }
+@keyframes fpf-blink { 0%, 100% { opacity: 0.15; } 8% { opacity: 1; } 30% { opacity: 0.15; } }
+
+/* glitch: RGB channels slip in bursts, slices flash */
+[data-frame="glitch"] .l2 { transform: translate(-1.4%, 0.5%); animation: fpf-gl-r 2.6s steps(1, end) infinite; }
+[data-frame="glitch"] .l3 { transform: translate(1.4%, -0.5%); animation: fpf-gl-c 2.6s steps(1, end) infinite; }
+[data-frame="glitch"] .l1 { animation: fpf-gl-w 2.6s steps(1, end) infinite; }
+[data-frame="glitch"] .l4 { opacity: 0.6; animation: fpf-gl-bars 2.6s steps(1, end) infinite; }
+@keyframes fpf-gl-r {
+  0%, 68%, 90% { transform: translate(-1.4%, 0.5%); } 58% { transform: translate(-1.4%, 0.5%); } 60% { transform: translate(-4%, 1.4%); }
+  62% { transform: translate(2.2%, -1%); } 64% { transform: translate(-3%, 0); } 66% { transform: translate(0.5%, 0.6%); }
+  84% { transform: translate(-3.5%, -0.8%); } 87% { transform: translate(1.5%, 1%); }
+}
+@keyframes fpf-gl-c {
+  0%, 68%, 90% { transform: translate(1.4%, -0.5%); } 60% { transform: translate(3.5%, -1.2%); } 62% { transform: translate(-2.5%, 0.8%); }
+  64% { transform: translate(2.8%, 0.4%); } 66% { transform: translate(-0.8%, -0.6%); } 84% { transform: translate(3%, 1%); } 87% { transform: translate(-1.8%, -0.8%); }
+}
+@keyframes fpf-gl-w { 0%, 67%, 89% { transform: none; } 60% { transform: translate(1.5%, 0); } 63% { transform: translate(-1%, 0.5%); } 85% { transform: translate(1%, 0) skewX(-4deg); } }
+@keyframes fpf-gl-bars {
+  0%, 68%, 90% { opacity: 0; transform: none; } 59% { opacity: 1; } 62% { transform: translate(5%, 0); }
+  65% { transform: translate(-3%, 1%); opacity: 0.8; } 83% { opacity: 1; transform: translate(-4%, 0); } 86% { transform: translate(3%, -1%); }
+}
+
+/* halo: floats and glows over the head */
+[data-frame="halo"] .l1 { animation: fpf-breathe 3.4s ease-in-out infinite alternate; }
+[data-frame="halo"] .l2 { animation: fpf-bob 3.4s ease-in-out infinite alternate; }
+[data-frame="halo"] .tw { animation: fpf-twinkle 2.1s ease-in-out infinite; }
+@keyframes fpf-bob { from { transform: translateY(0); } to { transform: translateY(-2.6%); } }
+@keyframes fpf-breathe { from { opacity: 0.7; } to { opacity: 1; } }
+
+/* thorns: the bramble creeps round */
+[data-frame="thorns"] .l1, [data-frame="thorns"] .l2 { animation: fpf-spin 48s linear infinite; }
+
+/* sparkle: glints pop in turn, the ring's sheen turns */
+[data-frame="sparkle"] .l1 { animation: fpf-spin 14s linear infinite; }
+[data-frame="sparkle"] .sp { animation: fpf-glimmer 2.6s ease-in-out infinite; }
+@keyframes fpf-glimmer { 0%, 100% { transform: scale(0.5) rotate(0deg); opacity: 0.5; } 50% { transform: scale(1) rotate(22deg); opacity: 1; } }
+
+/* wave: two swells run opposite ways, foam drifts */
+[data-frame="wave"] .l2 { animation: fpf-spin 9s linear infinite; }
+[data-frame="wave"] .l3 { animation: fpf-spin-r 9s linear infinite; }
+[data-frame="wave"] .l4 { animation: fpf-spin 16s linear infinite; }
+
+/* hex: the grid turns slowly, cells light in turn */
+[data-frame="hex"] .l2 { animation: fpf-spin 30s linear infinite; }
+[data-frame="hex"] .cl { animation: fpf-cell 2.4s linear infinite; }
+@keyframes fpf-cell { 0%, 100% { fill-opacity: 0.18; } 12% { fill-opacity: 0.9; } 30% { fill-opacity: 0.18; } }
+
+/* crown: rocks a little, a shine sweeps the gold */
+[data-frame="crown"] .l2 { transform-origin: 50% 16%; animation: fpf-rock 3.6s ease-in-out infinite alternate; }
+[data-frame="crown"] .sh { animation: fpf-shine 3.2s ease-in-out infinite; }
+@keyframes fpf-rock { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg); } }
+@keyframes fpf-shine { 0% { transform: translateX(0); } 45%, 100% { transform: translateX(80px); } }
+
+/* lightning: three bolt sets strike in turn */
+[data-frame="lightning"].is-sm { --bk: 1.5; }
+[data-frame="lightning"] .l1 { animation: fpf-flicker 2.3s linear infinite; }
+[data-frame="lightning"] .l2 { animation: fpf-zap-a 1.8s linear infinite; }
+[data-frame="lightning"] .l3 { opacity: 0; animation: fpf-zap-b 1.8s linear infinite; }
+[data-frame="lightning"] .l4 { opacity: 0; animation: fpf-zap-c 1.8s linear infinite; }
+@keyframes fpf-zap-a { 0%, 10% { opacity: 1; } 11%, 49% { opacity: 0; } 50%, 56% { opacity: 1; } 57%, 100% { opacity: 0; } }
+@keyframes fpf-zap-b { 0%, 19% { opacity: 0; } 20%, 30% { opacity: 1; } 31%, 69% { opacity: 0; } 70%, 76% { opacity: 1; } 77%, 100% { opacity: 0; } }
+@keyframes fpf-zap-c { 0%, 35% { opacity: 0; } 36%, 44% { opacity: 1; } 45%, 83% { opacity: 0; } 84%, 92% { opacity: 1; } 93%, 100% { opacity: 0; } }
+
+/* pixel: a white pixel chase laps the 8-bit ring, corner sparkles blink */
+[data-frame="pixel"] .ch { opacity: 0; animation: fpf-chase 1.2s steps(1, end) infinite; }
+[data-frame="pixel"] .pb { animation: fpf-pixblink 1.4s steps(1, end) infinite; }
+@keyframes fpf-chase { 0% { opacity: 0.95; } 9%, 100% { opacity: 0; } }
+@keyframes fpf-pixblink { 0% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+/* vortex: arms swirl in, the outer wisps slower */
+[data-frame="vortex"] .l2 { animation: fpf-spin-r 3.5s linear infinite; }
+[data-frame="vortex"] .l3 { animation: fpf-spin-r 7s linear infinite; }
+
+/* starry night: the sky turns, stars twinkle, a shooting star now and then */
+[data-frame="stars"] .l2 { animation: fpf-spin 90s linear infinite; }
+[data-frame="stars"] .t1 { animation: fpf-fade 2s ease-in-out infinite; }
+[data-frame="stars"] .t2 { animation: fpf-fade 2.8s -1s ease-in-out infinite; }
+[data-frame="stars"] .t3 { animation: fpf-fade 3.6s -2s ease-in-out infinite; }
+[data-frame="stars"] .tw { animation: fpf-twinkle 2.6s ease-in-out infinite; }
+[data-frame="stars"] .l4 { opacity: 0; animation: fpf-shoot 5s ease-out infinite; }
+@keyframes fpf-shoot { 0% { opacity: 0; transform: rotate(0deg); } 3% { opacity: 1; } 16% { opacity: 0; transform: rotate(75deg); } 100% { opacity: 0; transform: rotate(75deg); } }
+
+/* shield: a shimmer crosses the steel */
+[data-frame="shield"] .sh { animation: fpf-shimmer 4.5s ease-in-out infinite; }
+@keyframes fpf-shimmer { 0% { transform: translateX(0); } 40%, 100% { transform: translateX(170px); } }
+
+/* slime drip: drips stretch, drops fall */
+[data-frame="drip"] .dr { transform-box: fill-box; transform-origin: 50% 0; animation: fpf-stretch 3s ease-in-out infinite; }
+[data-frame="drip"] .fall { animation: fpf-fall 2.2s ease-in infinite; }
+@keyframes fpf-stretch { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.24); } }
+@keyframes fpf-fall { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(14px); opacity: 0; } }
+
+/* eclipse: the corona shimmers, the diamond flare travels the rim */
+[data-frame="eclipse"] .l1 { animation: fpf-breathe 4s ease-in-out infinite alternate; }
+[data-frame="eclipse"] .l2 { animation: fpf-spin 80s linear infinite; }
+[data-frame="eclipse"] .l3 { animation: fpf-spin-r 120s linear infinite; }
+[data-frame="eclipse"] .l4 { animation: fpf-spin 24s linear infinite; }
+[data-frame="eclipse"] .dm { animation: fpf-flare 1.6s ease-in-out infinite alternate; }
+@keyframes fpf-flare { from { transform: scale(0.8); opacity: 0.75; } to { transform: scale(1.15); opacity: 1; } }
+
+/* ---------- profile effects (canvas overlay, effects.js) ---------- */
+:where(.fp-has-effect) { position: relative; }
+.fp-effect { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; border-radius: inherit; }
