@@ -99,7 +99,7 @@ export class CarSim {
     }
 
     // --- traffic ---
-    if (this.ghost <= 0) {
+    if (this.ghost <= 0 && !this.noHit) { // noHit: the owner's god mode drives straight through traffic
       const hwE = this.hwEff;
       for (let i = 0; i < nTraffic; i++) {
         const c = traffic[i];

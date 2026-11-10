@@ -38,6 +38,40 @@
     .wallet { position: fixed; top: 18px; right: 22px; display: flex; gap: 10px; pointer-events: auto; }
     .pill { padding: 8px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-weight: 700; font-size: 15px; }
     .pill b { color: var(--green); }
+    .own { font: 700 9px/1 'Outfit', sans-serif; letter-spacing: 0.1em; padding: 2px 5px; border-radius: 999px; background: var(--amber); color: #1a0f00; vertical-align: 2px; }
+    .field:disabled { opacity: 0.7; }
+    .pill.acct { display: flex; align-items: center; gap: 7px; color: var(--ink); font: 700 15px 'Outfit', sans-serif; }
+    .pill.acct i { width: 8px; height: 8px; border-radius: 50%; background: #666; }
+    .pill.acct.in i { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .pill.acct small { color: var(--muted); font-weight: 600; font-size: 12px; }
+    .pill.acct:hover { border-color: rgba(255, 176, 32, 0.6); }
+    .role { font: 700 10px/1 'Outfit', sans-serif; text-transform: uppercase; letter-spacing: 0.1em; padding: 4px 7px; border-radius: 999px; background: var(--amber); color: #1a0f00; vertical-align: middle; }
+    .panel h2 .role { font-size: 11px; position: relative; top: -4px; }
+    .who { display: flex; gap: 14px; align-items: center; }
+    .who .av { width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, #ffc443, #ff8a1a); color: #1a0f00; display: grid; place-items: center; font: 400 22px 'Bungee', sans-serif; flex: none; }
+    .who b { display: block; font-size: 20px; }
+    .who small { color: var(--muted); font-size: 13px; }
+    .ac-note { color: var(--muted); font-size: 14px; line-height: 1.45; margin: 0 0 4px; }
+    .togs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .tog { text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(16, 22, 40, 0.85); }
+    .tog b { display: block; font-size: 14px; }
+    .tog small { color: var(--muted); font-size: 12px; }
+    .tog.on { border-color: var(--green); background: rgba(40, 90, 50, 0.45); box-shadow: inset 0 0 0 1px rgba(109, 255, 138, 0.35); }
+    .tog.on b::after { content: ' · ON'; color: var(--green); }
+    .over h2 { color: #ff5a3d; margin-bottom: 2px; }
+    .o-sub { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
+    .ostats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .ostats div { background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+    .ostats div.big { grid-column: span 2; }
+    .ostats small { display: block; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+    .ostats b { font: 400 20px 'Bungee', sans-serif; }
+    .ostats .big b { font-size: 34px; color: var(--amber); }
+    .lives { display: flex; gap: 5px; margin: 2px 0 2px; }
+    .lives i { width: 24px; height: 22px; color: var(--red); filter: drop-shadow(0 0 6px rgba(255, 59, 78, 0.8)); transition: color 0.3s, filter 0.3s, transform 0.3s; }
+    .lives svg { width: 100%; height: 100%; fill: currentColor; }
+    .lives i.gone { color: rgba(255, 255, 255, 0.14); filter: none; transform: scale(0.85); }
+    .lives.hit { animation: livesHit 0.5s; }
+    @keyframes livesHit { 0%, 100% { transform: none; } 20% { transform: translateX(-5px) scale(1.15); } 50% { transform: translateX(4px); } 75% { transform: translateX(-2px); } }
     .pill .k { color: var(--muted); font-weight: 600; margin-right: 6px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
     .online { font-size: 13px; color: var(--muted); margin-top: 16px; display: flex; align-items: center; gap: 8px; }
     .online i { width: 8px; height: 8px; border-radius: 50%; background: #666; display: inline-block; }
@@ -83,6 +117,8 @@
     .mapc span { display: block; font-size: 13px; color: var(--muted); line-height: 1.35; margin-top: 3px; }
     .mapc small { display: block; font-size: 12px; font-weight: 700; color: var(--green); margin-top: 5px; }
     .lanes .btn { flex: 1; justify-content: center; padding: 0 8px; }
+    /* laptop-height screens: drop the map blurbs so Lanes, Mode and Drive all fit */
+    @media (max-height: 860px) { .mapc span { display: none; } .mapc { min-height: 0; padding-top: 10px; padding-bottom: 10px; } .mapc small { margin-top: 3px; } }
     .lanes .btn small { margin-left: 6px; }
     .seg { display: flex; gap: 6px; }
     .seg .btn { flex: 1; justify-content: center; padding: 0 6px; height: 38px; font-size: 12px; }
@@ -101,6 +137,20 @@
       #route .lbl { margin: 8px 0 4px; }
       #r-note { display: none; }
       #route .btn.small, #route .btn { height: 38px; }
+      /* phones sideways: the three maps side by side, compact results, a slimmer top bar */
+      .maps { flex-direction: row; }
+      .mapc { flex: 1; padding: 8px 10px; }
+      .mapc::before, .mapc small { display: none; }
+      .mapc b { font-size: 13px; }
+      .wallet .pill:not(.acct):last-child { display: none; }
+      .ac-note, .o-sub, .tog small { display: none; }
+      .ostats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+      .ostats div { padding: 6px 9px; }
+      .ostats div.big { grid-column: auto; }
+      .ostats b, .ostats .big b { font-size: 16px; }
+      .togs { gap: 6px; }
+      .tog { padding: 7px 10px; }
+      #over .status { margin-top: 6px; min-height: 0; }
     }
 
     /* ---------- HUD ---------- */
@@ -180,7 +230,7 @@
       <button class="btn primary" id="b-solo">Drive solo <small id="b-route"></small></button>
       <button class="btn" id="b-mp">Multiplayer <small>up to 8 drivers</small></button>
       <button class="btn" id="b-garage">Garage <small id="garage-count"></small></button>
-      <button class="btn small" id="b-settings">Settings</button>
+      <div class="row"><button class="btn small" id="b-settings" style="flex:1">Settings</button><button class="btn small hidden" id="b-admin" style="flex:1">Admin <small>owner</small></button></div>
     </div>
     <div class="online" id="online"><i></i><span>Checking the multiplayer server…</span></div>
   </section>
@@ -214,6 +264,8 @@
       <div class="maps" id="r-maps"></div>
       <span class="lbl">Lanes</span>
       <div class="row lanes"><button class="btn small" data-l="2">2 <small>x1.5 cash</small></button><button class="btn small" data-l="3">3 <small>x1.25</small></button><button class="btn small" data-l="4">4 <small>x1</small></button></div>
+      <span class="lbl">Mode</span>
+      <div class="row lanes"><button class="btn small" data-lv="0">Free drive <small>endless</small></button><button class="btn small" data-lv="1">Two lives <small>x1.5 cash</small></button></div>
       <div class="status" id="r-note"></div>
       <div class="row" style="margin-top:6px">
         <button class="btn small" id="r-back" style="flex:0 0 auto">Back</button>
@@ -231,6 +283,7 @@
       <span class="lbl">Map and lanes <span style="text-transform:none;letter-spacing:0;font-weight:600">(for quick play and new rooms)</span></span>
       <div class="seg" id="mp-maps"><button class="btn small" data-mm="city">Night City</button><button class="btn small" data-mm="coast">Sunset Coast</button><button class="btn small" data-mm="canyon">Red Canyon</button></div>
       <div class="seg" style="margin-top:6px" id="mp-lanes"><button class="btn small" data-ml="2">2 lanes</button><button class="btn small" data-ml="3">3 lanes</button><button class="btn small" data-ml="4">4 lanes</button></div>
+      <div class="seg" style="margin-top:6px" id="mp-modes"><button class="btn small" data-mlv="0">Free drive</button><button class="btn small" data-mlv="1">Two lives · x1.5 cash</button></div>
       <div class="stack" style="width:100%;margin-top:16px">
         <button class="btn primary" id="mp-quick">Quick play <small>join anyone</small></button>
         <button class="btn" id="mp-create">Create room <small>play with friends</small></button>
@@ -262,6 +315,67 @@
     </div>
   </section>
 
+  <!-- two lives: the results after you blow up -->
+  <section id="over" class="screen menu-bg hidden">
+    <div class="panel over">
+      <h2>Wrecked</h2>
+      <div class="o-sub" id="o-sub"></div>
+      <div class="ostats">
+        <div class="big"><small>Score</small><b id="o-score">0</b></div>
+        <div><small>Best combo</small><b id="o-combo">0</b></div>
+        <div><small>Cash earned</small><b id="o-cash" style="color:var(--green)">$0</b></div>
+        <div><small>Distance</small><b id="o-dist">0 km</b></div>
+        <div><small>Time</small><b id="o-time">0:00</b></div>
+      </div>
+      <div class="status" id="o-note"></div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn small" id="o-menu" style="flex:0 0 auto">Menu</button>
+        <button class="btn primary" id="o-again" style="flex:1;justify-content:center">Drive again</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- your Free Period account -->
+  <section id="account" class="screen menu-bg hidden">
+    <div class="panel">
+      <h2>Your account</h2>
+      <div id="ac-in" class="hidden">
+        <div class="who"><span class="av" id="ac-av">?</span><div><b id="ac-name"></b><small id="ac-role"></small></div></div>
+        <div class="status" id="ac-sync"></div>
+        <div class="row" style="margin-top:8px"><button class="btn small" id="ac-save" style="flex:1;justify-content:center">Save now</button><button class="btn small" id="ac-out" style="flex:1;justify-content:center">Log out</button></div>
+      </div>
+      <div id="ac-outv">
+        <p class="ac-note">It's your Free Period account (the same one as Bing Ball). Sign in and your cash, cars, paint and best scores save to it, so they follow you to any computer.</p>
+        <span class="lbl">Username</span>
+        <input class="field" id="ac-user" maxlength="20" autocomplete="username" spellcheck="false" autocapitalize="off" />
+        <span class="lbl">Password</span>
+        <input class="field" id="ac-pass" type="password" autocomplete="current-password" />
+        <div class="row" style="margin-top:12px"><button class="btn primary small" id="ac-login" style="flex:1;justify-content:center">Log in</button><button class="btn small" id="ac-signup" style="flex:1;justify-content:center">Sign up</button></div>
+        <div class="status" id="ac-msg"></div>
+      </div>
+      <button class="btn small" id="ac-back" style="margin-top:10px">Back</button>
+    </div>
+  </section>
+
+  <!-- the owner's admin panel (only shows for the owner account) -->
+  <section id="admin" class="screen menu-bg hidden">
+    <div class="panel">
+      <h2>Admin <span class="role">Owner</span></h2>
+      <span class="lbl" style="margin-top:0">Cash · <span id="a-cash" style="color:var(--green)"></span></span>
+      <div class="seg"><button class="btn small" data-cash="10000">+$10K</button><button class="btn small" data-cash="100000">+$100K</button><button class="btn small" data-cash="1000000">+$1M</button><button class="btn small" data-cash="0">Set $0</button></div>
+      <span class="lbl">Switches (only work on your account)</span>
+      <div class="togs">
+        <button class="tog" data-k="god"><b>God mode</b><small>drive straight through traffic, never crash</small></button>
+        <button class="tog" data-k="nitro"><b>Endless nitro</b><small>the bar never runs out</small></button>
+        <button class="tog" data-k="turbo"><b>Turbo</b><small>+35% top speed, +40% acceleration</small></button>
+        <button class="tog" data-k="combo"><b>Combo never drops</b><small>the 5 s timer stays full</small></button>
+      </div>
+      <span class="lbl">Garage</span>
+      <div class="status" id="a-cars" style="margin-top:0"></div>
+      <button class="btn small" id="a-back" style="margin-top:8px">Back</button>
+    </div>
+  </section>
+
   <!-- pause -->
   <section id="pause" class="screen menu-bg hidden">
     <h1 class="logo" style="font-size:56px">PAUSED</h1>
@@ -273,7 +387,7 @@
     </div>
   </section>
 
-  <div class="wallet" id="wallet"><div class="pill"><span class="k">Cash</span><b id="w-cash">$0</b></div><div class="pill"><span class="k">Best combo</span><span id="w-best">0</span></div></div>
+  <div class="wallet" id="wallet"><button class="pill acct" id="w-acct" title="Your Free Period account"><i></i><span id="w-acct-name">Sign in</span><span class="role hidden" id="w-acct-role">Owner</span><small id="w-acct-sync"></small></button><div class="pill"><span class="k">Cash</span><b id="w-cash">$0</b></div><div class="pill"><span class="k">Best combo</span><span id="w-best">0</span></div></div>
   <div class="keys" id="keys"><kbd>W</kbd><kbd>S</kbd> gas / brake &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp; <kbd>Shift</kbd> nitro &nbsp; <kbd>C</kbd> camera &nbsp; <kbd>Esc</kbd> pause</div>
 
   <!-- in-game HUD -->
@@ -281,6 +395,7 @@
     <div class="tl">
       <div class="sub">Score</div>
       <div class="score" id="h-run">0</div>
+      <div class="lives hidden" id="h-lives"><i><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M12 21 2.7 11.6A5.6 5.6 0 0 1 12 4.3a5.6 5.6 0 0 1 9.3 7.3Z"/></svg></i><i><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M12 21 2.7 11.6A5.6 5.6 0 0 1 12 4.3a5.6 5.6 0 0 1 9.3 7.3Z"/></svg></i></div>
       <div class="sub">Cash <b id="h-cash">$0</b></div>
       <div class="sub" id="h-route" style="opacity:0.8"></div>
     </div>

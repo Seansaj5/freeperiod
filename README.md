@@ -19,6 +19,10 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   Maps (Night City, Sunset Coast, Red Canyon) and lane modes are defined in `js/maps.js`; map scenery is
   `js/scenery.js`. Sounds are real CC0 recordings from Freesound in `games/close-call/sfx/`
   (credits in `sfx/CREDITS.md`; `sfx.json` lists the engine loops by RPM, the loops and the one-shots).
+  Two lives mode (`js/wreck.js`): crash twice and the car blows up and flies; x1.5 cash, best run per route.
+  Accounts (`js/account.js`): the menu shows your Free Period sign-in and saves to it (on its own page the game
+  syncs itself; inside `play.html` the hub does). The owner account gets every car and the Admin panel; online,
+  the server checks the token with the account server before showing OWNER, and guests can't use the owner's names.
 
 - **horror.exe** lives in `games/horror-exe/`: survivors vs EXE across five zones in two worlds (normal and corrupted,
   swapped through rift portals), with zone tasks and a disguising EXE. The round rules,

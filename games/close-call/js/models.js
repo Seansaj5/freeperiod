@@ -742,7 +742,14 @@ export function buildCar(spec, paint) {
   let roll = 0;
   group.userData = {
     hl: geo.hl, hw: geo.hw, exhausts: geo.exhausts, roofH: geo.roofH,
+    wheels: wheels.map((w) => w.pivot), wheelR: W.r, paintMat: mats[PAINT],
     setPaint: (c) => mats[PAINT].color.setHex(c),
+    // blown up: everything scorched, lights dead, no shadow blob (it would tumble with the body)
+    burn: () => {
+      for (const m of mats) if (m && m.color) { m.color.lerp(CHAR, 0.82); if (m.envMapIntensity !== undefined) m.envMapIntensity = 0.12; if (m.roughness !== undefined) m.roughness = Math.max(m.roughness, 0.85); }
+      headMat.color.setScalar(0.03); tailMat.color.setScalar(0.03); headGlowMat.opacity = 0; tailGlowMat.opacity = 0;
+      shadow.visible = false;
+    },
     setBrake: (on) => { tailMat.color.setScalar(on ? (HI ? 3 : 1) : (HI ? 0.9 : 0.62)); tailGlowMat.opacity = on ? 1 : 0.4; },
     spin: (dt, v, steer) => {
       roll = (roll + (v / W.r) * dt) % (Math.PI * 2);
@@ -752,6 +759,8 @@ export function buildCar(spec, paint) {
   };
   return group;
 }
+
+const CHAR = new THREE.Color(0x15110e);
 
 let blob;
 function blobTexture() {

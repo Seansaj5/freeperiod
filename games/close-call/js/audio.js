@@ -147,6 +147,33 @@ export class Sound {
     this.play(k > 0.55 ? 'crash_big' : k > 0.25 ? 'crash_mid' : 'crash_small', { gain: 0.55 + k * 0.4, rate: 0.95 + Math.random() * 0.1 });
     this.play('clank', { gain: 0.5 + k * 0.3, rate: 0.8 + Math.random() * 0.3 });
   }
+  /** Two lives mode: the car blows up. Recorded crashes pitched down, plus a synth thump and a roar that closes off. */
+  boom(gain = 1) {
+    if (!this.ready) return;
+    this.play('crash_big', { gain: 1 * gain, rate: 0.6 });
+    this.play('crash_mid', { gain: 0.65 * gain, rate: 0.78, delay: 0.04 });
+    const ctx = this.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(), og = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(26, t + 0.7);
+    og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(1.5 * gain, t + 0.012); og.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
+    o.connect(og); og.connect(this.bus); o.start(t); o.stop(t + 1.05);
+    if (!this.noise) {
+      const len = Math.floor(ctx.sampleRate * 2.4), b = ctx.createBuffer(1, len, ctx.sampleRate), d = b.getChannelData(0);
+      let last = 0;
+      for (let i = 0; i < len; i++) { last = last * 0.6 + (Math.random() * 2 - 1) * 0.4; d[i] = last * 2.2; } // a little brown, so it rumbles
+      this.noise = b;
+    }
+    const n = ctx.createBufferSource(), f = ctx.createBiquadFilter(), ng = ctx.createGain();
+    n.buffer = this.noise;
+    f.type = 'lowpass'; f.frequency.setValueAtTime(3200, t); f.frequency.exponentialRampToValueAtTime(120, t + 2.0);
+    ng.gain.setValueAtTime(0.0001, t); ng.gain.exponentialRampToValueAtTime(0.95 * gain, t + 0.02); ng.gain.exponentialRampToValueAtTime(0.0001, t + 2.3);
+    n.connect(f); f.connect(ng); ng.connect(this.bus); n.start(t); n.stop(t + 2.4);
+  }
+  /** The wreck (or a wheel) hitting the road. */
+  thud(k, small) {
+    this.play(small ? 'clank' : 'crash_small', { gain: Math.min(0.9, 0.25 + k * 0.05), rate: (small ? 0.9 : 0.7) + Math.random() * 0.15 });
+  }
   wall(impact) { this.play('clank', { gain: Math.min(0.8, 0.25 + impact / 14), rate: 0.75 + Math.random() * 0.2 }); }
   pop() { this.play(['pop_a', 'pop_b', 'pop_c', 'pop_d'][Math.floor(Math.random() * 4)], { gain: 0.55 + Math.random() * 0.3, rate: 0.9 + Math.random() * 0.25 }); }
   horn(side) { this.play(['horn_a', 'horn_b', 'horn_c'][Math.floor(Math.random() * 3)], { gain: 0.42, rate: 0.95 + Math.random() * 0.1, pan: side * 0.6, delay: 0.12 }); }

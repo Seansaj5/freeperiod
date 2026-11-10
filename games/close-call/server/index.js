@@ -44,10 +44,33 @@ function makeRoom(isPublic, map, lanes) {
   return room;
 }
 
-const info = (p) => ({ id: p.id, name: p.name, car: p.car, color: p.color });
+const info = (p) => ({ id: p.id, name: p.name, car: p.car, color: p.color, own: p.own ? 1 : 0 });
 const send = (ws, msg) => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); };
 const broadcast = (room, msg, except) => { const s = JSON.stringify(msg); for (const p of room.players.values()) if (p !== except && p.ws.readyState === 1) p.ws.send(s); };
 const cleanName = (n) => String(n || '').replace(/[^\w .\-]/g, '').trim().slice(0, 16) || 'Driver';
+
+// Free Period accounts live on the Bing Ball server. A signed-in driver sends their token and we ask that server
+// who it belongs to, so nobody becomes the owner by typing a name. Guests can't take the owner's names at all.
+const ACCOUNTS_API = (process.env.ACCOUNTS_API || 'https://bing-ball.onrender.com').replace(/\/+$/, '');
+const OWNER_NAMES = new Set((process.env.OWNER_USERNAMES || 'Saj,Sean_0,Sean0').split(',').map((n) => n.trim().toLowerCase()).filter(Boolean));
+const verified = new Map(); // token -> { user, at } for an hour, so rejoining doesn't ask again
+async function verifyToken(token) {
+  if (typeof token !== 'string' || token.length < 8 || token.length > 400) return null;
+  const hit = verified.get(token);
+  if (hit && Date.now() - hit.at < 3600e3) return hit.user;
+  try {
+    const r = await fetch(ACCOUNTS_API + '/api/me', { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(75000) });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const u = d && d.user;
+    if (!u || typeof u.username !== 'string') return null;
+    const user = { username: u.username.slice(0, 24), role: typeof u.role === 'string' ? u.role : 'player' };
+    if (verified.size > 2000) verified.clear();
+    verified.set(token, { user, at: Date.now() });
+    return user;
+  } catch { return null; }
+}
+const guestName = (n) => { const c = cleanName(n); return OWNER_NAMES.has(c.toLowerCase()) ? 'Driver' : c; };
 const num = (x, lo, hi) => (Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : 0);
 
 wss.on('connection', (ws) => {
@@ -75,9 +98,19 @@ wss.on('connection', (ws) => {
         const map = cleanMap(m.map), lanes = cleanLanes(m.lanes);
         room = [...rooms.values()].filter((r) => r.public && r.map === map && r.lanes === lanes && r.players.size < MAX_PLAYERS).sort((a, b) => b.players.size - a.players.size)[0] || makeRoom(true, map, lanes);
       }
-      me = { id: nextId++, ws, name: cleanName(m.name), car: String(m.car || 'pocket').slice(0, 20), color: num(m.color, 0, 0xffffff) | 0, st: null };
+      me = { id: nextId++, ws, name: guestName(m.name), car: String(m.car || 'pocket').slice(0, 20), color: num(m.color, 0, 0xffffff) | 0, st: null, own: false };
+      if (m.token) {
+        // signed in: drive under the account's name, and the owner gets the OWNER badge (once the account server agrees)
+        const p = me, r = room;
+        verifyToken(m.token).then((user) => {
+          if (!user || p.ws.readyState !== 1 || !r.players.has(p.id)) return;
+          p.name = cleanName(user.username); p.own = user.role === 'owner';
+          broadcast(r, { t: 'join', p: info(p) }, p);
+          send(p.ws, { t: 'me', name: p.name, own: p.own ? 1 : 0 });
+        });
+      }
       room.players.set(me.id, me);
-      send(ws, { t: 'welcome', id: me.id, code: room.code, public: room.public, seed: room.seed, density: room.density, start: room.start, map: room.map, lanes: room.lanes, now: Date.now(), players: [...room.players.values()].filter((p) => p !== me).map(info) });
+      send(ws, { t: 'welcome', id: me.id, name: me.name, code: room.code, public: room.public, seed: room.seed, density: room.density, start: room.start, map: room.map, lanes: room.lanes, now: Date.now(), players: [...room.players.values()].filter((p) => p !== me).map(info) });
       broadcast(room, { t: 'join', p: info(me) }, me);
       return;
     }
@@ -90,7 +123,7 @@ wss.on('connection', (ws) => {
         send(ws, { t: 'pong', c: m.c, now: Date.now() });
         break;
       case 'ev':
-        if (['bank', 'lost', 'crash', 'split'].includes(m.k)) broadcast(room, { t: 'ev', id: me.id, k: m.k, p: num(m.p, 0, 1e9) | 0 }, me);
+        if (['bank', 'lost', 'crash', 'split', 'boom'].includes(m.k)) broadcast(room, { t: 'ev', id: me.id, k: m.k, p: num(m.p, 0, 1e9) | 0 }, me);
         break;
       case 'car':
         me.car = String(m.car || me.car).slice(0, 20); me.color = num(m.color, 0, 0xffffff) | 0;

@@ -16,6 +16,8 @@ import { trafficNear, laneKmh } from './traffic.js';
 import { MAPS, MAP_LIST, LANE_MODES, CASH_MULT, mapById } from './maps.js';
 import { clamp, damp, fmt } from './util.js';
 import { SERVER_URL } from './config.js';
+import { Puffs, Wreck, blast } from './wreck.js';
+import { account, accountToken, initAccount, saved, logIn, logOut, saveNow } from './account.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -24,16 +26,27 @@ const httpUrl = serverUrl.replace(/^ws/, 'http');
 
 // ---------------- save data ----------------
 const KEY = 'closecall.v1';
-let stored = {};
-try { stored = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { stored = {}; }
-const save = Object.assign({ cash: 0, owned: ['pocket'], car: 'pocket', paint: {}, best: 0, total: 0, name: '', route: { map: 'city', lanes: 4 }, bests: {} }, stored);
-if (!MAPS[save.route?.map] || !LANE_MODES.includes(save.route?.lanes)) save.route = { map: 'city', lanes: 4 };
+const readStored = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { return {}; } };
+// lives: two lives mode on; lifeBests: best two-lives run per route; admin: the owner's switches (ignored for anyone else)
+const DEFAULTS = () => ({ cash: 0, owned: ['pocket'], car: 'pocket', paint: {}, best: 0, total: 0, name: '', route: { map: 'city', lanes: 4 }, bests: {}, lives: false, lifeBests: {}, admin: {} });
+const stored = readStored();
+const save = Object.assign(DEFAULTS(), stored);
 const routeKey = (map, lanes) => `${map}-${lanes}`;
 const weak = (navigator.hardwareConcurrency || 4) <= 4 || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent);
 save.settings = Object.assign({ vol: 0.7, quality: weak ? 'low' : 'high', units: 'kmh', density: 1 }, stored.settings || {});
-if (!save.owned.includes('pocket')) save.owned.unshift('pocket');
-if (!save.owned.includes(save.car)) save.car = 'pocket';
-const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* private mode */ } };
+function fixSave() {
+  if (!MAPS[save.route?.map] || !LANE_MODES.includes(save.route?.lanes)) save.route = { map: 'city', lanes: 4 };
+  if (!Array.isArray(save.owned)) save.owned = ['pocket'];
+  save.owned = save.owned.filter((id) => CARS.some((c) => c.id === id));
+  if (!save.owned.includes('pocket')) save.owned.unshift('pocket');
+  if (!save.owned.includes(save.car)) save.car = 'pocket';
+  for (const k of ['paint', 'bests', 'lifeBests', 'admin']) if (!save[k] || typeof save[k] !== 'object') save[k] = {};
+}
+fixSave();
+// every save also goes to your Free Period account when you're signed in (account.js)
+const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* private mode */ } saved(); };
+/** One of the owner's admin switches, only when the server has said this account is the owner. */
+const cheat = (k) => account.owner && !!save.admin[k];
 const paintOf = (id) => save.paint[id] ?? carById(id).color;
 
 // ---------------- renderer + world ----------------
@@ -65,6 +78,11 @@ if (hi) {
   composer.setSize(innerWidth, innerHeight);
 }
 const fx = new Fx(scene, camera, hi);
+// fire and smoke for two lives mode, and the light the fireball throws (in the scene from the start, so lighting
+// never has to be rebuilt mid-game)
+const fire = new Puffs(scene, 170, true), smoke = new Puffs(scene, 260, false);
+const boomLight = new THREE.PointLight(0xff8a3a, 0, 42, 1.5);
+scene.add(boomLight);
 // if a machine can't keep up, drop the render resolution a step at a time
 let slowFor = 0;
 function adaptResolution(dt) {
@@ -87,7 +105,8 @@ const headlight = hi ? new THREE.SpotLight(0xfff0d0, 70, 130, 0.46, 0.6, 1.5) : 
 const hlTarget = new THREE.Object3D();
 
 function setCarModel(s, paint) {
-  if (carMesh) { scene.remove(carMesh); carMesh.userData.dispose(); }
+  if (carMesh) { carMesh.removeFromParent(); carMesh.userData.dispose(); }
+  headlight.intensity = hi ? 70 : 140;
   carMesh = buildCar(s, paint);
   carMesh.rotation.order = 'YXZ';
   carMesh.add(headlight, hlTarget);
@@ -103,11 +122,15 @@ setCarModel(spec, paintOf(spec.id));
 // ---------------- game state ----------------
 let mode = 'menu'; // menu | garage | mp | settings | play | pause
 let net = null, mpStart = 0, autoRegroupUntil = 0;
+let me = { name: '', own: false }; // how the server knows us online (it checks the account before showing OWNER)
 let wt = 600; // world clock (seconds): traffic positions are a function of it
 const scorer = new Scorer();
 const remotes = new Map(); // player id -> { mesh, tag, car, color }
 let camLift = 0, camMode = 0, camD = 0, fov = 66, shake = 0, menuAng = 0.6, lastV = 0, aLong = 0, playTime = 0;
 let revUntil = 0, lastGear = 0, lastBoost = false, prevS = 0, draftT = 0;
+// two lives mode: lives left (0 = mode off), the wreck after the second crash, and this run's numbers
+let lives = 0, wreck = null, wreckT = 0, wreckAng = 0, trailAcc = 0;
+const run = { s0: 0, cash0: 0, best: 0, newBest: false };
 const MENU_SEED = 20261107;
 
 /** The menus show the chosen route with the car cruising in the second lane. */
@@ -129,8 +152,10 @@ addEventListener('keydown', (e) => {
     if (mode === 'play') pause(true);
     else if (mode === 'pause') pause(false);
     else if (mode === 'garage') closeGarage();
-    else if (mode === 'mp' || mode === 'settings' || mode === 'route') show('menu');
+    else if (mode === 'mp' || mode === 'settings' || mode === 'route' || mode === 'account' || mode === 'admin') show('menu');
+    else if (mode === 'over') quitToMenu();
   }
+  if (mode === 'over' && (e.code === 'KeyR' || e.code === 'Enter')) driveAgain();
   if (e.code === 'KeyC' && mode === 'play') camMode = (camMode + 1) % 2;
   if (mode === 'garage') { if (e.code === 'ArrowLeft' || e.code === 'KeyA') browse(-1); if (e.code === 'ArrowRight' || e.code === 'KeyD') browse(1); }
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -167,7 +192,7 @@ function readInput() {
 }
 
 // ---------------- screens ----------------
-const SCREENS = ['menu', 'garage', 'mp', 'settings', 'pause', 'route'];
+const SCREENS = ['menu', 'garage', 'mp', 'settings', 'pause', 'route', 'over', 'account', 'admin'];
 function show(name) {
   mode = name;
   for (const s of SCREENS) $(s).classList.toggle('hidden', s !== name);
@@ -176,8 +201,10 @@ function show(name) {
   $('wallet').classList.toggle('hidden', inGame);
   $('keys').classList.toggle('hidden', name !== 'menu' || isTouch);
   $('touch').classList.toggle('hidden', !(isTouch && name === 'play'));
-  if (name === 'menu') { refreshWallet(); pollOnline(); $('b-route').textContent = `${mapById(save.route.map).name} · ${save.route.lanes} lanes`; }
+  $('w-acct').classList.toggle('hidden', inGame || name === 'over');
+  if (name === 'menu') { refreshWallet(); pollOnline(); $('b-route').textContent = routeLabel(); }
 }
+const routeLabel = () => `${mapById(save.route.map).name} · ${save.route.lanes} lanes${save.lives ? ' · two lives' : ''}`;
 function refreshWallet() {
   $('w-cash').textContent = `$${fmt(save.cash)}`;
   $('w-best').textContent = fmt(save.best);
@@ -185,7 +212,14 @@ function refreshWallet() {
 }
 
 $('b-solo').onclick = () => { show('route'); paintRoute(); };
-$('b-mp').onclick = () => { show('mp'); paintMpRoute(); $('mp-name').value = save.name || `Driver${100 + Math.floor(Math.random() * 900)}`; $('mp-status').textContent = ''; $('mp-status').className = 'status'; };
+$('b-mp').onclick = () => {
+  show('mp'); paintMpRoute();
+  // signed in: you drive under your account name
+  const u = account.user;
+  $('mp-name').value = u ? u.username : save.name || `Driver${100 + Math.floor(Math.random() * 900)}`;
+  $('mp-name').disabled = !!u;
+  $('mp-status').textContent = ''; $('mp-status').className = 'status';
+};
 $('b-garage').onclick = () => openGarage();
 $('b-settings').onclick = () => { show('settings'); paintSettings(); };
 $('mp-back').onclick = () => show('menu');
@@ -200,8 +234,9 @@ function setRoute(map, lanes) {
   save.route = { map: map ?? save.route.map, lanes: lanes ?? save.route.lanes };
   persist();
   enterMenuWorld();
-  $('b-route').textContent = `${mapById(save.route.map).name} · ${save.route.lanes} lanes`;
+  $('b-route').textContent = routeLabel();
 }
+function setLives(on) { save.lives = !!on; persist(); paintRoute(); paintMpRoute(); }
 function paintRoute() {
   const L = save.route.lanes;
   $('r-maps').innerHTML = MAP_LIST.map((id) => {
@@ -209,8 +244,12 @@ function paintRoute() {
     return `<button class="mapc${id === save.route.map ? ' on' : ''}" data-m="${id}"><b>${m.name}</b><span>${m.blurb}</span><small>${best ? `Best combo here (${L} lanes): ${fmt(best)}` : `No combo banked here on ${L} lanes yet`}</small></button>`;
   }).join('');
   for (const b of document.querySelectorAll('[data-l]')) b.classList.toggle('primary', +b.dataset.l === L);
-  $('r-note').textContent = L === 2 ? 'Two lanes: tight gaps, half again the cash for every bank.' : L === 3 ? 'Three lanes: a quarter more cash for every bank.' : 'Four lanes: the most room to weave.';
+  for (const b of document.querySelectorAll('[data-lv]')) b.classList.toggle('primary', (b.dataset.lv === '1') === !!save.lives);
+  const lanesNote = L === 2 ? 'Two lanes: tight gaps, half again the cash for every bank.' : L === 3 ? 'Three lanes: a quarter more cash for every bank.' : 'Four lanes: the most room to weave.';
+  const lb = save.lifeBests[routeKey(save.route.map, L)] || 0;
+  $('r-note').textContent = save.lives ? `Two lives: crash twice and you blow up. x1.5 cash. ${lb ? `Best run here: ${fmt(lb)}.` : 'No run here yet.'}` : lanesNote;
 }
+for (const b of document.querySelectorAll('[data-lv]')) b.onclick = () => setLives(b.dataset.lv === '1');
 $('r-maps').onclick = (e) => { const b = e.target.closest('.mapc'); if (!b) return; sound.click(); setRoute(b.dataset.m, null); paintRoute(); };
 for (const b of document.querySelectorAll('[data-l]')) b.onclick = () => { setRoute(null, +b.dataset.l); paintRoute(); };
 $('r-go').onclick = () => startSolo();
@@ -218,7 +257,9 @@ $('r-back').onclick = () => show('menu');
 function paintMpRoute() {
   for (const b of document.querySelectorAll('[data-mm]')) b.classList.toggle('primary', b.dataset.mm === save.route.map);
   for (const b of document.querySelectorAll('[data-ml]')) b.classList.toggle('primary', +b.dataset.ml === save.route.lanes);
+  for (const b of document.querySelectorAll('[data-mlv]')) b.classList.toggle('primary', (b.dataset.mlv === '1') === !!save.lives);
 }
+for (const b of document.querySelectorAll('[data-mlv]')) b.onclick = () => setLives(b.dataset.mlv === '1');
 for (const b of document.querySelectorAll('[data-mm]')) b.onclick = () => { setRoute(b.dataset.mm, null); paintMpRoute(); };
 for (const b of document.querySelectorAll('[data-ml]')) b.onclick = () => { setRoute(null, +b.dataset.ml); paintMpRoute(); };
 
@@ -281,7 +322,7 @@ $('g-act').onclick = () => {
     save.paint[c.id] = gPaint;
   }
   save.car = c.id; persist();
-  spec = c; sim.setSpec(c);
+  spec = c; sim.setSpec(driveSpec());
   if (net) net.send({ t: 'car', car: c.id, color: paintOf(c.id) });
   refreshWallet(); paintGarage(false);
 };
@@ -305,16 +346,31 @@ function spawn(s, v) {
   camD = sim.d;
   prevS = s;
 }
+/** The car as it drives: the owner's Turbo switch makes it quicker. */
+const driveSpec = () => (cheat('turbo') ? { ...spec, top: Math.round(spec.top * 1.35), accel: spec.accel * 1.4 } : spec);
 function beginPlay() {
+  clearWreck();
   scorer.reset();
-  scorer.cashMult = CASH_MULT[world.road.lanes] || 1;
-  setCarModel(spec, paintOf(spec.id)); sim.setSpec(spec);
+  lives = save.lives ? 2 : 0;
+  scorer.cashMult = (CASH_MULT[world.road.lanes] || 1) * (lives ? 1.5 : 1);
+  setCarModel(spec, paintOf(spec.id)); sim.setSpec(driveSpec());
   show('play');
   playTime = 0;
+  run.s0 = sim.s; run.cash0 = save.cash; run.best = 0; run.newBest = false;
+  paintLives();
   $('h-hint').style.opacity = 1;
   const m = world.map, L = world.road.lanes;
-  $('h-route').textContent = `${m.name} · ${L} lanes${scorer.cashMult > 1 ? ` · cash x${scorer.cashMult}` : ''}`;
-  banner('GO', `${m.name} · ${L} lanes`, '#ffb020');
+  const admin = ['god', 'nitro', 'turbo', 'combo'].some(cheat);
+  $('h-route').textContent = `${m.name} · ${L} lanes${lives ? ' · two lives' : ''}${scorer.cashMult > 1 ? ` · cash x${+scorer.cashMult.toFixed(2)}` : ''}${admin ? ' · ADMIN' : ''}`;
+  banner('GO', lives ? 'Two lives · crash twice and you blow up' : `${m.name} · ${L} lanes`, '#ffb020');
+}
+function paintLives() {
+  $('h-lives').classList.toggle('hidden', !save.lives || !(mode === 'play' || mode === 'pause'));
+  [...$('h-lives').children].forEach((el, i) => el.classList.toggle('gone', i >= lives));
+}
+function clearWreck() {
+  if (!wreck) return;
+  wreck.dispose(); wreck = null;
 }
 function startSolo() {
   world.setRoute({ map: save.route.map, lanes: save.route.lanes, seed: Math.floor(Math.random() * 1e9), density: save.settings.density });
@@ -330,8 +386,8 @@ function pause(on) {
 }
 function quitToMenu() {
   const ev = [];
-  scorer.bank(ev);
-  handleEvents(ev);
+  if (!wreck) { scorer.bank(ev); handleEvents(ev); }
+  clearWreck();
   leaveNet();
   enterMenuWorld();
   setCarModel(spec, paintOf(spec.id));
@@ -341,7 +397,8 @@ function quitToMenu() {
 // ---------------- multiplayer ----------------
 async function joinMp(how, code) {
   const name = $('mp-name').value.replace(/[^\w .\-]/g, '').trim().slice(0, 16) || 'Driver';
-  save.name = name; persist();
+  if (!account.user) { save.name = name; persist(); }
+  me = { name, own: false };
   const st = $('mp-status');
   st.className = 'status';
   st.textContent = 'Connecting… if nobody has played for a while the server takes up to a minute to wake up.';
@@ -349,9 +406,10 @@ async function joinMp(how, code) {
   leaveNet();
   const n = new Net(serverUrl);
   try {
-    const w = await n.connect({ name, car: spec.id, color: paintOf(spec.id), mode: how, code, map: save.route.map, lanes: save.route.lanes });
+    const w = await n.connect({ name, car: spec.id, color: paintOf(spec.id), mode: how, code, map: save.route.map, lanes: save.route.lanes, token: account.user ? accountToken() || undefined : undefined });
     if (mode !== 'mp') { n.close(); return; } // backed out while waiting
     net = n;
+    if (w.name) me.name = w.name; // the server's version (a guest can't drive under the owner's name)
     wireNet();
     world.setRoute({ map: w.map || 'city', lanes: w.lanes || 4, seed: w.seed, density: w.density });
     mpStart = w.start;
@@ -382,13 +440,15 @@ $('mp-join').onclick = () => {
 $('mp-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('mp-join').click(); });
 
 function wireNet() {
-  net.on.join = (p) => feed(`<b>${esc(p.name)}</b> joined`);
+  net.on.me = (m) => { me = { name: String(m.name || me.name), own: !!m.own }; };
+  net.on.join = (p) => feed(`<b>${esc(p.name)}</b>${p.own ? ' <span class="own">OWNER</span>' : ''} joined`);
   net.on.leave = (p) => { feed(`<b>${esc(p.name)}</b> left`); dropRemote(p.id); };
   net.on.changed = (p) => dropRemote(p.id);
   net.on.ev = (p, k, pts) => {
     if (k === 'bank') feed(`<b>${esc(p.name)}</b> banked <span style="color:#6dff8a">${fmt(pts)}</span>`);
     if (k === 'lost') feed(`<b>${esc(p.name)}</b> crashed and lost ${fmt(pts)}`);
     if (k === 'split') feed(`<b>${esc(p.name)}</b> threaded the needle`);
+    if (k === 'boom') { feed(`<b>${esc(p.name)}</b> <span style="color:#ff8a3a">blew up</span>`); remoteBoom(p); }
   };
   net.on.close = () => {
     feed('Disconnected from the server. You are driving solo now.');
@@ -404,7 +464,7 @@ function leaveNet() {
   $('h-feed').innerHTML = '';
 }
 function regroup() {
-  if (!net) return;
+  if (!net || wreck) return;
   let best = null;
   const tmp = {};
   for (const p of net.players.values()) {
@@ -417,15 +477,17 @@ function regroup() {
   spawn(Math.max(60, best.s - 45), Math.max(20, best.v));
 }
 
-function nameTag(text) {
+function nameTag(text, owner) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 64;
   const x = c.getContext('2d');
   x.font = 'bold 30px Outfit, system-ui, sans-serif';
-  const w = Math.min(240, x.measureText(text).width + 28);
-  x.fillStyle = 'rgba(8,12,24,0.75)';
+  const label = owner ? `★ ${text}` : text;
+  const w = Math.min(240, x.measureText(label).width + 28);
+  x.fillStyle = owner ? 'rgba(60,40,0,0.85)' : 'rgba(8,12,24,0.75)';
   x.beginPath(); x.roundRect((256 - w) / 2, 8, w, 48, 14); x.fill();
-  x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillText(text, 128, 33);
+  if (owner) { x.strokeStyle = '#ffc443'; x.lineWidth = 3; x.stroke(); }
+  x.fillStyle = owner ? '#ffd27a' : '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(label, 128, 33);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, sizeAttenuation: false, transparent: true }));
@@ -450,12 +512,15 @@ function updateRemotes(dt) {
     if (!r) {
       const m = buildCar(carById(p.car), p.color);
       m.rotation.order = 'YXZ';
-      r = { mesh: m, tag: nameTag(p.name) };
+      r = { mesh: m, tag: nameTag(p.name, p.own) };
       remotes.set(p.id, r);
       scene.add(m, r.tag);
     }
     const smp = net.sample(p, ts, RS);
-    const vis = !!smp && Math.abs(smp.s - sim.s) < 650;
+    // a driver who blew up stays hidden until they drive again
+    const last = p.snaps[p.snaps.length - 1];
+    if (r.boomAt && last && last.ts > r.boomAt + 1500) r.boomAt = 0;
+    const vis = !!smp && !r.boomAt && Math.abs(smp.s - sim.s) < 650;
     r.mesh.visible = r.tag.visible = vis;
     if (!vis) continue;
     world.road.toWorld(smp.s, smp.d, RP);
@@ -464,6 +529,19 @@ function updateRemotes(dt) {
     r.mesh.userData.spin(dt, smp.v, 0);
     r.tag.position.set(RP.x, RP.y + 2.3, RP.z);
   }
+}
+
+/** Another driver's car blew up: a (smaller) fireball where we last saw it. */
+function remoteBoom(p) {
+  const r = remotes.get(p.id);
+  if (!r) return;
+  r.boomAt = net ? net.serverNow() : 0;
+  if (!r.mesh.visible) return;
+  const q = r.mesh.position;
+  blast(fire, smoke, hi, q.x, q.y + 0.7, q.z, 0, 0, 0.7);
+  FD.set(0, 0.6, 0); fx.burst(q, FD, 50, 13);
+  const dist = q.distanceTo(camera.position);
+  if (dist < 260) sound.boom(Math.max(0.15, 1 - dist / 260) * 0.8);
 }
 
 // ---------------- HUD ----------------
@@ -506,6 +584,7 @@ function handleEvents(ev) {
         break;
       case 'split': pop(e.name, `+${fmt(e.pts)}`, '#3de0ff', true); sound.split(); if (net) net.send({ t: 'ev', k: 'split', p: e.pts }); break;
       case 'bank':
+        run.best = Math.max(run.best, e.pts);
         save.cash += e.cash; save.total += e.pts; save.best = Math.max(save.best, e.pts);
         { const k = routeKey(world.map.id, world.road.lanes); save.bests[k] = Math.max(save.bests[k] || 0, e.pts); }
         persist();
@@ -548,14 +627,14 @@ function updateHud(now) {
   }
   if (net && now - boardAt > 250) {
     boardAt = now;
-    const rows = [{ name: save.name || 'You', sc: scorer.run, pd: scorer.pending, me: true, dist: 0 }];
+    const rows = [{ name: me.name || save.name || 'You', own: me.own, sc: scorer.run, pd: scorer.pending, me: true, dist: 0 }];
     const tmp = {};
     for (const p of net.players.values()) {
       const smp = net.sample(p, net.serverNow() - 180, tmp);
-      rows.push({ name: p.name, sc: p.sc, pd: p.pd, dist: smp ? smp.s - sim.s : null });
+      rows.push({ name: p.name, own: !!p.own, sc: p.sc, pd: p.pd, dist: smp ? smp.s - sim.s : null });
     }
     rows.sort((a, b) => b.sc - a.sc);
-    $('h-board').innerHTML = rows.map((r, i) => `<div class="p${r.me ? ' me' : ''}"><span>${i + 1}</span><span>${esc(r.name)}${r.pd > 0 ? ` <small style="color:#ffb020">+${fmt(r.pd)}</small>` : ''}</span><span class="dist">${r.me ? 'you' : r.dist == null ? '' : `${r.dist > 0 ? '+' : ''}${Math.round(r.dist)}m`}</span><span>${fmt(r.sc)}</span></div>`).join('');
+    $('h-board').innerHTML = rows.map((r, i) => `<div class="p${r.me ? ' me' : ''}"><span>${i + 1}</span><span>${esc(r.name)}${r.own ? ' <span class="own">OWNER</span>' : ''}${r.pd > 0 ? ` <small style="color:#ffb020">+${fmt(r.pd)}</small>` : ''}</span><span class="dist">${r.me ? 'you' : r.dist == null ? '' : `${r.dist > 0 ? '+' : ''}${Math.round(r.dist)}m`}</span><span>${fmt(r.sc)}</span></div>`).join('');
   }
 }
 
@@ -586,7 +665,22 @@ function updateCamera(dt) {
   const road = world.road;
   const kmh = sim.v * 3.6;
   road.toWorld(sim.s, sim.d, P);
-  if (mode === 'menu' || mode === 'garage' || mode === 'mp' || mode === 'settings') {
+  if (wreck) {
+    // watch the wreck: drop back, rise up, then slowly circle it
+    const b = wreck.body;
+    if (wreckT > 1.3) wreckAng += dt * 0.2;
+    const back = 11 + Math.min(4, wreckT * 1.5);
+    road.toWorld(b.s - Math.cos(wreckAng) * back, clamp(b.d - Math.sin(wreckAng) * 8, -(road.wall - 0.5), road.wall - 0.5), P2);
+    look.set(P2.x, P2.y + 4 + Math.min(2.2, wreckT), P2.z);
+    camera.position.lerp(look, 1 - Math.exp(-2.6 * dt));
+    wreckLook.lerp(wreck.pos, 1 - Math.exp(-5 * dt));
+    // once the results card is up (on the left), keep the wreck to the right of it
+    wreckOff = damp(wreckOff, mode === 'over' ? -3.2 : 0, 2, dt);
+    fwd.subVectors(wreckLook, camera.position).normalize();
+    right.crossVectors(fwd, UP).normalize();
+    camera.lookAt(look.copy(wreckLook).addScaledVector(right, wreckOff));
+    fov = damp(fov, 62, 2, dt);
+  } else if (mode === 'menu' || mode === 'garage' || mode === 'mp' || mode === 'settings' || mode === 'account' || mode === 'admin') {
     // swing back and forth along the car's left side, staying inside the left barrier
     const g = mode === 'garage';
     menuAng += dt * (g ? 0.3 : 0.16);
@@ -643,18 +737,23 @@ function frame() {
   const playing = mode === 'play' || mode === 'pause';
   const frozen = mode === 'pause' && !net; // solo pauses the world; multiplayer keeps going
 
-  if (!frozen) wt = net ? (net.serverNow() - mpStart) / 1000 : wt + dt;
-  const traffic = world.updateTraffic(wt, sim.s, playing ? 0 : 0b0011);
+  // after a solo wreck the traffic brakes to a stop (its positions are a function of the clock, so slow the clock)
+  if (!frozen) wt = net ? (net.serverNow() - mpStart) / 1000 : wt + dt * (wreck ? Math.max(0, 1 - wreckT / 1.6) : 1);
+  const traffic = world.updateTraffic(wt, sim.s, playing || wreck ? 0 : 0b0011);
   const n = world.trafficCount;
 
-  if (playing && !frozen) {
+  if (playing && !frozen && !wreck) {
     playTime += dt;
     if (mode === 'pause') sim.ghost = Math.max(sim.ghost, 0.3);
     const inp = mode === 'play' ? readInput() : { gas: false, brake: false, steer: 0, nitro: false };
     inputNow = inp;
+    sim.noHit = cheat('god');
+    if (cheat('nitro')) sim.nitro = 1;
     const ev = [];
+    let hitNow = null;
     for (const e of sim.step(dt, inp, world.road, traffic, n)) {
       if (e.type === 'crash') {
+        hitNow = e;
         scorer.lose(ev, 'crash');
         if (!ev.length) pop('CRASH', '', '#ff3b4e', true);
         sound.crash(e.impact); shake = 1; flash();
@@ -676,6 +775,9 @@ function frame() {
     if (sim.draft) sim.nitro = Math.min(1, sim.nitro + dt * 0.08);
     scorer.update(dt, sim, traffic, n, ev);
     handleEvents(ev);
+    if (hitNow && lives) loseLife(hitNow, ev);
+    if (cheat('combo') && scorer.timer > 0) scorer.timer = COMBO_TIME;
+    if (lives === 1 && !wreck) trail(dt);
     if (net) {
       net.sendState(sim, scorer);
       if (autoRegroupUntil && now < autoRegroupUntil && net.players.size) {
@@ -684,25 +786,29 @@ function frame() {
       }
     }
     if (playTime > 25) $('h-hint').style.opacity = 0;
-  } else if (!playing) {
+  } else if (wreck && !frozen) {
+    updateWreck(dt);
+  } else if (!playing && !wreck) {
     // menu: the car cruises in lane 2 with the two left lanes cleared for the camera
     sim.s += sim.v * dt; sim.d = world.road.laneCenter(1); sim.yaw = 0; sim.ghost = 0; sim.draft = false;
   }
   world.updateChunks(sim.s);
 
-  // place the player's car
-  world.road.toWorld(sim.s, sim.d, P);
-  carMesh.position.set(P.x, P.y, P.z);
-  fx.floorY = P.y;
-  const acc = (sim.v - lastV) / Math.max(dt, 1e-3); lastV = sim.v;
-  aLong = damp(aLong, acc, 6, dt);
-  carMesh.rotation.set(clamp(-aLong * 0.0035, -0.035, 0.035) - Math.atan(world.road.grade(sim.s)), P.h + sim.yaw, sim.steer * clamp(sim.v / 70, 0, 1) * 0.045);
-  carMesh.visible = !(playing && sim.ghost > 0 && Math.floor(now / 90) % 2 === 0);
-  carMesh.userData.setBrake(sim.braking);
-  carMesh.userData.spin(dt, frozen ? 0 : sim.v, sim.steer);
-  // sparks off the barrier while scraping it, backfire pops when lifting off at high revs
-  CV.set(Math.sin(P.h + sim.yaw) * sim.v, 0, Math.cos(P.h + sim.yaw) * sim.v);
-  if (playing && !frozen) {
+  // place the player's car (a wreck places itself)
+  if (!wreck) {
+    world.road.toWorld(sim.s, sim.d, P);
+    carMesh.position.set(P.x, P.y, P.z);
+    fx.floorY = P.y;
+    const acc = (sim.v - lastV) / Math.max(dt, 1e-3); lastV = sim.v;
+    aLong = damp(aLong, acc, 6, dt);
+    carMesh.rotation.set(clamp(-aLong * 0.0035, -0.035, 0.035) - Math.atan(world.road.grade(sim.s)), P.h + sim.yaw, sim.steer * clamp(sim.v / 70, 0, 1) * 0.045);
+    carMesh.visible = !(playing && sim.ghost > 0 && Math.floor(now / 90) % 2 === 0);
+    carMesh.userData.setBrake(sim.braking);
+    carMesh.userData.spin(dt, frozen ? 0 : sim.v, sim.steer);
+    // sparks off the barrier while scraping it, backfire pops when lifting off at high revs
+    CV.set(Math.sin(P.h + sim.yaw) * sim.v, 0, Math.cos(P.h + sim.yaw) * sim.v);
+  } else CV.set(0, 0, 0);
+  if (playing && !frozen && !wreck) {
     if (sim.scrape && sim.v > 8) {
       world.road.toWorld(sim.s + (Math.random() - 0.3) * sim.hl, sim.scrape * (sim.d * sim.scrape + sim.hwEff), FP);
       FV.set(FP.x, FP.y + 0.35 + Math.random() * 0.25, FP.z); FD.set(0, 0.3, 0); BV.copy(CV).multiplyScalar(0.72);
@@ -721,8 +827,11 @@ function frame() {
     sound.scrape(sim.scrape && sim.v > 5 ? Math.min(1, sim.v / 30) : 0);
   } else { sound.tires(0); sound.scrape(0); }
   sound.setTunnel(world.tunnelK);
-  $('h-slip').classList.toggle('on', playing && sim.draft);
-  fx.update(dt, sim.v * 3.6, sim.boosting, CV, playing);
+  $('h-slip').classList.toggle('on', playing && sim.draft && !wreck);
+  fx.update(dt, sim.v * 3.6, sim.boosting && !wreck, CV, playing && !wreck);
+  const pScale = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+  const pDt = frozen ? 0 : wreck ? dt * wreckScale : dt;
+  fire.update(pDt, pScale); smoke.update(pDt, pScale);
 
   updateRemotes(dt);
   updateCamera(dt);
@@ -732,13 +841,186 @@ function frame() {
   if (mode === 'play') adaptResolution(dt);
   // in the garage, switching cars gives a quick rev so you hear each engine
   const rev = now < revUntil ? Math.sin(Math.PI * (1 - (revUntil - now) / 800)) : 0;
-  sound.engine(playing ? sim.rpm : 1500 + rev * 5200, playing ? sim.load : rev > 0.05 ? 1 : 0, playing ? sim.v : 0, mode === 'play' || rev > 0.05, sim.boosting);
+  sound.engine(playing ? sim.rpm : 1500 + rev * 5200, playing ? sim.load : rev > 0.05 ? 1 : 0, playing ? sim.v : 0, (mode === 'play' && !wreck) || rev > 0.05, sim.boosting);
   if (composer) composer.render(dt); else renderer.render(scene, camera);
 }
+// ---------------- two lives ----------------
+let wreckScale = 1, wreckOff = 0;
+const wreckLook = new THREE.Vector3();
+function loseLife(e, ev) {
+  if (wreck || !lives) return;
+  lives -= 1;
+  paintLives();
+  const h = $('h-lives'); h.classList.remove('hit'); void h.offsetWidth; h.classList.add('hit');
+  if (lives > 0) {
+    const lost = ev.find((x) => x.type === 'lost');
+    banner('LAST LIFE', lost ? `-${fmt(lost.pts)} lost · crash again and you blow up` : 'crash again and you blow up', '#ff3b4e');
+  } else blowUp(e);
+}
+/** Second crash: the car goes up in a fireball and flies. */
+function blowUp(e) {
+  world.road.toWorld(sim.s + 14, sim.d, FP);
+  wreckLook.set(FP.x, FP.y + 0.85, FP.z); // where the chase camera was looking, so the turn to the wreck is smooth
+  world.road.toWorld(sim.s, sim.d, FP);
+  wreck = new Wreck(scene, world.road, fire, smoke, boomLight, hi);
+  wreck.onLand = (k, pos, small) => {
+    sound.thud(k, small);
+    if (!small) { shake = Math.max(shake, Math.min(0.9, k / 14)); FD.set(0, 0.4, 0); fx.burst(pos, FD, 14 + Math.floor(k), 8); }
+  };
+  carMesh.visible = true;
+  wreck.start(carMesh, sim, e);
+  FV.set(FP.x, FP.y + 0.8, FP.z); FD.set(0, 1, 0);
+  fx.burst(FV, FD, 110, 16, BV.copy(CV).multiplyScalar(0.4));
+  wreckT = 0; wreckAng = 0; wreckScale = 1; wreckOff = 0;
+  sim.v = 0; sim.boosting = false; sim.braking = false; sim.draft = false;
+  sound.boom(); shake = 1.8; flash();
+  const k = routeKey(world.map.id, world.road.lanes);
+  run.newBest = scorer.run > 0 && scorer.run > (save.lifeBests[k] || 0);
+  if (run.newBest) { save.lifeBests[k] = scorer.run; persist(); }
+  banner('WRECKED', run.newBest ? `New best run · ${fmt(scorer.run)}` : `${fmt(scorer.run)} this run`, '#ff5a3d');
+  if (net) net.send({ t: 'ev', k: 'boom', p: scorer.run });
+}
+function updateWreck(dt) {
+  wreckT += dt;
+  // a moment of slow motion as it goes up
+  wreckScale = wreckT < 0.06 ? 1 : wreckT < 0.95 ? 0.33 : Math.min(1, 0.33 + (wreckT - 0.95) * 1.6);
+  wreck.update(dt * wreckScale);
+  sim.s = wreck.body.s; sim.d = wreck.body.d; // the road and traffic stay built around the wreck
+  world.road.toWorld(sim.s, sim.d, FP); fx.floorY = FP.y;
+  if (wreckT > 3.4 && mode === 'play') showOver();
+}
+/** Down to the last life: smoke pours off the bonnet, with the odd lick of flame. */
+function trail(dt) {
+  trailAcc += dt * (9 + sim.v * 0.18);
+  const roof = carMesh.userData.roofH;
+  while (trailAcc > 1) {
+    trailAcc -= 1;
+    world.road.toWorld(sim.s + sim.hl * 0.45, sim.d + (Math.random() - 0.5) * sim.hw, FP);
+    // carried along a little by the air over the car, so it streams back over the roof
+    smoke.emit(FP.x, FP.y + roof * 0.8, FP.z, CV.x * 0.35 + (Math.random() - 0.5) * 0.6, 2.2 + Math.random() * 1.2, CV.z * 0.35 + (Math.random() - 0.5) * 0.6, 0.8 + Math.random() * 0.5, 0.5, 1.7 + Math.random() * 0.6, [0.4, 0.38, 0.36], [0.15, 0.145, 0.14], 0.6, 1.4);
+    if (Math.random() < 0.07) fire.emit(FP.x, FP.y + roof * 0.55, FP.z, 0, 1.2, 0, 0.22, 0.25, 0.55, hi ? [4.2, 2.2, 0.7] : [1, 0.8, 0.35], hi ? [1.4, 0.18, 0.03] : [0.75, 0.12, 0.02], 0.8, 1);
+  }
+}
+function showOver() {
+  show('over');
+  const mph = save.settings.units === 'mph';
+  const dist = (Math.max(0, (wreck ? wreck.body.s : sim.s) - run.s0) / 1000) * (mph ? 0.6214 : 1);
+  const secs = Math.floor(playTime);
+  $('o-score').textContent = fmt(scorer.run);
+  $('o-combo').textContent = fmt(run.best);
+  $('o-dist').textContent = `${dist.toFixed(dist < 10 ? 2 : 1)} ${mph ? 'mi' : 'km'}`;
+  $('o-cash').textContent = `+$${fmt(Math.max(0, save.cash - run.cash0))}`;
+  $('o-time').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  const lb = save.lifeBests[routeKey(world.map.id, world.road.lanes)] || 0;
+  $('o-sub').textContent = `${world.map.name} · ${world.road.lanes} lanes · two lives`;
+  $('o-note').innerHTML = run.newBest ? '<b style="color:var(--green)">New best run on this route!</b>' : lb ? `Best run here: ${fmt(lb)}` : '';
+  $('o-again').innerHTML = `${net ? 'Back in' : 'Drive again'} <small>R</small>`;
+}
+function driveAgain() {
+  if (mode !== 'over') return;
+  if (net) {
+    // back in next to the others
+    clearWreck();
+    let best = null;
+    const tmp = {};
+    for (const p of net.players.values()) {
+      const smp = net.sample(p, net.serverNow() - 150, tmp);
+      if (smp && (!best || smp.s > best.s)) best = { s: smp.s, v: smp.v };
+    }
+    spawn(best ? Math.max(60, best.s - 45) : sim.s + 60, best ? Math.max(20, best.v) : 100 / 3.6);
+    beginPlay();
+  } else startSolo();
+}
+$('o-again').onclick = () => driveAgain();
+$('o-menu').onclick = () => quitToMenu();
+
+// ---------------- Free Period account + the owner's admin panel ----------------
+function paintAccount() {
+  const u = account.user;
+  const chip = $('w-acct');
+  chip.classList.toggle('in', !!u);
+  $('w-acct-name').textContent = u ? u.username : 'Sign in';
+  $('w-acct-role').classList.toggle('hidden', !account.owner);
+  $('w-acct-sync').textContent = u ? ({ saved: 'saved', pending: 'saving…', saving: 'saving…' }[account.sync] || '') : 'to save';
+  $('ac-in').classList.toggle('hidden', !u);
+  $('ac-outv').classList.toggle('hidden', !!u);
+  if (u) {
+    $('ac-av').textContent = u.username.slice(0, 1).toUpperCase();
+    $('ac-name').textContent = u.username;
+    $('ac-role').textContent = account.owner ? 'Owner · every car is yours, and the admin panel is on the menu' : u.role === 'admin' ? 'Admin' : 'Free Period account';
+    $('ac-sync').textContent = { saved: 'Your cash, cars, paint and best scores are saved to this account.', pending: 'Saving to your account…', saving: 'Saving to your account…' }[account.sync] || 'Checking your account…';
+  }
+  $('b-admin').classList.toggle('hidden', !account.owner);
+}
+/** The owner gets every car. */
+function ownerPerks() {
+  if (!account.owner) return;
+  const missing = CARS.filter((c) => !save.owned.includes(c.id));
+  if (!missing.length) return;
+  save.owned.push(...missing.map((c) => c.id));
+  persist(); refreshWallet();
+  if (mode === 'garage') paintGarage(false);
+}
+/** The account had a newer save than this device: swap it in (only ever on the menus). */
+function reloadSave() {
+  const st = readStored(), settings = save.settings;
+  for (const k of Object.keys(save)) delete save[k];
+  Object.assign(save, DEFAULTS(), st);
+  save.settings = settings;
+  fixSave();
+  spec = carById(save.car); sim.setSpec(driveSpec());
+  enterMenuWorld(); setCarModel(spec, paintOf(spec.id));
+  refreshWallet();
+  $('b-route').textContent = routeLabel();
+  ownerPerks();
+}
+$('w-acct').onclick = () => { if (['menu', 'route', 'mp', 'settings', 'admin'].includes(mode)) { show('account'); paintAccount(); $('ac-msg').textContent = ''; } };
+$('ac-back').onclick = () => show('menu');
+async function doLogin(signUp) {
+  const name = $('ac-user').value.trim(), pass = $('ac-pass').value, msg = $('ac-msg');
+  if (!name || !pass) { msg.className = 'status err'; msg.textContent = 'Type your username and password first.'; return; }
+  msg.className = 'status';
+  msg.textContent = `${signUp ? 'Making your account' : 'Logging in'}… if nobody has played for a while the server takes up to a minute to wake up.`;
+  $('ac-login').disabled = $('ac-signup').disabled = true;
+  try {
+    await logIn(name, pass, signUp);
+    $('ac-pass').value = ''; msg.textContent = '';
+  } catch (err) {
+    msg.className = 'status err';
+    msg.textContent = err.waking ? 'The account server did not answer. Try again in a minute.' : err.message;
+  } finally { $('ac-login').disabled = $('ac-signup').disabled = false; }
+}
+$('ac-login').onclick = () => doLogin(false);
+$('ac-signup').onclick = () => doLogin(true);
+$('ac-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(false); });
+$('ac-out').onclick = async () => { $('ac-out').disabled = true; try { await logOut(); } finally { $('ac-out').disabled = false; } };
+$('ac-save').onclick = () => saveNow();
+
+function paintAdmin() {
+  $('a-cash').textContent = `$${fmt(save.cash)}`;
+  for (const b of document.querySelectorAll('[data-k]')) b.classList.toggle('on', !!save.admin[b.dataset.k]);
+  $('a-cars').textContent = `All ${CARS.length} cars are in your garage, in any paint.`;
+}
+$('b-admin').onclick = () => { if (!account.owner) return; show('admin'); paintAdmin(); };
+$('a-back').onclick = () => show('menu');
+for (const b of document.querySelectorAll('[data-cash]')) b.onclick = () => {
+  if (!account.owner) return;
+  const v = +b.dataset.cash;
+  save.cash = v ? save.cash + v : 0;
+  persist(); sound.buy(); paintAdmin(); refreshWallet();
+};
+for (const b of document.querySelectorAll('[data-k]')) b.onclick = () => {
+  if (!account.owner) return;
+  save.admin[b.dataset.k] = !save.admin[b.dataset.k];
+  persist(); paintAdmin();
+};
+account.on(() => { paintAccount(); ownerPerks(); });
+initAccount({ reload: reloadSave, pullOk: () => !['play', 'pause', 'garage', 'over'].includes(mode) });
+
 function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
 
 show('menu');
 renderer.setAnimationLoop(frame);
 
 // handy for testing in the console
-window.__cc = { sim, scorer, world, save, persist, sound, setRoute, get fps() { return fpsAvg; }, get mode() { return mode; }, startSolo, quitToMenu, get net() { return net; } };
+window.__cc = { sim, scorer, world, save, persist, sound, setRoute, get fps() { return fpsAvg; }, get mode() { return mode; }, startSolo, quitToMenu, get net() { return net; }, account, get lives() { return lives; }, get wreck() { return wreck; }, blowUp, loseLife, driveAgain, fire, smoke };
