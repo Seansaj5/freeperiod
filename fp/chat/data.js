@@ -5,7 +5,7 @@
 // chatError(e) turns any error, ours or a raw supabase-js one, into the line the UI shows.
 //
 // Realtime: one Postgres Changes channel carries messages + reactions for every conversation the views subscribe to
-// (RLS decides what each person receives); one more carries profiles, channels and DM membership. Typing and presence
+// (RLS decides what each person receives); one more carries profiles, channels, DM membership and emoji. Typing and presence
 // are Broadcast / Presence on PRIVATE channels, authorized by realtime.messages policies:
 //   chat:presence            every member
 //   chat:typing:c:<id>       members (channel typing)
@@ -27,6 +27,7 @@ const fail = (code, detail, cause) => new ChatError(code, detail, cause);
 const CODES = new Set(['slow_down', 'muted', 'banned', 'everyone_owner_only', 'owner_only_channel', 'dm_refused', 'group_full',
   'not_allowed', 'emoji_full', 'storage_full', 'folder_full', 'network', 'discarded', 'bad_file']);
 const NETWORK = /failed to fetch|fetch failed|networkerror|network request failed|load failed|network/i;
+const ABORTED = /^(AbortError|TimeoutError)\b/; // postgrest-js: "<name>: <message>" for a fetch our timeout aborted
 // "new row for relation "channels" violates check constraint "channels_name_check"" -> 'name'
 const checkField = (msg) => { const m = /constraint "\w+?_(\w+?)_check"/.exec(String(msg || '')); return m ? m[1] : undefined; };
 
@@ -38,7 +39,8 @@ function toChatError(e) {
   const code = e.code == null ? '' : String(e.code);
   // fetch failures: TypeError 'Failed to fetch' (Chrome) / 'Load failed' (Safari) / 'NetworkError ...' (Firefox) / 'fetch failed'
   // (node); storage-js wraps them as StorageUnknownError. Any other TypeError is a bug, not a dropped connection.
-  if (e.name === 'AbortError' || ((e.name === 'TypeError' || e.name === 'StorageUnknownError') && NETWORK.test(msg + ' ' + String(e.originalError && e.originalError.message || '')))) {
+  if (e.name === 'AbortError' || e.name === 'TimeoutError' || ABORTED.test(msg)
+      || ((e.name === 'TypeError' || e.name === 'StorageUnknownError') && NETWORK.test(msg + ' ' + String(e.originalError && e.originalError.message || '')))) {
     return fail('network', undefined, e);
   }
   if (e.name === 'StorageApiError' || e.__isStorageError) {
@@ -55,8 +57,8 @@ function toChatError(e) {
     return fail('error', msg, e);
   }
   if (CODES.has(code)) return Object.assign(fail(code, e.detail, e), e.reason ? { reason: e.reason } : {});
-  // PostgREST: status 0 / empty code = the request never got an answer
-  if (e.status === 0 || (!code && NETWORK.test(msg))) return fail('network', undefined, e);
+  // PostgREST: an empty code with a fetch message = the request never got an answer (check() also maps status 0)
+  if (!code && NETWORK.test(msg)) return fail('network', undefined, e);
   if (CODES.has(msg)) return fail(msg, e.details || e.detail, e);   // raise exception '<code>' (P0001), 42501 storage caps
   if (code === '23505') return fail('23505', e.details, e);
   if (code === '23514') return fail('not_allowed', checkField(msg), e);
@@ -65,7 +67,10 @@ function toChatError(e) {
   }
   return fail('error', msg || code, e);
 }
-const check = (r) => { if (r && r.error) throw toChatError(r.error); return r ? r.data : null; };
+const check = (r) => {
+  if (r && r.error) throw r.status === 0 ? fail('network', undefined, r.error) : toChatError(r.error);
+  return r ? r.data : null;
+};
 
 export function chatError(e) {
   let x;
@@ -89,9 +94,13 @@ export function chatError(e) {
 // ---------- client + who I am (test seam: one injected client per signed-in test user) ----------
 let seam = null;
 const reencoder = { fn: reencodePicture };
-export function _inject({ client, me, reencode } = {}) {
+// A send that gets no answer at all (captive portal, a stalled school network) fails as `network` instead of hanging:
+// the insert after 30 s, an upload after 30 s plus 10 s per MB (about 100 KB/s).
+const limits = { insertMs: 30000, uploadMs: 30000, uploadBytesPerMs: 100 };
+export function _inject({ client, me, reencode, limits: l } = {}) {
   if (client || me) seam = { client, me };
   if (reencode) reencoder.fn = reencode;
+  if (l) Object.assign(limits, l);
 }
 function sb() {
   const c = seam && seam.client ? seam.client : getChat();
@@ -108,7 +117,7 @@ const uuid = () => (globalThis.crypto && globalThis.crypto.randomUUID ? globalTh
 async function myRole() { return check(await sb().rpc('my_role')) || 'guest'; }
 async function ownerOnly() { if ((await myRole()) !== 'owner') throw fail('not_allowed'); }
 
-// message id -> 'c:<id>' | 'd:<uuid>' (null = not visible): routes reaction events to the right conversation
+// message id -> 'c:<id>' | 'd:<uuid>' for every message this page has loaded or received: routes reaction events
 const where = new Map();
 function remember(id, key) {
   if (id == null) return;
@@ -161,11 +170,15 @@ export async function loadMessages(target, { before, limit = 50 } = {}) {
 // whose answer was lost hits the unique (author_id, client_id) index (23505) and resolves with the stored row.
 let tempN = 0;
 const queue = new Map(); // tempId -> job
+// Refusals that prove the insert stored nothing. Anything else (no answer, an unknown error) may have been stored.
+const REFUSED = new Set(['slow_down', 'muted', 'banned', 'everyone_owner_only', 'owner_only_channel', 'dm_refused', 'not_allowed', 'bad_file']);
 
 export function sendMessage(target, { body = '', replyTo, files = [], clientId, onPending } = {}) {
   const tempId = 'tmp-' + (++tempN) + '-' + Date.now().toString(36);
+  // Each picture keeps its re-encoded blob and its storage path across Retries: an upload whose answer was lost is
+  // found again (409 on the same name = it is there) instead of being uploaded twice.
   const job = { tempId, uid: myId(), target: { ...target }, body: String(body ?? ''), replyTo: replyTo ?? null, files: [...(files || [])].slice(0, 4),
-    clientId: clientId || uuid(), atts: [], tried: false, cancelled: false, run: null };
+    clientId: clientId || uuid(), blobs: [], paths: [], atts: [], tried: false, maybeStored: false, cancelled: false, run: null };
   queue.set(tempId, job);
   if (onPending) {
     try {
@@ -182,30 +195,55 @@ export function retrySend(tempId) {
   return deliver(job);
 }
 
+// Removes a job's uploaded pictures (best effort: a leftover only waits for the server's media cleanup).
+function dropUploads(job) {
+  const atts = job.atts.splice(0);
+  const byBucket = {};
+  for (const a of atts) (byBucket[a.bucket] = byBucket[a.bucket] || []).push(a.path);
+  for (const [b, paths] of Object.entries(byBucket)) Promise.resolve().then(() => sb().storage.from(b).remove(paths)).catch(() => {});
+}
+
 // Cancels a queued or retrying send (sync, never throws). A send the server already accepted can't be undone: its row
-// just arrives. Pictures already uploaded for it are removed unless the insert was ever attempted (it may have been
-// stored with them; the server's media cleanup takes any leftovers).
+// just arrives. Its uploaded pictures count toward the person's 150 MB, so they go too (when a running attempt ends, if
+// one is running), unless the message may have been stored with them: then only once a lookup by client_id shows it wasn't.
 export function discardSend(tempId) {
   const job = queue.get(tempId);
   queue.delete(tempId);
   if (!job) return;
   job.cancelled = true;
-  if (!job.tried && job.atts.length) {
-    const byBucket = {};
-    for (const a of job.atts) (byBucket[a.bucket] = byBucket[a.bucket] || []).push(a.path);
-    for (const [b, paths] of Object.entries(byBucket)) Promise.resolve().then(() => sb().storage.from(b).remove(paths)).catch(() => {});
-  }
+  if (!job.run) cleanupDiscarded(job);
+}
+function cleanupDiscarded(job) {
+  if (job.sent) return;
+  // a picture whose upload timed out may still have landed: it was never part of an insert, so it can always go
+  const unsent = job.paths.filter((p) => p && !job.atts.some((a) => a.path === p));
+  if (unsent.length) Promise.resolve().then(() => sb().storage.from(job.target.dm ? 'dm-media' : 'public-media').remove(unsent)).catch(() => {});
+  if (!job.atts.length) return;
+  if (!job.maybeStored) { dropUploads(job); return; } // never inserted, or every insert was refused outright
+  const uid = job.uid;
+  Promise.resolve()
+    .then(() => sb().from('messages').select('id').eq('author_id', uid).eq('client_id', job.clientId).maybeSingle())
+    .then((r) => { if (!r.error && !r.data && myId() === uid) dropUploads(job); }, () => {});
 }
 
 function deliver(job) {
   if (job.run) return job.run;
   job.run = (async () => {
-    try { return await deliverOnce(job); } finally { job.run = null; }
+    try { const m = await deliverOnce(job); job.sent = true; return m; } finally {
+      job.run = null;
+      if (job.cancelled && !job.sent) cleanupDiscarded(job); // discarded while this attempt ran
+    }
   })();
   return job.run;
 }
 
 const extOf = (type) => (type === 'image/gif' ? 'gif' : type === 'image/png' ? 'png' : type === 'image/jpeg' ? 'jpg' : 'webp');
+// Rejects as `network` when p hasn't settled after ms (the request itself may still finish: callers allow for that).
+function within(p, ms) {
+  let t = 0;
+  return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(fail('network', 'timeout')), ms); })]).finally(() => clearTimeout(t));
+}
+const timeoutSignal = (ms) => (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ms) : null);
 
 async function deliverOnce(job) {
   const gone = () => { if (job.cancelled || !queue.has(job.tempId)) throw fail('discarded'); };
@@ -218,29 +256,42 @@ async function deliverOnce(job) {
   const bucket = dm ? 'dm-media' : 'public-media';
   const prefix = dm ? dm + '/' + me + '/' : 'chat/' + channel + '/' + me + '/';
   for (let i = job.atts.length; i < job.files.length; i++) {
-    const f = job.files[i];
-    const plan = planUpload({ type: f && f.type, size: f && f.size }, 'chat');
-    if (!plan.ok) throw Object.assign(fail('bad_file'), { reason: plan.reason });
-    let blob;
-    try { blob = plan.mode === 'reencode' ? await reencoder.fn(f, plan) : f; } catch (e) { throw Object.assign(fail('bad_file', undefined, e), { reason: (e && e.message) || 'That picture can’t be used' }); }
-    gone();
-    const path = prefix + uuid() + '.' + extOf(blob.type);
+    if (!job.blobs[i]) {
+      const f = job.files[i];
+      const plan = planUpload({ type: f && f.type, size: f && f.size }, 'chat');
+      if (!plan.ok) throw Object.assign(fail('bad_file'), { reason: plan.reason });
+      try { job.blobs[i] = plan.mode === 'reencode' ? await reencoder.fn(f, plan) : f; } catch (e) { throw Object.assign(fail('bad_file', undefined, e), { reason: (e && e.message) || 'That picture can’t be used' }); }
+      gone();
+    }
+    const blob = job.blobs[i];
+    const path = job.paths[i] || (job.paths[i] = prefix + uuid() + '.' + extOf(blob.type));
     const size = await imageSize(blob);
-    check(await c.storage.from(bucket).upload(path, blob, { contentType: blob.type, upsert: false, cacheControl: '31536000' }));
-    if (job.cancelled) { c.storage.from(bucket).remove([path]).catch(() => {}); throw fail('discarded'); } // discarded mid-upload
+    const up = await within(c.storage.from(bucket).upload(path, blob, { contentType: blob.type, upsert: false, cacheControl: '31536000' }),
+      limits.uploadMs + blob.size / limits.uploadBytesPerMs);
+    // already there = an earlier attempt of this send stored it (the name is ours alone) and only its answer was lost
+    if (up.error && toChatError(up.error).code !== '23505') throw toChatError(up.error);
     const a = { bucket, path, kind: blob.type === 'image/gif' ? 'gif' : 'image', bytes: blob.size };
     if (size) { a.w = size.w; a.h = size.h; }
     job.atts.push(a);
+    gone(); // discarded mid-upload: deliver() cleans up
   }
   job.tried = true;
-  const r = await c.from('messages').insert({ channel_id: channel ?? null, dm_id: dm, body: job.body, reply_to: job.replyTo, attachments: job.atts,
-    client_id: job.clientId }).select(MSG_SELECT).single();
+  let q = c.from('messages').insert({ channel_id: channel ?? null, dm_id: dm, author_id: job.uid, body: job.body, reply_to: job.replyTo,
+    attachments: job.atts, client_id: job.clientId }).select(MSG_SELECT);
+  const sig = timeoutSignal(limits.insertMs);
+  if (sig) q = q.abortSignal(sig);
+  const r = await q.single();
   let row;
   if (r.error && String(r.error.code) === '23505') {
     // the same client_id is already stored: an earlier attempt went through and only its answer was lost
+    job.maybeStored = true;
     row = check(await c.from('messages').select(MSG_SELECT).eq('author_id', me).eq('client_id', job.clientId).maybeSingle());
     if (!row) throw toChatError(r.error);
-  } else row = check(r);
+  } else if (r.error) {
+    const e = r.status === 0 ? fail('network', undefined, r.error) : toChatError(r.error);
+    if (!REFUSED.has(e.code)) job.maybeStored = true;
+    throw e;
+  } else row = r.data;
   queue.delete(job.tempId);
   return present(row);
 }
@@ -279,8 +330,24 @@ export async function editMessage(id, body) {
   const text = String(body ?? '');
   await updateMessage(id, { body: text }, (cur) => cur.author_id === me && cur.body === text);
 }
+// Deleting your own message also removes its pictures (they count toward your 150 MB). A picture an open report names
+// stays for Sean while the report is open: storage answers without it, and its path comes back in `underReview`. Staff
+// deleting someone else's message leave the files (report evidence; the server's media cleanup takes them later).
 export async function deleteMessage(id) {
+  const me = myId();
+  const cur = me ? check(await sb().from('messages').select('author_id, attachments').eq('id', id).maybeSingle()) : null;
   await updateMessage(id, { deleted: true }, () => false);
+  const out = { underReview: [] };
+  if (!cur || cur.author_id !== me || !Array.isArray(cur.attachments)) return out;
+  const byBucket = {};
+  for (const a of cur.attachments) if (a && a.path && !a.expired && (a.bucket === 'public-media' || a.bucket === 'dm-media')) (byBucket[a.bucket] = byBucket[a.bucket] || []).push(a.path);
+  for (const [b, paths] of Object.entries(byBucket)) {
+    const r = await sb().storage.from(b).remove(paths);
+    if (r.error) continue; // the message is deleted either way; the cleanup takes the files later
+    const gone = new Set((r.data || []).map((o) => o.name));
+    for (const p of paths) if (!gone.has(p)) out.underReview.push(p);
+  }
+  return out;
 }
 export async function pin(id, on) {
   await updateMessage(id, { pinned: !!on }, (cur) => cur.pinned === !!on);
@@ -311,7 +378,7 @@ export async function unreadCounts() {
 }
 
 // ---------- realtime: messages + reactions ----------
-const live = { ch: null, client: null, subs: new Map(), status: 'connecting', n: 0, lookups: new Map() };
+const live = { ch: null, client: null, uid: null, subs: new Map(), status: 'connecting', n: 0 };
 const each = (key, fn) => { for (const hd of [...(live.subs.get(key) || [])]) { try { fn(hd); } catch (e) { console.error(e); } } };
 function setLive(s) {
   if (live.status === s) return;
@@ -323,26 +390,21 @@ function onRow(kind, row) {
   const key = keyOfRow(row);
   remember(row.id, key);
   if (row.deleted) row = { ...row, body: '', attachments: [] };
+  if (kind === 'insert' && row.dm_id && !live.subs.has(key)) { emitServer('dmMessage', row); return; } // a DM this page doesn't know yet
   each(key, (hd) => hd[kind] && hd[kind](row));
 }
 function onReact(row, on) {
   if (!row || row.message_id == null) return;
   const ev = { message_id: row.message_id, user_id: row.user_id, emoji: row.emoji, on };
-  const go = (key) => { if (key) each(key, (hd) => hd.react && hd.react(ev)); };
-  if (where.has(row.message_id)) { go(where.get(row.message_id)); return; }
-  // a message this page never saw: ask where it lives (RLS answers nothing for one this person can't read)
-  let p = live.lookups.get(row.message_id);
-  if (!p) {
-    p = Promise.resolve().then(() => sb().from('messages').select('id, channel_id, dm_id').eq('id', row.message_id).maybeSingle())
-      .then((r) => { const m = r && r.data; const key = m ? keyOfRow(m) : null; remember(row.message_id, key); return key; }, () => null)
-      .finally(() => live.lookups.delete(row.message_id));
-    live.lookups.set(row.message_id, p);
-  }
-  p.then(go);
+  // Every message the views show was loaded or received here (so it is in `where`); a reaction on any other message
+  // has nothing to update. (Asking the database where it lives would cost a query per client per reaction.)
+  const key = where.get(row.message_id);
+  if (key) each(key, (hd) => hd.react && hd.react(ev));
 }
 function startLive() {
   const c = sb();
   live.client = c;
+  live.uid = myId();
   live.status = 'connecting';
   const ch = c.channel('chat-db-' + (++live.n) + '-' + Math.random().toString(36).slice(2, 8))
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p) => onRow('insert', p.new))
@@ -365,18 +427,20 @@ function stopLive() {
   const { ch, client } = live;
   live.ch = null; live.client = null;
   if (ch && client) client.removeChannel(ch).catch(() => {});
-  if (!live.subs.size) { where.clear(); live.lookups.clear(); } // "not visible" answers belong to the account that asked
 }
 
+// handlers.status: 'connecting' (the first join: rows sent before it is live are not delivered, so catch up once 'live'
+// comes, no banner), 'live', 'reconnecting'. Inserts into a DM nobody subscribed to go to subscribeServer's dmMessage.
 export function subscribe(target, handlers = {}) {
   const key = tkey(target);
-  if (live.ch && live.client !== sb()) stopLive();
+  // one client for every account (client.js): a new account gets a new channel, joined with its own token
+  if (live.ch && (live.client !== sb() || live.uid !== myId())) { stopLive(); where.clear(); }
   if (!live.ch) startLive();
   const set = live.subs.get(key) || new Set();
   live.subs.set(key, set);
   const hd = { ...handlers };
   set.add(hd);
-  if (live.status === 'reconnecting' && hd.status) setTimeout(() => { if (set.has(hd)) hd.status('reconnecting'); }, 0);
+  if (live.status !== 'live' && hd.status) { const s0 = live.status; setTimeout(() => { if (set.has(hd) && live.status === s0) hd.status(s0); }, 0); }
   let done = false;
   return () => {
     if (done) return;
@@ -387,11 +451,12 @@ export function subscribe(target, handlers = {}) {
   };
 }
 
-// ---------- realtime: profiles, channels, DM membership ----------
-const server = { ch: null, client: null, subs: new Set(), n: 0, status: 'connecting' };
+// ---------- realtime: profiles, channels, DM membership, emoji (+ dmMessage for DMs nobody subscribed to) ----------
+const server = { ch: null, client: null, uid: null, subs: new Set(), n: 0, status: 'connecting' };
 function emitServer(kind, payload) { for (const hd of [...server.subs]) { try { if (hd[kind]) hd[kind](payload); } catch (e) { console.error(e); } } }
 function startServer(c) {
   server.client = c;
+  server.uid = myId();
   server.status = 'connecting';
   const ch = c.channel('chat-srv-' + (++server.n) + '-' + Math.random().toString(36).slice(2, 8))
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'profiles' }, (p) => emitServer('profile', p.new))
@@ -402,12 +467,13 @@ function startServer(c) {
     })
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_members' }, (p) => emitServer('dmMember', { type: 'insert', dm_id: p.new.dm_id, user_id: p.new.user_id }))
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dm_members' }, (p) => emitServer('dmMember', { type: 'delete', dm_id: p.old.dm_id, user_id: p.old.user_id }))
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emoji' }, (p) => emitServer('emoji', { type: 'insert', row: p.new }))
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'emoji' }, (p) => emitServer('emoji', { type: 'delete', row: { name: p.old && p.old.name } }))
     .on('system', {}, (p) => {
       if (server.ch !== ch || !p || p.extension !== 'postgres_changes') return;
       server.status = p.status === 'ok' ? 'live' : 'reconnecting';
       emitServer('status', server.status);
     });
-  // emoji is not in the supabase_realtime publication: emoji changes show on the next listEmoji().
   server.ch = ch;
   ch.subscribe((s) => {
     if (server.ch !== ch) return;
@@ -422,7 +488,7 @@ function stopServer() {
 }
 export function subscribeServer(handlers = {}) {
   const c = sb();
-  if (server.ch && server.client !== c) stopServer();
+  if (server.ch && (server.client !== c || server.uid !== myId())) stopServer();
   if (!server.ch) startServer(c);
   const hd = { ...handlers };
   server.subs.add(hd);
@@ -485,8 +551,12 @@ function closeRoom(r) {
 function releaseRoom(r) { if (r && !r.dead && --r.refs <= 0) closeRoom(r); }
 
 let botIds = null;
-function bots() {
-  if (!botIds) botIds = Promise.resolve().then(() => sb().from('profiles').select('id').eq('is_bot', true)).then((r) => (r.data || []).map((x) => x.id), () => []);
+function bots() { // a failed lookup is not kept: the next sync asks again
+  if (!botIds) {
+    botIds = Promise.resolve().then(() => sb().from('profiles').select('id').eq('is_bot', true))
+      .then((r) => { if (r.error) throw r.error; return (r.data || []).map((x) => x.id); })
+      .catch(() => { botIds = null; return []; });
+  }
   return botIds;
 }
 // onSync(ids): everyone online now (user ids), me and the helper bot included.
@@ -663,7 +733,7 @@ export async function updateProfile(patch = {}) {
   }
   const old = [];
   for (const k of ['avatar_path', 'banner_path']) if (k in changed && cur[k] && cur[k] !== changed[k]) old.push(cur[k]);
-  if (old.length) { try { await sb().storage.from('public-media').remove(old); } catch { /* the cleanup takes it later */ } }
+  if (old.length) await sb().storage.from('public-media').remove(old); // best effort: a leftover goes on the next upload (strays)
   return rows[0];
 }
 
@@ -740,15 +810,30 @@ export async function uploadEmoji(name, file) {
   try { blob = plan.mode === 'reencode' ? await reencoder.fn(file, plan) : file; } catch (e) { throw Object.assign(fail('bad_file', undefined, e), { reason: (e && e.message) || 'That picture can’t be used' }); }
   const path = 'emoji/' + name + '.' + extOf(blob.type);
   const store = sb().storage.from('public-media');
-  check(await store.upload(path, blob, { contentType: blob.type, upsert: false, cacheControl: '31536000' }));
+  const put = () => store.upload(path, blob, { contentType: blob.type, upsert: false, cacheControl: '31536000' });
+  let up = await put();
+  if (up.error && toChatError(up.error).code === '23505') {
+    // a file by that name but no emoji row: left over from a delete whose file removal failed, or an insert that got no
+    // answer and wasn't stored. Clear it and upload again; a real emoji of that name is "already taken".
+    if (check(await sb().from('emoji').select('name').eq('name', name).maybeSingle())) throw fail('23505');
+    await store.remove([path]);
+    up = await put();
+  }
+  check(up);
   const r = await sb().from('emoji').insert({ name, path }).select().single();
-  if (r.error) { try { await store.remove([path]); } catch { /* cleanup takes it */ } }
-  return check(r);
+  if (r.error) {
+    const e = r.status === 0 ? fail('network', undefined, r.error) : toChatError(r.error);
+    // the file goes only when the row was certainly refused: without an answer the row may be stored
+    if (e.code === 'emoji_full' || e.code === '23505' || e.code === 'not_allowed') await store.remove([path]);
+    throw e;
+  }
+  return r.data;
 }
 export async function deleteEmoji(name) {
   const rows = check(await sb().from('emoji').delete().eq('name', name).select('path'));
   if (!rows || !rows.length) throw fail('not_allowed');
-  try { await sb().storage.from('public-media').remove(rows.map((r) => r.path)); } catch { /* cleanup takes it */ }
+  // best effort: a file left behind is cleared by the next upload of that name (above)
+  await sb().storage.from('public-media').remove(rows.map((r) => r.path));
 }
 
 // ---------- friends ----------
@@ -826,3 +911,6 @@ export async function botUsage() {
   const day = new Date().toISOString().slice(0, 10);
   return check(await sb().from('bot_usage').select('*').eq('day', day).order('count', { ascending: false })) || [];
 }
+
+// Pure helpers, exported for the repo's unit tests (tests/chat-data.test.mjs).
+export const _internals = { toChatError, imageSize, present, likeSafe, checkField };

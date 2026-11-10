@@ -742,22 +742,28 @@ export function mountChatApp(root, { compact = false } = {}) {
     unread.set(key, u);
     drawSide();
   }
+  // Realtime only delivers rows sent after it has joined: whatever arrived before (on the first join after start, or
+  // while reconnecting) is fetched again once it is live.
+  function catchUp() {
+    messages.resync();
+    if (st === 'ready') {
+      Promise.resolve().then(() => data.unreadCounts()).then(applyUnread).catch(() => {});
+      loadDMs();
+      Promise.resolve().then(() => (typeof data.listMembers === 'function' ? data.listMembers() : null)).then((l) => { if (Array.isArray(l)) { setMembersList(l); messages.repaint(); drawMembers(); setComposer(); } }).catch(() => {});
+    }
+  }
+  let joining = false; // the first join after start(): no banner, but catch up once it is live
   function setConn(s) {
+    if (s === 'connecting') { joining = true; return; }
     const next = s === 'reconnecting' || s === 'offline' ? 'reconnecting' : 'live';
+    if (s === 'live' && joining) { joining = false; if (conn === 'live') { if (started) catchUp(); return; } }
     if (next === conn) return;
     const was = conn;
     conn = next;
     drawBanner(); drawSide();
-    if (was === 'reconnecting' && next === 'live' && started) {
-      messages.resync();
-      if (st === 'ready') {
-        Promise.resolve().then(() => data.unreadCounts()).then(applyUnread).catch(() => {});
-        loadDMs();
-        Promise.resolve().then(() => (typeof data.listMembers === 'function' ? data.listMembers() : null)).then((l) => { if (Array.isArray(l)) { setMembersList(l); messages.repaint(); drawMembers(); setComposer(); } }).catch(() => {});
-      }
-    }
+    if (was === 'reconnecting' && next === 'live' && started) catchUp();
   }
-  const onOnline = () => setConn('live');
+  const onOnline = () => setConn('online');
   const onOffline = () => setConn('reconnecting');
   addEventListener('online', onOnline);
   addEventListener('offline', onOffline);
@@ -803,6 +809,10 @@ export function mountChatApp(root, { compact = false } = {}) {
           if (!ev || st !== 'ready') return;
           if (ev.user_id === myId() || dms.some((d) => d.id === ev.dm_id)) { clearTimeout(dmReload); dmReload = setTimeout(() => loadDMs(), 120); }
         },
+        // a message in a DM this page doesn't list (its dm_members insert came before the channel joined), and the
+        // channel's own (re)join: DMs started meanwhile show up
+        dmMessage: (row) => { if (row && st === 'ready' && !dms.some((d) => d.id === row.dm_id)) { clearTimeout(dmReload); dmReload = setTimeout(() => loadDMs(), 120); } },
+        status: (s) => { if (s === 'live' && st === 'ready') { clearTimeout(dmReload); dmReload = setTimeout(() => loadDMs(), 120); } },
       });
     } catch { serverOff = null; }
   }
