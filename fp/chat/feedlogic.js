@@ -30,8 +30,13 @@ export function splitPending(temps, uid) {
 }
 
 // msgs sorted oldest -> newest. Over max: drop the oldest, or the newest when the reader is up in the history.
-export function capWindow(msgs, max, trimNewest) {
+// The row with id keepId (the one being edited) is never dropped; the window keeps its size by dropping the next row instead.
+export function capWindow(msgs, max, trimNewest, keepId = null) {
   const over = msgs.length - max;
   if (over <= 0) return { keep: msgs, dropped: [] };
-  return trimNewest ? { keep: msgs.slice(0, max), dropped: msgs.slice(max) } : { keep: msgs.slice(over), dropped: msgs.slice(0, over) };
+  const order = trimNewest ? msgs.slice().reverse() : msgs;
+  const dropped = [];
+  for (const m of order) { if (dropped.length >= over) break; if (keepId == null || m.id !== keepId) dropped.push(m); }
+  const gone = new Set(dropped);
+  return { keep: msgs.filter((m) => !gone.has(m)), dropped: trimNewest ? dropped.reverse() : dropped };
 }

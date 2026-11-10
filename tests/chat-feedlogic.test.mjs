@@ -33,3 +33,12 @@ test('cap trims the oldest end, or the newest end while reading history', () => 
   r = capWindow(msgs.slice(0, 500), CAP, true);
   assert.equal(r.dropped.length, 0); assert.equal(r.keep.length, 500);
 });
+test('cap never trims the row being edited', () => {
+  const msgs = Array.from({ length: 520 }, (_, i) => ({ id: i }));
+  let r = capWindow(msgs, CAP, false, 3);
+  assert.equal(r.keep.length, 500); assert.equal(r.dropped.length, 20);
+  assert.ok(r.keep.some((m) => m.id === 3)); assert.ok(!r.dropped.some((m) => m.id === 3));
+  assert.deepEqual(r.keep.map((m) => m.id).slice(0, 3), [3, 21, 22]); // still in order
+  r = capWindow(msgs, CAP, true, 510);
+  assert.ok(r.keep.some((m) => m.id === 510)); assert.equal(r.keep.length, 500); assert.equal(r.keep[r.keep.length - 1].id, 510);
+});

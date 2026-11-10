@@ -75,6 +75,12 @@ export function mountMessages(el, ctx) {
       norm(m); s.ids.set(m.id, m); s.msgs.push(m);
     }
     s.msgs.sort(sortKey);
+    reconcile(s);
+  }
+  // A fetched row that carries a temp's client_id IS that send (accepted although its answer was lost): the temp goes.
+  function reconcile(s) {
+    if (!s.temps.length) return;
+    for (const m of s.msgs) { const t = m.client_id ? matchTemp(s.temps, m) : null; if (t) dropTemp(t); }
   }
   const find = (id) => { for (const s of stores.values()) { const m = s.ids.get(id); if (m) return [s, m]; } return [null, null]; };
   const findTemp = (tempId) => { for (const [k, arr] of pendingByTarget) { const m = arr.find((x) => x.tempId === tempId); if (m) return [stores.get(k) || null, m]; } return [null, null]; };
@@ -86,7 +92,7 @@ export function mountMessages(el, ctx) {
   // Over 500 messages: drop the far end (the oldest, or the newest while the reader is up in the history; coming back re-fetches).
   function enforceCap(s) {
     const up = s === store && !stick;
-    const r = capWindow(s.msgs, CAP, up);
+    const r = capWindow(s.msgs, CAP, up, editing);
     if (!r.dropped.length) return;
     s.msgs = r.keep;
     for (const m of r.dropped) s.ids.delete(m.id);
@@ -565,9 +571,9 @@ export function mountMessages(el, ctx) {
       const key = tkey(m.dm_id ? { dm: m.dm_id } : { channel: m.channel_id });
       const s = stores.get(key);
       if (!s || !s.loaded) return;
-      if (s.ids.has(m.id)) { api.update(m); return; }
       const t = matchTemp(s.temps, m); // our own message coming back before sendMessage resolved: it replaces the pending copy
       if (t) dropTemp(t);
+      if (s.ids.has(m.id)) { api.update(m); return; }
       if (s.newerCut) { // the window ends mid-history: the newest messages are re-fetched when the reader comes back
         if (s === store && !isMine(m)) { s.unseen++; drawJump(); }
         return;
