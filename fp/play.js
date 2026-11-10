@@ -5,13 +5,15 @@ import { syncGame, watch } from './saves.js';
 import { touchRecent, addPlay, flush as flushMeta } from './meta.js';
 import { resolveGame } from './status.js';
 import { dailyCheckin } from './streak.js';
-import { startActivity, cleanRoom, withJoin } from './chat/activity.js';
+import { startActivity, cleanRoom, withJoin, friendInRoom } from './chat/activity.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const id = params.get('g');
 // A friend's Join button (home page): play.html?g=<game>&room=<CODE>. Games that can deep-join (games.js `joins`) get
-// ?join=<CODE> on their own URL and go straight into that room.
+// ?join=<CODE> on their own URL and go straight into that room, but only when an accepted chat friend is in it right
+// now (friendInRoom); any other room link opens the game normally. Only the first load joins: Reload, F5 (the room
+// leaves the address once the game has loaded) and New tab open the game's menu.
 const joinRoom = cleanRoom(params.get('room'));
 const found = (window.GAMES || []).find((g) => g.id === id);
 const stage = $('stage');
@@ -37,7 +39,8 @@ if (!found) {
 
 async function run(rawGame) {
   const game = resolveGame(rawGame);
-  const gameUrl = game.joins && joinRoom ? withJoin(game.url, joinRoom) : game.url;
+  const gameUrl = game.url;
+  let joinUrl = '';   // set when the Join link's room checks out; used by the first load only
   let gameOrigin = '';
   try { gameOrigin = new URL(gameUrl, location.href).origin; } catch { /* leave empty: no hand-off */ }
 
@@ -134,7 +137,8 @@ async function run(rawGame) {
     loader.classList.remove('gone');
     setStatus('Loading the game...');
     frame = document.createElement('iframe');
-    frame.src = gameUrl;
+    frame.src = joinUrl || gameUrl;
+    joinUrl = '';
     frame.title = game.title;
     frame.allow = 'fullscreen; autoplay; gamepad; clipboard-read; clipboard-write; microphone';
     frame.allowFullscreen = true;
@@ -186,6 +190,14 @@ async function run(rawGame) {
     ]);
   }
   if (game.saveKey) { try { watch(game); } catch { /* sync is optional */ } }
+  if (game.joins && joinRoom) {
+    loader.classList.remove('gone');
+    setStatus('Finding your friend\u2019s room\u2026');
+    if (!loader.isConnected) stage.append(loader);
+    if (await friendInRoom(game.id, joinRoom)) joinUrl = withJoin(game.url, joinRoom);
+    // the room leaves the address bar: F5 must not drop the player back into it
+    try { const u = new URL(location.href); u.searchParams.delete('room'); history.replaceState(history.state, '', u.pathname + u.search + u.hash); } catch { /* keep it */ }
+  }
   ready = true;
   start();
 }

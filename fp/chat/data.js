@@ -12,6 +12,7 @@
 //   chat:typing:d:<uuid>     members of that DM only
 import { getChat, me as sessionMe } from './client.js';
 import { planUpload, reencode as reencodePicture } from './media.js';
+import { GRANTED_BADGES } from './flair.js';
 
 // ---------- errors ----------
 export class ChatError extends Error {
@@ -752,6 +753,7 @@ export async function updateProfile(patch = {}) {
   }
   const old = [];
   for (const k of ['avatar_path', 'banner_path']) if (k in changed && cur[k] && cur[k] !== changed[k]) old.push(cur[k]);
+  if ('show_activity' in changed) activitySettingChanged(me, rows[0].show_activity !== false); // an open game page stops / starts at once
   if (old.length) await sb().storage.from('public-media').remove(old); // best effort: a leftover goes on the next upload (strays)
   return rows[0];
 }
@@ -978,4 +980,40 @@ export async function friendsPlaying() {
   const profiles = check(await sb().from('profiles').select('*').in('id', ids)) || [];
   const by = new Map(profiles.map((p) => [p.id, p]));
   return rows.filter((r) => by.has(r.user_id)).map((r) => ({ ...r, profile: by.get(r.user_id) }));
+}
+
+// The person's own "Show friends what I'm playing" (0010), read before every heartbeat: while it is off, nothing about the
+// game or the room is sent (a missing row = not a member = off).
+export async function myShowActivity() {
+  const me = needMe();
+  const row = check(await sb().from('profiles').select('show_activity').eq('id', me).maybeSingle());
+  return !!row && row.show_activity !== false;
+}
+// The setting just changed (updateProfile, in this page or another tab of this browser): the play page's heartbeat
+// stops (and clears) or starts at once instead of at its next beat. fn({ uid, on }).
+const ACTIVITY_KEY = 'fp.chat.activity';
+const settingFns = new Set();
+export function onActivitySetting(fn) { settingFns.add(fn); return () => settingFns.delete(fn); }
+function tellSetting(v) { for (const fn of [...settingFns]) { try { fn(v); } catch (e) { console.error(e); } } }
+function activitySettingChanged(uid, on) {
+  tellSetting({ uid, on });
+  try { if (globalThis.localStorage) globalThis.localStorage.setItem(ACTIVITY_KEY, JSON.stringify({ uid, on, at: Date.now() })); } catch { /* storage blocked */ }
+}
+if (typeof globalThis.addEventListener === 'function') {
+  globalThis.addEventListener('storage', (e) => {
+    if (!e || e.key !== ACTIVITY_KEY || !e.newValue) return;
+    try { const v = JSON.parse(e.newValue); if (v && typeof v.uid === 'string' && typeof v.on === 'boolean') tellSetting({ uid: v.uid, on: v.on }); } catch { /* not ours */ }
+  });
+}
+
+// ---------- badges (0011) ----------
+// Owner only: give (on) or take away (off) one of the owner-granted badges. Returns the person's granted_badges
+// afterwards (fixed order, no repeats). The database refuses anyone else (not_allowed), a badge outside the list
+// (not_allowed, detail 'badge') and more than 30 changes a minute (slow_down). Early Member is never granted: the
+// database sets it once, for the first 5 real members.
+export async function grantBadge(userId, badge, on = true) {
+  if (!GRANTED_BADGES.includes(badge)) throw fail('not_allowed', 'badge');
+  needMe();
+  const list = check(await sb().rpc('grant_badge', { target: userId, badge, on: on !== false }));
+  return Array.isArray(list) ? list.filter((b) => GRANTED_BADGES.includes(b)) : [];
 }

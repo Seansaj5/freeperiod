@@ -3,7 +3,7 @@
 import { h } from '../../ui.js';
 import { CHAT } from '../config.js';
 import { mediaUrl } from '../data.js';
-import { paintName, badgesFor, badgeInfo, FRAMES } from '../flair.js';
+import { paintName, badgesFor, badgeInfo, badgeLabel, badgeSvg, FRAMES } from '../flair.js';
 import { mountFrame } from '../frames.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -163,7 +163,8 @@ export function nameEl(p, tag = 'span', cls = 'cx-name', { plain = false } = {})
   return el;
 }
 
-// Small badge next to a name in messages: the Bing Ball rank tier (owner/mod: roleMark). The Early Member star is card-only (badgePills).
+// Small badge next to a name in messages: the Bing Ball rank tier (owner/mod: roleMark; bot: the BOT tag). Every other
+// badge is card-only (badgePills), so chat lines stay compact.
 export function badgeMarks(p) {
   const ids = badgesFor(p || {}).filter((id) => id.startsWith('bb:'));
   if (!ids.length) return null;
@@ -177,15 +178,54 @@ export function badgeMarks(p) {
   }
   return box.childElementCount ? box : null;
 }
-// Labeled badge pills for the profile card, in badgesFor order.
+// The profile card's badge row (Discord-style): one icon per badge, in badgesFor order. Each is a button only so it can
+// be focused and tapped: hover, focus or a tap shows its tooltip (title + "since" line); the aria-label says the same.
 export function badgePills(p) {
   return badgesFor(p || {}).map((id) => {
     const info = badgeInfo(id);
-    if (!info) return null;
-    if (id.startsWith('streak:')) return h('span', { class: 'cx-pill streak', style: '--bc:' + info.color, title: 'Daily streak badge' }, h('span', { text: info.label }));
-    const ic = id === 'owner' ? icon('crown') : id === 'mod' ? icon('shield') : id === 'early' ? icon('star') : icon('trophy');
-    return h('span', { class: 'cx-pill ' + (id.startsWith('bb:') ? 'rank' : id), style: '--bc:' + info.color, title: id.startsWith('bb:') ? 'Bing Ball rank: ' + info.label : info.label }, ic, h('span', { text: info.label }));
+    const lab = badgeLabel(id, p);
+    const svg = badgeSvg(id, 22);
+    if (!info || !lab || !svg) return null;
+    const b = h('button', { type: 'button', class: 'cx-pbdg', 'aria-label': lab.text, dataset: { badge: id }, style: '--bc:' + info.color }, svg);
+    b._tip = { title: lab.title, detail: lab.detail, color: info.color };
+    b.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') showBadgeTip(b); });
+    b.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && tipFor === b && document.activeElement !== b) hideBadgeTip(); });
+    b.addEventListener('focus', () => showBadgeTip(b));
+    b.addEventListener('blur', () => { if (tipFor === b) hideBadgeTip(); });
+    b.addEventListener('click', () => showBadgeTip(b)); // iOS Safari never focuses a tapped button
+    return b;
   }).filter(Boolean);
+}
+
+// One badge tooltip at a time, fixed to the viewport above the badge (below it when there is no room), so the card's
+// rounded clipping never cuts it. A tap or scroll anywhere else, or the card redrawing / closing, hides it.
+let tipEl = null, tipFor = null;
+const tipAway = (e) => { if (tipFor && !(e.target instanceof Node && tipFor.contains(e.target))) hideBadgeTip(); };
+export function hideBadgeTip() {
+  if (tipFor) tipFor.classList.remove('tip');
+  if (tipEl) tipEl.remove();
+  tipEl = null; tipFor = null;
+  document.removeEventListener('pointerdown', tipAway, true);
+  document.removeEventListener('scroll', hideBadgeTip, true);
+  removeEventListener('resize', hideBadgeTip);
+}
+function showBadgeTip(b) {
+  if (tipFor === b || !b._tip || !b.isConnected) return;
+  hideBadgeTip();
+  tipFor = b;
+  b.classList.add('tip');
+  tipEl = h('div', { class: 'cx-btip', role: 'tooltip', style: '--bc:' + b._tip.color }, h('b', { text: b._tip.title }), b._tip.detail ? h('span', { text: b._tip.detail }) : null);
+  document.body.append(tipEl);
+  const r = b.getBoundingClientRect(), W = tipEl.offsetWidth, H = tipEl.offsetHeight;
+  const left = Math.max(8, Math.min(innerWidth - W - 8, r.left + r.width / 2 - W / 2));
+  const below = r.top - H - 9 < 8;
+  tipEl.classList.toggle('below', below);
+  tipEl.style.left = left + 'px';
+  tipEl.style.top = (below ? r.bottom + 9 : r.top - H - 9) + 'px';
+  tipEl.style.setProperty('--ax', Math.round(r.left + r.width / 2 - left) + 'px');
+  document.addEventListener('pointerdown', tipAway, true);
+  document.addEventListener('scroll', hideBadgeTip, true);
+  addEventListener('resize', hideBadgeTip);
 }
 
 // Time-out line from a profile's muted_until ('' when not timed out).

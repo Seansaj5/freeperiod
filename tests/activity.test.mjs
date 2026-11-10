@@ -11,7 +11,7 @@ function fakeStorage() {
 globalThis.localStorage = fakeStorage();
 globalThis.sessionStorage = fakeStorage();
 globalThis.location = { search: '', hostname: 'test.invalid' };
-const { cleanRoom, joinHref, withJoin, sinceText, friendsNowItems, createHeartbeat, HEARTBEAT_MS, OFF_RETRY_MS } = await import('../fp/chat/activity.js');
+const { cleanRoom, joinHref, withJoin, sinceText, friendsNowItems, joinLabel, createHeartbeat, HEARTBEAT_MS } = await import('../fp/chat/activity.js');
 const data = await import('../fp/chat/data.js');
 const { checkProfile, profileDiff, PROFILE_FIELDS } = await import('../fp/chat/perms.js');
 
@@ -94,18 +94,22 @@ function fakeTimers() {
     pending: () => q.size,
   };
 }
-function rig(answer = true) {
+function rig(answer = true, { setting = true } = {}) {
   const timers = fakeTimers();
   const sent = [];
-  let exits = 0;
-  let reply = answer;
+  let exits = 0, checks = 0, clears = 0;
+  let reply = answer, on = setting, hold = null;
   const hb = createHeartbeat({
     game: 'close-call', timers, now: timers.now,
-    send: async (g, r) => { sent.push([timers.now(), g, r]); if (reply instanceof Error) throw reply; return reply; },
+    check: async () => { checks++; return on; },
+    send: async (g, r) => { sent.push([timers.now(), g, r]); if (hold) await hold; if (reply instanceof Error) throw reply; return reply; },
+    clear: async () => { clears++; },
     exit: () => { exits++; },
   });
-  return { hb, timers, sent, exits: () => exits, setReply: (v) => { reply = v; } };
+  return { hb, timers, sent, exits: () => exits, checks: () => checks, clears: () => clears, setReply: (v) => { reply = v; }, setSetting: (v) => { on = v; },
+    holdSend: () => { let release; hold = new Promise((r) => { release = r; }); return () => { hold = null; release(); }; } };
 }
+const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 
 test('heartbeat: nothing until chat is ready; then at once and every 90 s while visible', async () => {
   const { hb, timers, sent } = rig();
@@ -166,21 +170,84 @@ test('heartbeat: a room change goes out after a short settle (several count once
   assert.equal(hb.room, null);
 });
 
-test('heartbeat: setting off (false) backs off to every 10 min and ignores room changes; on again resumes', async () => {
+test('heartbeat: setting off (read before every beat): nothing is sent, only the setting is read; on again sends the current room', async () => {
+  const { hb, timers, sent, checks, setSetting } = rig(true, { setting: false });
+  hb.setReady(true);
+  await timers.advance(0);
+  hb.setRoom('ABCD');                        // a room change while off sends nothing either
+  await timers.advance(HEARTBEAT_MS * 3);
+  assert.equal(sent.length, 0, 'nothing about the game or room left');
+  assert.equal(checks(), 4, 'the setting was read at every beat');
+  setSetting(true);                          // turned on elsewhere (another device): seen at the next beat
+  await timers.advance(HEARTBEAT_MS);
+  assert.deepEqual(sent.map((x) => x[2]), ['ABCD']);
+  await timers.advance(HEARTBEAT_MS);
+  assert.equal(sent.length, 2, 'back to every 90 s');
+});
+
+test('heartbeat: turning the setting off (this browser) stops at once and clears; on again shows at once', async () => {
+  const { hb, timers, sent, clears, setSetting } = rig(true);
+  hb.setReady(true);
+  await timers.advance(0);
+  assert.equal(sent.length, 1);
+  assert.equal(hb.shown, true);
+  setSetting(false);
+  hb.setAllowed(false);
+  await flush();
+  assert.equal(clears(), 1, 'cleared right away');
+  assert.equal(hb.shown, false);
+  hb.setRoom('WXYZ');
+  await timers.advance(HEARTBEAT_MS * 4);
+  assert.equal(sent.length, 1, 'nothing sent while off');
+  setSetting(true);
+  hb.setAllowed(true);
+  await timers.advance(0);
+  assert.deepEqual(sent.map((x) => x[2]), [null, 'WXYZ'], 'on again: at once, with the current room');
+});
+
+test('heartbeat: turned off while a beat is in flight: the row it made is cleared at once', async () => {
+  const { hb, timers, sent, clears, setSetting, holdSend } = rig(true);
+  const release = holdSend();
+  hb.setReady(true);
+  await timers.advance(0);
+  assert.equal(sent.length, 1);
+  setSetting(false);
+  hb.setAllowed(false);                      // nothing shown yet: nothing to clear
+  assert.equal(clears(), 0);
+  release();
+  await flush();
+  assert.equal(clears(), 1, 'the in-flight beat landed, so it is taken back');
+  assert.equal(hb.shown, false);
+});
+
+test('heartbeat: the database saying false (setting off there) stops room beats until a check says on', async () => {
   const { hb, timers, sent, setReply } = rig(false);
   hb.setReady(true);
   await timers.advance(0);
   hb.setRoom('ABCD');
-  await timers.advance(HEARTBEAT_MS * 2);
-  assert.equal(sent.length, 1, 'off: no 90 s beats, no room beat');
+  await timers.advance(1500);
+  assert.equal(sent.length, 1, 'no room beat while off');
   setReply(true);
-  await timers.advance(OFF_RETRY_MS - HEARTBEAT_MS * 2 - 1);
-  assert.equal(sent.length, 1, 'not before 10 min');
-  await timers.advance(1);
-  assert.equal(sent.length, 2);
-  assert.equal(sent[1][2], 'ABCD', 'the current room is sent when it looks again');
   await timers.advance(HEARTBEAT_MS);
-  assert.equal(sent.length, 3, 'on again: back to 90 s');
+  assert.deepEqual(sent.map((x) => x[2]), [null, 'ABCD']);
+  assert.equal(hb.shown, true);
+});
+
+test('heartbeat: logging out of chat while shown clears the row at once (M1); closing the tab later sends nothing more', async () => {
+  const { hb, timers, exits } = rig(true);
+  hb.setReady(true);
+  await timers.advance(0);
+  hb.setReady(false);
+  assert.equal(exits(), 1);
+  hb.leave();
+  assert.equal(exits(), 1);
+});
+
+test('joinLabel: Join with a room, Play without one', () => {
+  const g = { id: 'horror-exe', title: 'horror.exe' };
+  assert.deepEqual(joinLabel({ game: g, room: 'WXYZ', name: 'amy' }), { text: 'Join', label: 'Join amy in horror.exe (room WXYZ)' });
+  assert.deepEqual(joinLabel({ game: g, room: null, name: 'amy' }), { text: 'Play', label: 'Play horror.exe (amy is playing)' });
+  assert.deepEqual(joinLabel({ game: g, room: null }), { text: 'Play', label: 'Play horror.exe' });
 });
 
 test('heartbeat: errors keep it going (slow_down, network); banned stops it', async () => {
@@ -281,4 +348,28 @@ test('profile: show_activity is an editable field, boolean only; null counts as 
   assert.deepEqual(profileDiff({ show_activity: true }, { show_activity: false }), { show_activity: false });
   assert.deepEqual(profileDiff({ show_activity: true }, { show_activity: true }), {});
   assert.deepEqual(profileDiff({ show_activity: false }, { show_activity: null }), { show_activity: true });
+});
+
+test('data: myShowActivity reads the own setting (missing row = off); updateProfile tells the play page when it changes', async () => {
+  let prof = { id: 'u1', username: 'me', banned: false, show_activity: true };
+  const q = (rows) => { const o = { eq: () => o, select: () => o, maybeSingle: async () => ({ data: rows()[0] || null, error: null }), then: (res) => res({ data: rows(), error: null }) }; return o; };
+  const client = {
+    from: () => ({
+      select: () => q(() => (prof ? [prof] : [])),
+      update: (patch) => { prof = { ...prof, ...patch }; return q(() => [prof]); },
+    }),
+  };
+  data._inject({ client, me: () => ({ id: 'u1', username: 'me' }) });
+  assert.equal(await data.myShowActivity(), true);
+  const heard = [];
+  const off = data.onActivitySetting((v) => heard.push(v));
+  await data.updateProfile({ about: 'hi' });
+  assert.deepEqual(heard, [], 'other fields: nothing');
+  await data.updateProfile({ show_activity: false });
+  assert.deepEqual(heard, [{ uid: 'u1', on: false }]);
+  assert.equal(await data.myShowActivity(), false);
+  assert.equal(JSON.parse(globalThis.localStorage.getItem('fp.chat.activity')).on, false, 'other tabs hear it through storage');
+  off();
+  prof = null;
+  assert.equal(await data.myShowActivity(), false, 'no profile row: off');
 });

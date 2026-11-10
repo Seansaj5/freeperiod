@@ -356,6 +356,9 @@ kbd { font: 600 12px 'Outfit', sans-serif; color: var(--muted); border: 1px soli
 .fn-join .ic { width: 12px; height: 12px; }
 .fn-join:hover { background: var(--lime-hi); transform: translateY(-1px); }
 .fn-join:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+/* nothing to join (solo, or a game that can't deep-join yet): the game's own menu */
+.fn-join.fn-play { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.fn-join.fn-play:hover { background: color-mix(in srgb, var(--accent) 28%, transparent); }
 
 /* ---------- game grid ---------- */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 24px; }

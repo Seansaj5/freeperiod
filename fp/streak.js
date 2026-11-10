@@ -42,14 +42,17 @@ export function bestBadge(badges) {
   const top = (Array.isArray(badges) ? badges : []).map(badgeDays).sort((a, b) => b - a)[0];
   return top ? { days: top, label: fire + ' ' + top + '-day streak' } : null;
 }
-/** Seven dots, oldest first, the last one is today: { lit, today, dow } (dow 0-6, Sunday first, of that New York day). */
+/** This week's seven dots, Monday to Sunday (New York days): { lit, today, future, dow } (dow 0-6, Sunday = 0). */
 export function weekDots(v) {
   const days = v ? v.days : 0, done = !v || v.doneToday;
   const base = v && v.today ? Date.parse(v.today + 'T00:00:00Z') : NaN;
+  const todayDow = Number.isFinite(base) ? new Date(base).getUTCDay() : 1;
+  const sinceMonday = (todayDow + 6) % 7;      // Monday 0 ... Sunday 6
   const out = [];
-  for (let ago = 6; ago >= 0; ago--) {      // oldest first
-    const lit = done ? ago < days : ago >= 1 && ago <= days;
-    out.push({ lit, today: ago === 0, dow: Number.isFinite(base) ? new Date(base - ago * DAY).getUTCDay() : -1 });
+  for (let i = 0; i < 7; i++) {
+    const ago = sinceMonday - i;               // > 0 earlier this week, 0 today, < 0 later this week
+    const lit = ago < 0 ? false : done ? ago < days : ago >= 1 && ago <= days;
+    out.push({ lit, today: ago === 0, future: ago < 0, dow: (1 + i) % 7 });
   }
   return out;
 }
@@ -179,8 +182,8 @@ export function mountStreakCard(el, { onLogin } = {}) {
         h('div', { class: 'st-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct), 'aria-label': 'Progress to the next streak badge' },
           h('i', { style: `width:${pct}%` })),
         h('p', { class: 'st-meta' }, `Best ${v.best}`, best ? ` · ${best.label}` : '')),
-      h('ol', { class: 'st-week', 'aria-label': 'Last 7 days' },
-        dots.map((d) => h('li', { class: (d.lit ? 'lit ' : '') + (d.today ? 'today' : ''), 'aria-label': (d.lit ? 'visited' : 'missed') + (d.today ? ' (today)' : '') },
+      h('ol', { class: 'st-week', 'aria-label': 'This week, Monday to Sunday' },
+        dots.map((d) => h('li', { class: (d.lit ? 'lit ' : '') + (d.today ? 'today ' : '') + (d.future ? 'future' : ''), 'aria-label': (d.future ? 'coming up' : d.lit ? 'visited' : 'missed') + (d.today ? ' (today)' : '') },
           h('i'), h('span', { text: d.dow >= 0 ? DOW[d.dow] : '' }))))));
   }
   onStreak(render);
