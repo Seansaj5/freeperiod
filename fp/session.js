@@ -18,7 +18,12 @@ useToken(getToken);
 export function userKey() { const u = getUser(); return u && typeof u.username === 'string' ? u.username.toLowerCase() : ''; }
 export function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
+// fp.loggedOut: someone pressed Log out here (hub button, or the game frame's logout). Until the next login the hub
+// never offers to take a login from the game frame (play.js); a hub that never logged out does.
+export function wasLoggedOut() { return store.get('fp.loggedOut') === '1'; }
+
 function setSession(token, u) {
+  store.del('fp.loggedOut');
   memToken = store.set('fp.token', token) ? null : token;
   user = u ? { username: u.username, role: u.role } : null;
   if (user) store.setJson('fp.user', user); else store.del('fp.user');
@@ -46,6 +51,7 @@ export async function register(username, password) {
 export async function logout() {
   const token = getToken();
   store.del('fp.meta'); // favorites, recent and play time stay with the account, never with the next person on this computer
+  store.set('fp.loggedOut', '1');
   clear();
   if (token) { try { await call('/api/logout', { body: {}, auth: token, timeout: 5000 }); } catch { /* best effort */ } }
 }

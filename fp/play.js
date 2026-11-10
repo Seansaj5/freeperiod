@@ -76,8 +76,11 @@ async function run(rawGame) {
 
   const postToken = () => {
     if (!frame || !frame.contentWindow || !gameOrigin) return;
+    const token = session.getToken() || null;
+    // No login here and nobody logged out here: the frame may keep a login of its own and hand it over (fp:session).
+    const msg = token || session.wasLoggedOut() ? { type: 'fp:token', token } : { type: 'fp:token', token: null, offer: true };
     try {
-      frame.contentWindow.postMessage({ type: 'fp:token', token: session.getToken() || null }, gameOrigin);
+      frame.contentWindow.postMessage(msg, gameOrigin);
       tokenSent = true;
     } catch { /* frame gone */ }
   };

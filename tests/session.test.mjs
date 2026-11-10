@@ -123,3 +123,23 @@ test('M1b: storage blocked: a login or an adopted frame login lasts for the page
   assert.equal(s.getToken(), null);
   assert.equal(s.getUser(), null);
 });
+
+test('M3: an explicit logout is remembered (fp.loggedOut) until the next login, sign-up or adopted login', async () => {
+  const s = await setup({ token: 'tok', fetch: async (url) => (url.endsWith('/api/me') ? json(401, { ok: false })
+    : json(200, { ok: true, token: 't2', user: { username: 'a', role: 'p' } })) });
+  assert.equal(s.wasLoggedOut(), false);
+  await s.resume(); // a dead token is not a logout
+  assert.equal(globalThis.localStorage.getItem('fp.loggedOut'), null);
+  await s.login('a', 'pw');
+  await s.logout();
+  assert.equal(globalThis.localStorage.getItem('fp.loggedOut'), '1');
+  assert.equal(s.wasLoggedOut(), true);
+  await s.login('a', 'pw');
+  assert.equal(s.wasLoggedOut(), false);
+  await s.logout();
+  await s.register('a', 'pw');
+  assert.equal(s.wasLoggedOut(), false);
+  await s.logout();
+  s.adopt('t9', { username: 'b', role: 'p' });
+  assert.equal(s.wasLoggedOut(), false);
+});
