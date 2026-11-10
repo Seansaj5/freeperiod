@@ -12,6 +12,7 @@
 //   chat:typing:d:<uuid>     members of that DM only
 import { getChat, me as sessionMe } from './client.js';
 import { planUpload, reencode as reencodePicture } from './media.js';
+import { GRANTED_BADGES } from './flair.js';
 
 // ---------- errors ----------
 export class ChatError extends Error {
@@ -1003,4 +1004,16 @@ if (typeof globalThis.addEventListener === 'function') {
     if (!e || e.key !== ACTIVITY_KEY || !e.newValue) return;
     try { const v = JSON.parse(e.newValue); if (v && typeof v.uid === 'string' && typeof v.on === 'boolean') tellSetting({ uid: v.uid, on: v.on }); } catch { /* not ours */ }
   });
+}
+
+// ---------- badges (0011) ----------
+// Owner only: give (on) or take away (off) one of the owner-granted badges. Returns the person's granted_badges
+// afterwards (fixed order, no repeats). The database refuses anyone else (not_allowed), a badge outside the list
+// (not_allowed, detail 'badge') and more than 30 changes a minute (slow_down). Early Member is never granted: the
+// database sets it once, for the first 5 real members.
+export async function grantBadge(userId, badge, on = true) {
+  if (!GRANTED_BADGES.includes(badge)) throw fail('not_allowed', 'badge');
+  needMe();
+  const list = check(await sb().rpc('grant_badge', { target: userId, badge, on: on !== false }));
+  return Array.isArray(list) ? list.filter((b) => GRANTED_BADGES.includes(b)) : [];
 }

@@ -11,6 +11,9 @@
 /* font-size-adjust evens the fonts out at whatever size the page sets (Press Start 2P's capitals are a full em tall,
    Creepster is narrow); browsers without it just show the natural sizes */
 .fp-name { font-synthesis: none; }
+/* ui.css caps the hub header's .fp-name (the account chip) at 140px / 84px on phones; the card's big name is the same
+   class, so without this "Hallpass" broke into "Hallpas / s" on a phone */
+.cx-pc .cx-pc-name.fp-name { max-width: none; }
 .fp-name[data-font="press-start"] { font-size-adjust: cap-height 0.6; letter-spacing: 0.02em; }
 .fp-name[data-font="orbitron"] { letter-spacing: 0.03em; }
 .fp-name[data-font="creepster"] { font-size-adjust: cap-height 0.92; letter-spacing: 0.05em; }
@@ -224,3 +227,66 @@
 /* ---------- profile effects (canvas overlay, effects.js) ---------- */
 :where(.fp-has-effect) { position: relative; }
 .fp-effect { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; border-radius: inherit; }
+
+/* ---------- badges (flair.js badgeSvg; profile card row, owner switches, tooltip) ---------- */
+/* Discord-style: a small dark tray of 22px glyphs at the right of the avatar; no labels, a tooltip on hover / focus / tap.
+   (.cx-pc scoping: wins over chat.css's older pill row whichever file loads last.) */
+.fp-badge-ic { display: block; flex: none; overflow: visible; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 3px color-mix(in srgb, var(--bc) 35%, transparent)); }
+/* Up to 7 fit beside the avatar on a 340px card; 8 sit tighter; 9 or more go in two even rows (--cols, set by the card). */
+.cx-pc .cx-pc-badges {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0; min-width: 0; max-width: 100%;
+  margin-bottom: 8px; padding: 3px; border-radius: 11px; text-shadow: none;
+  background: rgba(6, 9, 15, 0.8); border: 1px solid rgba(255, 255, 255, 0.09); box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.9);
+}
+.cx-pc .cx-pc-badges:empty { display: none; }
+.cx-pc .cx-pc-badges.dense .cx-pbdg { width: 23px; }
+.cx-pc .cx-pc-badges.dense .fp-badge-ic { width: 19px; height: 19px; }
+.cx-pc .cx-pc-badges.rows { display: grid; grid-template-columns: repeat(var(--cols, 5), 26px); }
+.cx-pbdg {
+  display: inline-grid; place-items: center; width: 26px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: none;
+  color: var(--bc); cursor: default; -webkit-tap-highlight-color: transparent; transition: background-color 0.12s ease, transform 0.12s ease;
+}
+.cx-pbdg:hover, .cx-pbdg.tip { background: rgba(255, 255, 255, 0.09); }
+.cx-pbdg.tip .fp-badge-ic { transform: scale(1.08); }
+.cx-pbdg .fp-badge-ic { transition: transform 0.12s ease; }
+.cx-pbdg:focus { outline: none; }
+.cx-pbdg:focus-visible { outline: 2px solid var(--bc); outline-offset: -2px; }
+
+.cx-btip {
+  position: fixed; z-index: 96; max-width: min(270px, calc(100vw - 16px)); padding: 7px 11px 8px; border-radius: 10px; pointer-events: none;
+  font: 500 12px/1.35 'Outfit', system-ui, sans-serif; text-align: center; color: #aeb6cc; overflow-wrap: anywhere;
+  background: #0a0e16; border: 1px solid rgba(255, 255, 255, 0.13); box-shadow: 0 14px 34px -10px rgba(0, 0, 0, 0.95);
+  animation: fp-btip 0.12s ease-out;
+}
+.cx-btip b { display: block; font-size: 13.5px; font-weight: 800; color: #fff; }
+.cx-btip b::before { content: ''; display: inline-block; width: 7px; height: 7px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--bc); box-shadow: 0 0 6px var(--bc); }
+.cx-btip span { display: block; margin-top: 1px; }
+.cx-btip::after {
+  content: ''; position: absolute; left: var(--ax, 50%); top: 100%; width: 9px; height: 9px; transform: translate(-50%, -50%) rotate(45deg);
+  background: #0a0e16; border-right: 1px solid rgba(255, 255, 255, 0.13); border-bottom: 1px solid rgba(255, 255, 255, 0.13);
+}
+.cx-btip.below::after { top: 0; transform: translate(-50%, -50%) rotate(225deg); }
+@keyframes fp-btip { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .cx-btip { animation: none; } .cx-pbdg, .cx-pbdg .fp-badge-ic { transition: none; } }
+
+/* the owner's "Give badges" switches (popout only) */
+.cx-pc-grant h4 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cx-pc-grant-only { display: inline-flex; align-items: center; gap: 4px; font: 600 11px 'Outfit', sans-serif; letter-spacing: 0; text-transform: none; color: var(--cx-faint, #67708b); }
+.cx-pc-grant-only .cx-ic { width: 12px; height: 12px; }
+.cx-pc-grant-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 6px; margin-bottom: 10px; }
+.cx-gbtn {
+  position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; height: 36px; padding: 0 8px; border-radius: 11px; cursor: pointer;
+  font: 700 12.5px 'Outfit', sans-serif; color: var(--cx-dim, #9aa3bd); background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.09);
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.cx-gbtn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-gbtn .fp-badge-ic { filter: grayscale(1) opacity(0.45); }
+.cx-gbtn:hover { color: var(--cx-text, #e7ecf9); border-color: rgba(255, 255, 255, 0.2); }
+.cx-gbtn[aria-pressed="true"] { color: #fff; background: color-mix(in srgb, var(--bc) 15%, rgba(6, 9, 15, 0.6)); border-color: color-mix(in srgb, var(--bc) 65%, transparent); }
+.cx-gbtn[aria-pressed="true"] .fp-badge-ic { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--bc) 55%, transparent)); }
+.cx-gbtn-tick { position: absolute; top: -5px; right: -5px; display: none; width: 15px; height: 15px; border-radius: 50%; background: var(--bc); box-shadow: 0 0 0 2px #0c111b; }
+.cx-gbtn-tick::after { content: ''; position: absolute; left: 5px; top: 2.5px; width: 3.5px; height: 7px; border: solid #071018; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.cx-gbtn[aria-pressed="true"] .cx-gbtn-tick { display: block; }
+.cx-gbtn[aria-disabled="true"] { cursor: progress; opacity: 0.6; }
+.cx-gbtn.busy { opacity: 1; border-style: dashed; }
+.cx-gbtn:focus-visible { outline: 2px solid var(--bc); outline-offset: 1px; }

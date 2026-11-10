@@ -6,6 +6,7 @@ import { h } from '../../ui.js';
 import * as data from '../data.js';
 import { parseLine, parseArgs, visibleCommands, timeoutLabel, shrugText, askText, TABLEFLIP, UNFLIP } from '../commands.js';
 import { checkProfile } from '../perms.js';
+import { badgeInfo } from '../flair.js';
 import { icon, avatar, nameOf } from './common.js';
 
 const errText = (e) => { if (e && e.shown) return e.shown; try { return data.chatError(e) || 'Something went wrong'; } catch { return 'Something went wrong'; } };
@@ -186,6 +187,17 @@ const HANDLERS = {
     await data.setMod(p.id, false);
     cx.patchProfile(p.id, { is_mod: false, mod_revoked: true });
     return { text: nameOf(p) + ' is no longer a mod.' };
+  },
+  // Owner only (grant_badge refuses anyone else). The card shows the result at once; Realtime brings it to everyone.
+  async badge({ user, badge, state }, cx) {
+    const p = await person(cx, user);
+    const on = state !== 'off';
+    const label = badgeInfo(badge).label;
+    const had = Array.isArray(p.granted_badges) && p.granted_badges.includes(badge);
+    const list = await data.grantBadge(p.id, badge, on);
+    cx.patchProfile(p.id, { granted_badges: list });
+    if (on) return { text: had ? nameOf(p) + ' already has the ' + label + ' badge.' : nameOf(p) + ' has the ' + label + ' badge now.' };
+    return { text: had ? 'Took the ' + label + ' badge from ' + nameOf(p) + '.' : nameOf(p) + ' didn’t have the ' + label + ' badge.' };
   },
   async ai({ on }, cx) {
     const want = on === 'on';

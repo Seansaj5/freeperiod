@@ -147,6 +147,12 @@ export function mountChatApp(root, { compact = false } = {}) {
     friendState: (id) => friendState(id),
     friend: (p, act) => friendAct(p, act),
     memberMenu: (anchor, p) => openMemberMenu(anchor, live(p), modCx),
+    grantBadge: async (p, badge, on) => {      // owner only (the card shows the switches only to the owner)
+      let list;
+      try { list = await data.grantBadge(p.id, badge, on); } catch (e) { throw { shown: errText(e) }; }
+      if (byId.has(p.id)) mergeProfile({ id: p.id, granted_badges: list }); // (Realtime brings it to everyone else)
+      return list;
+    },
   };
   const editorCx = {
     me: () => myProfile(),
