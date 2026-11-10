@@ -15,10 +15,14 @@ export function hashString(s) {
 }
 
 // Local wins any conflict (local changed since last sync => push).
-export function decideSync({ localRaw, cloud, record }) {
+// `user` is who is signed in (lowercase). A record made for another account, or one that names no account (written
+// before records did), makes this device's save foreign: it never goes up. Cloud there: pull (the caller backs local up).
+// No cloud: 'clear' (the caller backs local up and removes it, so the account starts fresh).
+export function decideSync({ localRaw, cloud, record, user }) {
   const hasLocal = localRaw != null;
   if (!hasLocal) return cloud && cloud.data != null ? 'pull' : 'none';
   if (cloud && cloud.data === localRaw) return 'none';
+  if (record && (!record.user || record.user !== user)) return cloud && cloud.data != null ? 'pull' : 'clear';
   // First sync on this device: an existing cloud save wins over a fresh local one.
   if (!record) return cloud && cloud.data != null ? 'pull' : 'push';
   if (hashString(localRaw) !== record.hash) return 'push';

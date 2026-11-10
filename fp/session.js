@@ -12,6 +12,8 @@ export function getUser() {
   return getToken() ? store.json('fp.user', null) : null;
 }
 export function getToken() { return store.get('fp.token'); }
+// Who is signed in, lowercase ('' for a guest): the account that sync records and fp.meta belong to.
+export function userKey() { const u = getUser(); return u && typeof u.username === 'string' ? u.username.toLowerCase() : ''; }
 export function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
 function setSession(token, u) {
@@ -40,6 +42,7 @@ export async function register(username, password) {
 }
 export async function logout() {
   const token = getToken();
+  store.del('fp.meta'); // favorites, recent and play time stay with the account, never with the next person on this computer
   clear();
   if (token) { try { await call('/api/logout', { body: {}, auth: token, timeout: 5000 }); } catch { /* best effort */ } }
 }

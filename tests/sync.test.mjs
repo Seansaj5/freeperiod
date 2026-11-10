@@ -12,14 +12,14 @@ test('pull when local null and cloud present', () => {
   assert.equal(decideSync({ localRaw: null, cloud: { data: 'c', at: 5 }, record: null }), 'pull');
 });
 test('pull when local unchanged and cloud newer', () => {
-  assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'C', at: 9 }, record: { hash: h('L'), at: 5 } }), 'pull');
+  assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'C', at: 9 }, record: { hash: h('L'), at: 5, user: 'u' }, user: 'u' }), 'pull');
 });
 test('push when local changed even if cloud newer', () => {
-  assert.equal(decideSync({ localRaw: 'L2', cloud: { data: 'C', at: 9 }, record: { hash: h('L'), at: 5 } }), 'push');
+  assert.equal(decideSync({ localRaw: 'L2', cloud: { data: 'C', at: 9 }, record: { hash: h('L'), at: 5, user: 'u' }, user: 'u' }), 'push');
 });
 test('none when both match', () => {
-  assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'L', at: 5 }, record: { hash: h('L'), at: 5 } }), 'none');
-  assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'C', at: 5 }, record: { hash: h('L'), at: 5 } }), 'none');
+  assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'L', at: 5 }, record: { hash: h('L'), at: 5, user: 'u' }, user: 'u' }), 'none');
+  assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'C', at: 5 }, record: { hash: h('L'), at: 5, user: 'u' }, user: 'u' }), 'none');
 });
 test('first sync: cloud save wins over fresh local', () => {
   assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'C', at: 5 }, record: null }), 'pull');
@@ -30,6 +30,20 @@ test('push when no record and no cloud', () => {
 });
 test('none when nothing anywhere', () => {
   assert.equal(decideSync({ localRaw: null, cloud: null, record: null }), 'none');
+});
+test('account switch: a record from another account (or naming none) makes local foreign', () => {
+  const other = { hash: h('L'), at: 5, user: 'ann' }, legacy = { hash: h('L'), at: 5 };
+  for (const record of [other, legacy]) {
+    assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'C', at: 1 }, record, user: 'bee' }), 'pull');
+    assert.equal(decideSync({ localRaw: 'L', cloud: null, record, user: 'bee' }), 'clear');
+    assert.equal(decideSync({ localRaw: 'L2', cloud: null, record, user: 'bee' }), 'clear');
+    assert.equal(decideSync({ localRaw: 'L', cloud: { data: 'L', at: 1 }, record, user: 'bee' }), 'none');
+    assert.equal(decideSync({ localRaw: null, cloud: { data: 'C', at: 1 }, record, user: 'bee' }), 'pull');
+  }
+  // no record: unchanged rules (a guest's progress goes up on sign-up)
+  assert.equal(decideSync({ localRaw: 'L', cloud: null, record: null, user: 'bee' }), 'push');
+  // own record: unchanged rules
+  assert.equal(decideSync({ localRaw: 'L2', cloud: { data: 'C', at: 9 }, record: { hash: h('L'), at: 5, user: 'bee' }, user: 'bee' }), 'push');
 });
 test('mergeMeta keeps max play and newer favs', () => {
   const m = mergeMeta(

@@ -482,6 +482,7 @@ function syncAccount() {
 }
 session.onChange(() => {
   syncAccount();
+  refreshMeta(); // meta belongs to an account: logout clears it, another account reads as empty until its copy arrives
   const t = session.getToken();
   if (t !== boardToken) { boardToken = t; board.cache.clear(); loadBoard(board.mode); } // `me` on the board changed
 });

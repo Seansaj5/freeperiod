@@ -15,6 +15,7 @@ async function setup(fetch) {
   globalThis.location = { search: '' };
   globalThis.fetch = fetch;
   localStorage.setItem('fp.token', 'tok');
+  localStorage.setItem('fp.user', JSON.stringify({ username: 'Tester', role: 'player' }));
   return import('../fp/saves.js?n=' + (++n));
 }
 
@@ -24,7 +25,7 @@ test('first sync pulls cloud over fresh local and backs up local', async () => {
   assert.equal(await s.syncGame(game), 'pull');
   assert.equal(localStorage.getItem('cc.v1'), 'CLOUD');
   assert.equal(localStorage.getItem('fp.backup.close-call'), 'FRESH');
-  assert.deepEqual(JSON.parse(localStorage.getItem('fp.sync.close-call')), { hash: hashString('CLOUD'), at: 7 });
+  assert.deepEqual(JSON.parse(localStorage.getItem('fp.sync.close-call')), { hash: hashString('CLOUD'), at: 7, user: 'tester' });
 });
 
 test('pull is skipped when local changed during the GET', async () => {
@@ -33,7 +34,7 @@ test('pull is skipped when local changed during the GET', async () => {
     return res({ ok: true, save: { data: 'CLOUD', at: 9 } });
   });
   localStorage.setItem('cc.v1', 'OLD');
-  localStorage.setItem('fp.sync.close-call', JSON.stringify({ hash: hashString('OLD'), at: 1 }));
+  localStorage.setItem('fp.sync.close-call', JSON.stringify({ hash: hashString('OLD'), at: 1, user: 'tester' }));
   assert.equal(await s.syncGame(game), 'none');
   assert.equal(localStorage.getItem('cc.v1'), 'NEWER');
 });
@@ -52,6 +53,7 @@ test('pagehide POSTs directly with keepalive, no GET first', async () => {
   globalThis.addEventListener = (t, f) => { handlers[t] = f; };
   globalThis.removeEventListener = () => {};
   localStorage.setItem('cc.v1', 'DATA');
+  localStorage.setItem('fp.sync.close-call', JSON.stringify({ hash: hashString('OLDER'), at: 1, user: 'tester' }));
   s.watch(game);
   handlers.pagehide();
   assert.equal(calls.length, 1);
@@ -60,7 +62,7 @@ test('pagehide POSTs directly with keepalive, no GET first', async () => {
   assert.equal(calls[0][1].keepalive, true);
   assert.equal(JSON.parse(calls[0][1].body).data, 'DATA');
   await new Promise(r => setTimeout(r, 10));
-  assert.deepEqual(JSON.parse(localStorage.getItem('fp.sync.close-call')), { hash: hashString('DATA'), at: 42 });
+  assert.deepEqual(JSON.parse(localStorage.getItem('fp.sync.close-call')), { hash: hashString('DATA'), at: 42, user: 'tester' });
   delete globalThis.addEventListener; delete globalThis.removeEventListener;
 });
 
