@@ -73,10 +73,10 @@ const BUILD = {
   },
 
   orbit() {
-    const slate = '#8796b8';
+    const slate = '#b4c3e6';
     const pl = P(62, -90), moon = P(56.5, 30), sat = P(62, 90);
-    return L('l1', ring(51, CYAN, 1, 'stroke-opacity=".45"') +
-        ring(56.5, slate, 0.9, 'stroke-opacity=".55" stroke-dasharray="2 2.6"') + ring(62, slate, 0.8, 'stroke-opacity=".4" stroke-dasharray="1 3"')) +
+    return L('l1', ring(51, CYAN, 1.3, 'stroke-opacity=".95"') +
+        ring(56.5, slate, 1.1, 'stroke-opacity=".9" stroke-dasharray="2 2.6"') + ring(62, slate, 1, 'stroke-opacity=".8" stroke-dasharray="1 3"')) +
       L('l2', trail(62, -155, -95, CYAN, 1.7, 10) +
         `<circle cx="${pl[0]}" cy="${pl[1]}" r="7.5" fill="${CYAN}" opacity=".18"/>` +
         `<circle cx="${pl[0]}" cy="${pl[1]}" r="4.6" fill="url(#@@pl)"/>` +
@@ -314,8 +314,9 @@ const BUILD = {
       }
       return d + branch;
     };
-    const draw = (d) => `<path d="${d}" fill="none" stroke="#2f8cff" stroke-opacity=".45" stroke-linejoin="round" stroke-linecap="round" style="${sw(3.4)}"/>` +
-      `<path d="${d}" fill="none" stroke="#dff6ff" stroke-linejoin="round" stroke-linecap="round" style="${sw(1.1)}"/>`;
+    const bw = (w) => `stroke-width:calc(var(--k) * var(--bk, 1) * ${w}px)`; // --bk thickens the bolts further at chat size
+    const draw = (d) => `<path d="${d}" fill="none" stroke="#2f8cff" stroke-opacity=".45" stroke-linejoin="round" stroke-linecap="round" style="${bw(3.4)}"/>` +
+      `<path d="${d}" fill="none" stroke="#dff6ff" stroke-linejoin="round" stroke-linecap="round" style="${bw(1.1)}"/>`;
     return L('l1', ring(52, '#4db8ff', 5, 'stroke-opacity=".22"') + ring(52, '#4db8ff', 1.4) + ring(50.6, '#bfe9ff', 0.5, 'stroke-opacity=".7"')) +
       L('l2', draw(bolt(-160, -70) + bolt(30, 110))) + L('l3', draw(bolt(-60, 15) + bolt(150, 235))) + L('l4', draw(bolt(-15, 60) + bolt(105, 185)));
   },

@@ -1,9 +1,9 @@
 /* Profile flair: name fonts and styles, avatar frames (frames.js), profile effects (effects.js).
    Bungee + Outfit come from style.css; the four below are SIL Open Font License (licenses next to the files). */
-@font-face { font-family: 'Press Start 2P'; src: url('../../assets/fonts/pressstart2p.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'Press Start 2P'; src: url('../../assets/fonts/pressstart2p.woff2') format('woff2'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'Orbitron'; src: url('../../assets/fonts/orbitron.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
-@font-face { font-family: 'Creepster'; src: url('../../assets/fonts/creepster.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
-@font-face { font-family: 'Pacifico'; src: url('../../assets/fonts/pacifico.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'Creepster'; src: url('../../assets/fonts/creepster.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Pacifico'; src: url('../../assets/fonts/pacifico.woff2') format('woff2'); font-weight: 400; font-display: swap; }
 
 /* ---------- display names (paintName in flair.js) ---------- */
 /* font-size-adjust evens the fonts out at whatever size the page sets (Press Start 2P's capitals are a full em tall,
@@ -125,6 +125,7 @@
 @keyframes fpf-shine { 0% { transform: translateX(0); } 45%, 100% { transform: translateX(80px); } }
 
 /* lightning: three bolt sets strike in turn */
+[data-frame="lightning"].is-sm { --bk: 1.5; }
 [data-frame="lightning"] .l1 { animation: fpf-flicker 2.3s linear infinite; }
 [data-frame="lightning"] .l2 { animation: fpf-zap-a 1.8s linear infinite; }
 [data-frame="lightning"] .l3 { opacity: 0; animation: fpf-zap-b 1.8s linear infinite; }

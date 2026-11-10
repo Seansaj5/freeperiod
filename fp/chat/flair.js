@@ -9,8 +9,8 @@ export const FRAMES = Object.freeze(['neon-ring', 'pulse', 'orbit', 'flame', 'fr
 export const EFFECTS = Object.freeze(['sparkles', 'snow', 'embers', 'glitch', 'stars', 'bubbles', 'lightning', 'confetti', 'matrix', 'aurora']);
 export const FILLS = Object.freeze(['solid', 'gradient']);
 
-/** Early Member = joined chat before this moment (UTC). */
-export const EARLY_CUTOFF = '2026-12-01T00:00:00Z';
+/** Early Member = joined chat before this moment: midnight US Eastern (EST, UTC-5) at the start of 2026-12-01. */
+export const EARLY_CUTOFF = '2026-12-01T05:00:00Z';
 const EARLY_MS = Date.parse(EARLY_CUTOFF);
 
 export const DEFAULT_NAME_COLOR = '#eef2ff'; // the page text color (--text)
@@ -60,7 +60,7 @@ export function validFlair(patch) {
     if (own(k) && patch[k] !== null && !isHex(patch[k])) bad(k, 'Colors look like #12ab3f');
   }
   if (own('name_font') && patch.name_font !== null && !has(FONTS, patch.name_font)) bad('name_font', 'Unknown font');
-  if (own('name_fill') && patch.name_fill !== null && !has(FILLS, patch.name_fill)) bad('name_fill', 'Fill is solid or gradient');
+  if (own('name_fill') && !has(FILLS, patch.name_fill)) bad('name_fill', 'Fill is solid or gradient');
   if (own('name_glow') && typeof patch.name_glow !== 'boolean') bad('name_glow', 'Glow is on or off');
   if (own('frame') && patch.frame !== null && !has(FRAMES, patch.frame)) bad('frame', 'Unknown avatar frame');
   if (own('effect') && patch.effect !== null && !has(EFFECTS, patch.effect)) bad('effect', 'Unknown profile effect');
@@ -114,13 +114,13 @@ export function badgesFor(profile) {
   const joined = typeof p.joined_at === 'string' ? Date.parse(p.joined_at) : NaN;
   if (Number.isFinite(joined) && joined < EARLY_MS) out.push('early');
   const tier = tierKey(p.game_stats && p.game_stats.bb && p.game_stats.bb.tier);
-  if (tier) out.push('bb:' + tier);
+  if (tier && tier !== 'rookie') out.push('bb:' + tier); // Rookie is the unranked start, not a badge
   return out;
 }
 
 // Bing Ball ranked tier keys (shared/modes.js TIERS) with the hub's colors (same as the home leaderboard, no pink/purple).
 const TIERS = {
-  rookie: ['Rookie', '#8b95a7'], contender: ['Contender', '#6fe0a0'], egoist: ['Egoist', '#3de0ff'], striker: ['Striker', '#5b9bff'],
+  contender: ['Contender', '#6fe0a0'], egoist: ['Egoist', '#3de0ff'], striker: ['Striker', '#5b9bff'],
   ace: ['Ace', '#ffb020'], worldclass: ['World Class', '#ff7a3d'], newgen: ['New Gen', '#ffe066'],
 };
 const BADGES = {

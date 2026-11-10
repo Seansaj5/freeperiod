@@ -51,6 +51,7 @@ test('validFlair rejects bad hex colors (same rule as the database: #rrggbb lowe
 
 test('validFlair rejects a bad fill or glow, and a patch that is not an object', () => {
   assert.deepEqual(fields(validFlair({ name_fill: 'rainbow' })), ['name_fill']);
+  assert.deepEqual(fields(validFlair({ name_fill: null })), ['name_fill'], 'name_fill is NOT NULL in the database');
   assert.deepEqual(fields(validFlair({ name_glow: 'yes' })), ['name_glow']);
   assert.deepEqual(fields(validFlair({ name_glow: null })), ['name_glow']);
   for (const bad of [null, undefined, 'frame', 7, ['frame']]) assert.equal(validFlair(bad).ok, false);
@@ -109,16 +110,21 @@ test('badgesFor: order is owner, mod, early, Bing Ball tier', () => {
   assert.deepEqual(badgesFor({ role: 'member' }), []);
   assert.deepEqual(badgesFor({ role: 'member', game_stats: { bb: { tier: null } } }), []);
   assert.deepEqual(badgesFor({ role: 'member', game_stats: { bb: { tier: '' } } }), []);
+  assert.deepEqual(badgesFor({ role: 'member', game_stats: { bb: { tier: 'rookie' } } }), [], 'Rookie is unranked: no badge');
+  assert.deepEqual(badgesFor({ role: 'member', game_stats: { bb: { tier: ' ROOKIE ' } } }), []);
+  assert.deepEqual(badgesFor({ role: 'member', game_stats: { bb: { tier: 'contender' } } }), ['bb:contender']);
   assert.deepEqual(badgesFor({ role: 'member', game_stats: null }), []);
   assert.deepEqual(badgesFor(null), []);
 });
 
-test('badgesFor: Early Member means joined chat before 2026-12-01', () => {
+test('badgesFor: Early Member means joined chat before midnight US Eastern on 2026-12-01 (05:00Z)', () => {
+  assert.deepEqual(badgesFor({ joined_at: '2026-12-01T04:59:59Z' }), ['early']);
+  assert.deepEqual(badgesFor({ joined_at: '2026-12-01T05:00:00Z' }), []);
   assert.deepEqual(badgesFor({ joined_at: '2026-11-30' }), ['early']);
   assert.deepEqual(badgesFor({ joined_at: '2026-11-30T23:59:59.999Z' }), ['early']);
   assert.deepEqual(badgesFor({ joined_at: '2026-11-30T23:30:00+00:00' }), ['early'], 'Postgres timestamptz text');
-  assert.deepEqual(badgesFor({ joined_at: '2026-12-01' }), []);
-  assert.deepEqual(badgesFor({ joined_at: '2026-12-01T00:00:00Z' }), []);
+  assert.deepEqual(badgesFor({ joined_at: '2026-12-01T00:00:00Z' }), ['early'], 'still 7 pm Eastern on Nov 30');
+  assert.deepEqual(badgesFor({ joined_at: '2026-12-01T12:00:00Z' }), []);
   assert.deepEqual(badgesFor({ joined_at: '2027-03-01T10:00:00Z' }), []);
   assert.deepEqual(badgesFor({ joined_at: 'not a date' }), []);
 });
