@@ -178,7 +178,7 @@ export function openProfileCard(profile, anchor, cx) {
       catch (e) { errEl.textContent = (e && e.shown) || 'Couldn’t do that'; }
       finally { busy = false; }
     });
-    box.append(msg, friendBtn(), blk);
+    box.append(...[msg, friendBtn(), blk].filter(Boolean)); // (no friend button when blocked: append(null) would print "null")
     if (cx.isStaff()) {
       const mod = h('button', { type: 'button', class: 'cx-iconbtn cx-pc-mod-btn', title: 'Moderate', 'aria-label': 'Moderate ' + nameOf(p), 'aria-haspopup': 'menu' }, icon('dots'));
       mod.addEventListener('click', () => { if (!cx.memberMenu(mod, p)) errEl.textContent = 'There’s nothing you can change for ' + nameOf(p) + '.'; });
