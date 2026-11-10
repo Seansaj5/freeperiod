@@ -1538,7 +1538,7 @@ $('admClose').onclick = () => { sound.play('click'); closeAdmin(); };
 function endMatch() { if (match) { match.dispose(); match = null; } paused = false; if (document.pointerLockElement) document.exitPointerLock(); }
 function leaveToMenu() {
   endMatch();
-  if (net) { net.close(); net = null; }
+  if (net) { net.close(); net = null; reportRoom(null); }
   show('title'); menuMode = 'title'; setStatus('');
   refreshOnline();
 }
@@ -1570,6 +1570,12 @@ $('soloBack').onclick = () => { sound.play('click'); show('title'); };
 $('soloGo').onclick = () => { sound.play('click'); startSolo(); };
 
 // online
+// Free Period's play page shows chat friends which room you're in (their Join button opens ?join=CODE). Nothing when
+// the game runs on its own.
+function reportRoom(code) {
+  if (window.parent === window) return;
+  try { window.parent.postMessage({ type: 'fp:room', room: code || null }, location.origin); } catch { /* not framed by Free Period */ }
+}
 async function goOnline(mode) {
   sound.start(); sound.play('click');
   const code = $('code').value.trim().toUpperCase();
@@ -1589,11 +1595,13 @@ async function goOnline(mode) {
     net.on.round = () => { endMatch(); match = new Match(net, { solo: false }); show(null); if (!touch) canvas.requestPointerLock?.()?.catch?.(() => {}); };
     net.on.close = () => { const wasIn = !!match || !$('lobby').classList.contains('hidden'), kicked = net && net.kicked; leaveToMenu(); if (kicked) setStatus('The owner kicked you from that room.', true); else if (wasIn) setStatus('Lost connection to the server.', true); };
     renderLobby(w);
+    reportRoom(w.code);
     if (w.round) { match = new Match(net, { solo: false }); show(null); }
     else show('lobby');
   } catch (err) {
     setStatus(err.message, true);
     net = null;
+    reportRoom(null);
   } finally { for (const b of ['bQuick', 'bCreate', 'bJoin']) $(b).disabled = false; }
 }
 $('bQuick').onclick = () => goOnline('quick');
@@ -1819,6 +1827,9 @@ requestAnimationFrame(frame);
   B && B.set(0.9, 'COMPILING SHADERS');
   try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 6000))]); } catch {}
   await finishBoot();
+  // A friend's Join button on Free Period: ?join=CODE goes straight into that room (solo play is unchanged)
+  const joinCode = (params.get('join') || '').trim().toUpperCase();
+  if (/^[A-Z]{4}$/.test(joinCode) && !net && !match) { title.setEvil(); $('code').value = joinCode; goOnline('join'); }
 })();
 
 // for testing from the console / headless browser

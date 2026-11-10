@@ -395,6 +395,12 @@ function quitToMenu() {
 }
 
 // ---------------- multiplayer ----------------
+// Free Period's play page shows chat friends which room you're in (their Join button opens ?join=CODE). Nothing when
+// the game runs on its own.
+function reportRoom(code) {
+  if (window.parent === window) return;
+  try { window.parent.postMessage({ type: 'fp:room', room: code || null }, location.origin); } catch { /* not framed by Free Period */ }
+}
 async function joinMp(how, code) {
   const name = $('mp-name').value.replace(/[^\w .\-]/g, '').trim().slice(0, 16) || 'Driver';
   if (!account.user) { save.name = name; persist(); }
@@ -418,6 +424,7 @@ async function joinMp(how, code) {
     autoRegroupUntil = performance.now() + 4000;
     $('h-mp').classList.remove('hidden');
     $('h-code').textContent = w.code;
+    reportRoom(w.code);
     $('p-regroup').classList.remove('hidden');
     const where = `${world.map.name} · ${world.road.lanes} lanes`;
     $('p-room').innerHTML = w.public ? `Public room <b>${w.code}</b> · ${where}` : `Room code <b>${w.code}</b> · ${where} · send it to your friends`;
@@ -456,10 +463,11 @@ function wireNet() {
     for (const id of [...remotes.keys()]) dropRemote(id);
     net = null;
     $('p-regroup').classList.add('hidden');
+    reportRoom(null);
   };
 }
 function leaveNet() {
-  if (net) { net.close(); net = null; }
+  if (net) { net.close(); net = null; reportRoom(null); }
   for (const id of [...remotes.keys()]) dropRemote(id);
   $('h-feed').innerHTML = '';
 }
@@ -1021,6 +1029,14 @@ function flash() { const f = $('flash'); f.classList.remove('on'); void f.offset
 
 show('menu');
 renderer.setAnimationLoop(frame);
+
+// A friend's Join button on Free Period: ?join=CODE opens Multiplayer and joins that room (solo play is unchanged).
+// It waits for the page to finish loading: a socket opened while the first frames compile can miss the server's pings.
+const joinCode = (params.get('join') || '').trim().toUpperCase();
+if (/^[A-Z]{4}$/.test(joinCode)) {
+  const deepJoin = () => setTimeout(() => { if (mode !== 'menu' || net) return; $('b-mp').onclick(); $('mp-code').value = joinCode; joinMp('join', joinCode); }, 0);
+  if (document.readyState === 'complete') deepJoin(); else addEventListener('load', deepJoin, { once: true });
+}
 
 // handy for testing in the console
 window.__cc = { sim, scorer, world, save, persist, sound, setRoute, get fps() { return fpsAvg; }, get mode() { return mode; }, startSolo, quitToMenu, get net() { return net; }, account, get lives() { return lives; }, get wreck() { return wreck; }, blowUp, loseLife, driveAgain, fire, smoke };
