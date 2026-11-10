@@ -38,7 +38,7 @@ const WHISPERS = ['BEHIND YOU', "DON'T STOP RUNNING", 'IT SEES YOU', 'STAY', 'YO
 export class Fx {
   constructor(pass) {
     this.u = pass.uniforms;
-    this.terror = 0; this.base = { noise: 0.03, aberr: 0.0015, red: 0.08, vignette: 0.35 };
+    this.terror = 0; this.base = { noise: 0.012, aberr: 0, red: 0.05, vignette: 0.2 }; this.corrupt = 1;
     this.kick = { noise: 0, aberr: 0, tear: 0, pixel: 0, flash: 0 };
     this.time = 0; this.whisperT = 18;
     this.scare = document.getElementById('scare');
@@ -59,6 +59,8 @@ export class Fx {
       case 'exits': K.flash = 0.5; u.flashColor.value.setRGB(1, 1, 1); K.aberr = 0.015; break;
       case 'escape': K.flash = 0.9; u.flashColor.value.setRGB(1, 1, 1); break;
       case 'sense': K.flash = 0.35; u.flashColor.value.setRGB(0.5, 0, 0.05); K.aberr = 0.03; K.tear = 0.4; break;
+      case 'portal': K.flash = 0.85; u.flashColor.value.setRGB(1, 1, 1); K.aberr = 0.03; K.tear = 0.5; K.pixel = 0.3; break;
+      case 'pop': K.flash = 0.5; u.flashColor.value.setRGB(0.5, 0, 0); K.noise = 0.6; K.tear = 0.8; K.pixel = 0.4; K.aberr = 0.03; break;
     }
   }
 
@@ -79,24 +81,25 @@ export class Fx {
     w.classList.remove('on'); void w.offsetWidth; w.classList.add('on');
   }
 
-  /** terror: 0 (calm) .. 1 (EXE right on you). playing: whispers only during rounds. */
-  update(dt, terror, playing) {
+  /** terror: 0 (calm) .. 1 (EXE right on you). playing: whispers only during rounds. corrupt: which world you see. */
+  update(dt, terror, playing, corrupt = this.corrupt) {
     this.time += dt;
+    this.corrupt = corrupt;
     this.terror = damp(this.terror, terror, 4, dt);
-    const T = this.terror, K = this.kick, u = this.u, b = this.base;
-    for (const k in K) K[k] = Math.max(0, K[k] - dt * (k === 'flash' ? 2.2 : 1.6));
-    const flick = Math.random() < T * 0.08 ? 1 : 0;
+    const T = this.terror, K = this.kick, u = this.u, b = this.base, c = corrupt ? 1 : 0;
+    for (const k in K) K[k] = Math.max(0, K[k] - dt * (k === 'flash' ? 2.2 : 1.8));
+    const flick = c && Math.random() < T * 0.05 ? 1 : 0;
     u.time.value = this.time;
-    u.noise.value = b.noise + T * 0.16 + K.noise + flick * 0.2;
-    u.aberr.value = b.aberr + T * 0.006 + K.aberr;
-    u.tear.value = T * 0.12 + K.tear + flick * 0.3;
-    u.pixel.value = K.pixel + (T > 0.75 ? (T - 0.75) * 0.6 : 0);
-    u.red.value = (this.exeView ? 0.2 : b.red) + T * 0.35;
-    u.vignette.value = b.vignette + T * 0.9;
+    u.noise.value = b.noise * c + T * 0.07 + K.noise + flick * 0.12;
+    u.aberr.value = b.aberr + T * 0.0035 + K.aberr;
+    u.tear.value = T * 0.05 + K.tear + flick * 0.2;
+    u.pixel.value = K.pixel + (T > 0.85 ? (T - 0.85) * 0.5 : 0);
+    u.red.value = (this.exeView ? 0.12 : b.red) * c + T * 0.22;
+    u.vignette.value = b.vignette + T * 0.6 + c * 0.1;
     u.flash.value = Math.min(1, K.flash);
-    if (playing) {
-      this.whisperT -= dt * (1 + T * 3);
-      if (this.whisperT <= 0) { this.whisperT = 20 + Math.random() * 25; this.say(); this.pulse('static', 0.6); }
+    if (playing && c) {
+      this.whisperT -= dt * (1 + T * 2);
+      if (this.whisperT <= 0) { this.whisperT = 30 + Math.random() * 30; this.say(); this.pulse('static', 0.4); }
     }
   }
 }

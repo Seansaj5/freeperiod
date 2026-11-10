@@ -5,16 +5,30 @@ export const GRAVITY = 26;
 
 export const ROUND = {
   INTRO: 8,        // seconds before EXE is let loose
-  PLAY: 180,       // the clock survivors have to last
-  ESCAPE: 30,      // once the exits open, how long survivors have to reach one
+  PLAY: 300,       // the clock survivors have to last
+  ESCAPE: 45,      // once the gates open, how long survivors have to reach one
   RESULTS: 10,     // results screen before the room goes back to the lobby
-  SHARDS: 8,       // shards hidden each round; collecting all of them opens the exits early
-  LIT: 4,          // how many shards glow (and can be absorbed) at once
+  SHARDS: 3,       // Dreamy Hills task: shards to absorb (normal world)
+  LIT: 3,          // how many shards glow at once
   RELIGHT: 3,      // seconds before the next shard lights up after one is absorbed
-  EXITS: 2,        // exits that open each round (out of 4 spots)
+  EXITS: 2,        // escape gates that open each round (out of 4, corrupted world only)
   SURVIVORS: 4,    // bots fill in up to this many survivors
   MAX_PLAYERS: 6,  // people per room (1 EXE + 5 survivors)
 };
+
+// the two worlds: everyone starts in the normal one; rift portals swap you between them
+export const W = { normal: 0, corrupt: 1 };
+export const PORTAL = { range: 2.0, cooldown: 4 };
+
+// one task per zone; all five open the gates early
+export const TASKS = [
+  { id: 'shards', zone: 'Dreamy Hills', w: 0, label: 'Absorb the shards' },
+  { id: 'valves', zone: 'Toxic Works', w: 0, label: 'Turn the valves' },
+  { id: 'panels', zone: 'Neon Jackpot', w: 1, label: 'Light the jackpot panels' },
+  { id: 'core', zone: 'Frostbite Peak', w: 1, label: 'Bring the fire core to the engine' },
+  { id: 'bells', zone: 'Ember Ruins', w: 1, label: 'Ring the bells' },
+];
+export const TASK = { valveTime: 5, valveRange: 2.2, panelRange: 1.7, bellRange: 2.3, coreRange: 2.0, engineRange: 3.5, carryMul: 0.8 };
 
 export const SURV = {
   hp: 2,
@@ -24,7 +38,8 @@ export const SURV = {
   boostMul: 1.4, boostTime: 3, invulnTime: 1.6,
   pickupRange: 2.4, shardTime: 4.5, exitRange: 3.4,
   height: 2.4, radius: 0.5,
-  waterMul: 0.62,
+  waterMul: 0.62, gooMul: 0.5,
+  burnTime: 1.2,   // lava: how long you are safe after getting burned
 };
 
 export const EXE = {
@@ -32,8 +47,9 @@ export const EXE = {
   atkRange: 3.3, atkDot: 0.25, atkCd: 1.0, lagGrace: 1.2,
   recoverTime: 2.0, recoverMul: 0.45,
   senseCd: 22, senseRange: 26, revealTime: 4.5,
-  escapeMul: 1.08,
+  escapeMul: 1.08, corruptMul: 1.1,
   height: 3.0, radius: 0.6,
+  disguiseCd: 15, popTime: 0.7,
 };
 
 export const CHARS = {
@@ -80,18 +96,22 @@ export const VARIANT_IDS = Object.keys(VARIANTS);
 export const F = {
   SPRINT: 1, AIR: 2, FLY: 4, ATK: 8, DASH: 16, STUN: 32, BOOST: 64, INVULN: 128,
   FADE: 256, REVEAL: 512, LUNGE: 1024, RECOVER: 2048, REVIVING: 4096, WATER: 8192,
+  GOO: 16384, CARRY: 32768, POP: 65536, ICE: 131072,
 };
 export const ST = { alive: 0, down: 1, out: 2, esc: 3 };
 export const PHASES = ['intro', 'play', 'escape', 'over'];
 
-/** How fast someone moves right now. flags is a bitmask of F; phase is one of PHASES. */
-export function moveSpeed(role, kind, st, flags, phase, sprinting) {
+/** How fast someone moves right now. flags is a bitmask of F; phase is one of PHASES; w is the world. */
+export function moveSpeed(role, kind, st, flags, phase, sprinting, w = 0, disguisedAs = null) {
   if (role === 'exe') {
-    if (phase === 'intro' || flags & F.STUN) return 0;
+    if (phase === 'intro' || flags & F.STUN || flags & F.POP) return 0;
+    if (disguisedAs) return Math.min(sprinting ? CHARS[disguisedAs].sprint : CHARS[disguisedAs].walk, VARIANTS[kind].speed);
     let s = VARIANTS[kind].speed;
     if (phase === 'escape') s *= EXE.escapeMul;
+    if (w === 1) s *= EXE.corruptMul;
     if (flags & F.RECOVER) s *= EXE.recoverMul;
     if (flags & F.FADE) s *= VARIANTS[kind].fadeMul || 1;
+    if (flags & F.GOO) s *= SURV.gooMul;
     return s;
   }
   if (st === ST.down) return SURV.crawl;
@@ -100,6 +120,8 @@ export function moveSpeed(role, kind, st, flags, phase, sprinting) {
   let s = sprinting ? c.sprint : c.walk;
   if (flags & F.BOOST) s *= SURV.boostMul;
   if (flags & F.WATER) s *= SURV.waterMul;
+  if (flags & F.GOO) s *= SURV.gooMul;
+  if (flags & F.CARRY) s *= TASK.carryMul;
   return s;
 }
 

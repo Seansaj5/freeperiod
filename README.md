@@ -19,7 +19,8 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   `js/scenery.js`. Sounds are real CC0 recordings from Freesound in `games/close-call/sfx/`
   (credits in `sfx/CREDITS.md`; `sfx.json` lists the engine loops by RPM, the loops and the one-shots).
 
-- **horror.exe** lives in `games/horror-exe/`: survivors vs EXE in a cheerful zone gone wrong. The round rules,
+- **horror.exe** lives in `games/horror-exe/`: survivors vs EXE across five zones in two worlds (normal and corrupted,
+  swapped through rift portals), with zone tasks and a disguising EXE. The round rules,
   map and bots are in `games/horror-exe/shared/` and run in the browser for solo games and on the server
   (`games/horror-exe/server/`, Render service `freeperiod-horror`) for online rooms.
   Test locally: `node games/horror-exe/server/index.js` (port 8790) and open `games/horror-exe/?server=ws://localhost:8790`.

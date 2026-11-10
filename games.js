@@ -38,11 +38,11 @@ window.GAMES = [
   {
     id: 'horror-exe',
     title: 'horror.exe',
-    tagline: 'A cheerful zone gone wrong. Absorb the shards, revive your friends and escape before EXE catches you.',
+    tagline: 'Five zones, two worlds, and one friend who might be EXE. Finish the zone tasks, cross into the corrupted world and escape.',
     url: 'games/horror-exe/',
     thumb: 'assets/horror-exe.jpg',
     tags: ['3D', 'Multiplayer', 'Horror'],
-    controls: 'WASD move · Shift sprint · Space jump · E power · EXE: click attack, Q sense · Esc pause',
+    controls: 'WASD move · Shift sprint · Space jump · E power · EXE: click attack, Q sense, F disguise · Esc pause',
     accent: '#ff2a3a',
     wake: 'https://freeperiod-horror.onrender.com/health',
     added: '2026-11-09',

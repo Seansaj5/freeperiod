@@ -90,13 +90,24 @@
     @keyframes pulse { 50% { opacity: 0.55; } }
     .shardc { color: var(--cyan); }
     .phase { position: absolute; top: 66px; left: 50%; transform: translateX(-50%); font-size: 13px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); white-space: nowrap; text-shadow: 0 1px 6px #000; }
-    .team { position: absolute; top: 14px; left: 14px; display: flex; flex-direction: column; gap: 5px; }
+    .leftcol { position: absolute; top: 14px; left: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .team { display: flex; flex-direction: column; gap: 5px; }
+    .team em, .tasks em { font-style: normal; margin-right: 6px; }
+    .good { color: #ffe27a; } .bad { color: #ff4a5a; }
+    .worldpill { font-family: 'Bungee', sans-serif; font-size: 13px; letter-spacing: 0.04em; }
+    .worldpill.good { color: #ffe27a; border-color: rgba(255, 226, 122, 0.4); } .worldpill.bad { color: #ff4a5a; border-color: rgba(255, 60, 70, 0.5); }
+    .tasks { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 9px 11px; width: 214px; font-size: 13px; }
+    .tasks b { font-size: 10px; letter-spacing: 0.16em; color: var(--muted); display: block; margin-bottom: 4px; }
+    .tasks div { display: flex; align-items: flex-start; padding: 3px 0; font-weight: 700; line-height: 1.25; }
+    .tasks small { display: block; font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+    .tasks .done { opacity: 0.55; text-decoration: line-through; color: #8affa0; }
+    .minimap { position: absolute; top: 14px; right: 14px; width: 180px; height: 180px; border-radius: 14px; border: 1px solid var(--line); background: #000; image-rendering: auto; }
     .team div { display: flex; align-items: center; gap: 8px; padding: 6px 11px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); font-size: 13.5px; font-weight: 700; min-width: 168px; }
     .team i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
     .team span { margin-left: auto; font-size: 12px; color: var(--muted); }
     .team .me { border-color: rgba(255, 255, 255, 0.4); }
     .team .down span { color: var(--red); } .team .esc span { color: var(--cyan); } .team .out { opacity: 0.45; }
-    .feed { position: absolute; top: 14px; right: 14px; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; max-width: 360px; }
+    .feed { position: absolute; top: 204px; right: 14px; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; max-width: 360px; }
     .feed div { padding: 6px 11px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); font-size: 13.5px; font-weight: 600; animation: feedIn 0.25s ease-out; }
     .feed b { color: #fff; }
     @keyframes feedIn { from { opacity: 0; transform: translateX(14px); } }
@@ -164,9 +175,9 @@
     #touch .tb { position: absolute; width: 66px; height: 66px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); background: rgba(20, 0, 4, 0.55); pointer-events: auto; font-family: 'Bungee', sans-serif; font-size: 11px; display: flex; align-items: center; justify-content: center; text-align: center; }
     #touch .tb.on { background: rgba(255, 40, 50, 0.6); }
 
-    @media (max-height: 500px) { .team { display: none; } .intro p { font-size: 14px; } .intro h1 { font-size: 44px; } }
+    @media (max-height: 500px) { .team { display: none; } .tasks { width: 180px; font-size: 11px; } .minimap { width: 120px; height: 120px; } .feed { top: 140px; } .intro p { font-size: 14px; } .intro h1 { font-size: 44px; } }
     @media (max-width: 700px) {
-      .team { display: none; } .feed { top: 60px; max-width: 70vw; } .feed div { font-size: 12px; }
+      .team { display: none; } .tasks { display: none; } .minimap { width: 110px; height: 110px; } .feed { top: 130px; max-width: 70vw; } .feed div { font-size: 12px; }
       .keys { display: none; } .slot { width: 62px; height: 62px; } .stam { width: 120px; }
       .bottom { bottom: auto; top: 96px; } .cards { grid-template-columns: 1fr; }
     }
@@ -176,7 +187,7 @@
 <body>
   <section id="title" class="screen shade">
     <h1 class="logo"><span class="glitch" data-text="horror.exe">horror<span class="dot">.</span>exe</span></h1>
-    <p class="tag">Something is wrong with Dreamy Hills Zone. Find the shards. Reach an exit. Don't let it catch you.</p>
+    <p class="tag">Five zones. Two worlds. One of your friends isn't who they seem. Finish the tasks, cross into the corrupted world and escape.</p>
     <div class="stack">
       <button class="btn primary" id="bSolo">Play solo <small>you + bots</small></button>
       <button class="btn" id="bQuick">Quick play <small>online</small></button>
@@ -187,7 +198,7 @@
     </div>
     <div class="online" id="online"><i></i><span>Checking the server…</span></div>
     <div class="status" id="status"></div>
-    <div class="keys"><kbd>WASD</kbd> move · <kbd>Mouse</kbd> look · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump · <kbd>E</kbd> ability<br />EXE: <kbd>Click</kbd> attack · <kbd>E</kbd> power · <kbd>Q</kbd> sense · <kbd>Esc</kbd> pause</div>
+    <div class="keys"><kbd>WASD</kbd> move · <kbd>Mouse</kbd> look · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump · <kbd>E</kbd> ability<br />EXE: <kbd>Click</kbd> attack · <kbd>E</kbd> power · <kbd>Q</kbd> sense · <kbd>F</kbd> disguise · <kbd>Esc</kbd> pause</div>
   </section>
 
   <section id="soloPick" class="screen shade hidden">
@@ -239,9 +250,10 @@
   </section>
 
   <div id="hud" class="hidden">
-    <div class="top"><div class="pill clock" id="clock">3:00</div><div class="pill shardc" id="shardc">◆ 0/8</div></div>
+    <div class="top"><div class="pill worldpill good" id="worldPill">☀ NORMAL WORLD</div><div class="pill clock" id="clock">5:00</div><div class="pill shardc" id="shardc">✓ 0/5 tasks</div></div>
     <div class="phase" id="phase"></div>
-    <div class="team" id="team"></div>
+    <div class="leftcol"><div class="team" id="team"></div><div class="tasks hidden" id="tasks"></div></div>
+    <canvas class="minimap hidden" id="minimap" width="180" height="180"></canvas>
     <div class="feed" id="feed"></div>
     <div class="banner" id="banner"></div>
     <div id="markers"></div>
@@ -293,6 +305,7 @@
     <button class="tb" id="tSprint" style="right:5vw;bottom:calc(9vh + 76px)">RUN</button>
     <button class="tb" id="tAtk" style="right:calc(5vw + 152px);bottom:9vh">HIT</button>
     <button class="tb" id="tSense" style="right:calc(5vw + 76px);bottom:calc(16vh + 76px)">SENSE</button>
+    <button class="tb" id="tDis" style="right:calc(5vw + 152px);bottom:calc(9vh + 76px)">HIDE</button>
   </div>
   <div id="scare"><canvas></canvas></div>
   <div id="whisper"></div>

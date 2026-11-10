@@ -1,7 +1,7 @@
-// All sound is made with Web Audio (no files): a music box that drifts out of tune, a drone, wind,
-// a heartbeat that speeds up when EXE is close, chase drums for the escape, and every effect.
+// All sound is made with Web Audio (no files): an original zone tune (happy in the normal world, slowed and
+// broken in the corrupted one, fast and distorted for the escape), a drone, wind, a heartbeat, and every effect.
 export class Sound {
-  constructor() { this.ctx = null; this.volume = 0.7; this.terror = 0; this.mode = 'menu'; this.nextNote = 0; this.noteI = 0; this.beatT = 0; this.chaseT = 0; this.chaseStep = 0; }
+  constructor() { this.ctx = null; this.volume = 0.7; this.terror = 0; this.music = 'menu'; this.nextT = 0; this.seqI = 0; this.beatT = 0; }
 
   start() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
@@ -35,7 +35,6 @@ export class Sound {
     this.pGain = ctx.createGain(); this.pGain.gain.value = 0;
     const po = ctx.createOscillator(); po.type = 'sawtooth'; po.frequency.value = 70; const pf = ctx.createBiquadFilter(); pf.type = 'lowpass'; pf.frequency.value = 500;
     po.connect(pf); pf.connect(this.pGain); this.pGain.connect(this.master); po.start(); this.pOsc = po;
-    this.nextNote = ctx.currentTime + 0.3;
   }
 
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); }
@@ -55,34 +54,26 @@ export class Sound {
     s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random()); s.stop(t + dur + 0.05);
   }
 
-  /** mode: 'menu' | 'game' | 'chase' | 'off'. terror 0..1. */
-  update(dt, mode, terror, flying = false) {
+  /**
+   * music: 'normal' (the happy zone tune), 'corrupt' (the same tune, broken), 'chase' (fast and distorted),
+   * 'menu' (quiet broken tune) or 'off'. terror 0..1 (heartbeat, warble). flying: propeller hum.
+   */
+  update(dt, music, terror, flying = false) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    this.mode = mode; this.terror = terror;
-    this.dGain.gain.setTargetAtTime(mode === 'off' ? 0 : 0.035 + terror * 0.05, t, 0.3);
+    const dark = music !== 'normal';
+    this.music = music; this.terror = terror;
+    this.dGain.gain.setTargetAtTime(music === 'off' || !dark ? 0 : 0.03 + terror * 0.05, t, 0.4);
     this.dFilter.frequency.setTargetAtTime(220 + terror * 500, t, 0.3);
-    this.wGain.gain.setTargetAtTime(mode === 'off' ? 0 : 0.03, t, 0.5);
+    this.wGain.gain.setTargetAtTime(music === 'off' ? 0 : dark ? 0.03 : 0.012, t, 0.5);
     this.wFilter.frequency.setTargetAtTime(400 + Math.sin(t * 0.3) * 200, t, 0.5);
-    this.mus.gain.setTargetAtTime(mode === 'chase' ? 0.12 : mode === 'off' ? 0 : 0.5, t, 0.4);
-    this.chaseBus.gain.setTargetAtTime(mode === 'chase' ? 0.32 : 0, t, 0.3);
+    this.mus.gain.setTargetAtTime(music === 'off' ? 0 : music === 'menu' ? 0.32 : music === 'normal' ? 0.42 : 0.55, t, 0.5);
+    this.chaseBus.gain.setTargetAtTime(music === 'chase' ? 0.3 : 0, t, 0.3);
     this.pGain.gain.setTargetAtTime(flying ? 0.05 : 0, t, 0.08);
     if (flying) this.pOsc.frequency.setTargetAtTime(70 + Math.random() * 6, t, 0.05);
-    // music box: an original tune in A minor that wanders out of tune as terror rises
-    const tune = [69, 72, 76, 74, 72, 71, 68, 71, 69, 0, 76, 77, 76, 74, 72, 71, 72, 0, 69, 72, 76, 81, 80, 76, 77, 74, 71, 68, 69, 0, 0, 0];
-    while (this.nextNote < t + 0.2 && mode !== 'off') {
-      const n = tune[this.noteI % tune.length]; this.noteI++;
-      if (n) {
-        const warp = (Math.random() - 0.5) * terror * 60 + Math.sin(this.noteI * 0.7) * 8;
-        const f = 440 * Math.pow(2, (n - 69 + warp / 100) / 12);
-        this.osc('sine', f, this.nextNote, 0.004, 0.18, 1.4, this.mus);
-        this.osc('triangle', f * 2.003, this.nextNote, 0.004, 0.05, 0.6, this.mus);
-      }
-      this.nextNote += (mode === 'menu' ? 0.5 : 0.44) * (1 + terror * 0.25 * Math.random());
-    }
-    if (this.nextNote < t) this.nextNote = t + 0.1;
-    // heartbeat
-    if (terror > 0.04 && mode !== 'off') {
+    this.sequence(t, music, terror);
+    // heartbeat when EXE is close
+    if (terror > 0.04 && music !== 'off') {
       this.beatT -= dt;
       if (this.beatT <= 0) {
         this.beatT = 1.15 - terror * 0.72;
@@ -91,19 +82,60 @@ export class Sound {
         this.osc('sine', 58, t + 0.17, 0.01, v * 0.7, 0.18, this.master, 36);
       }
     }
-    // chase drums
-    if (mode === 'chase') {
-      this.chaseT -= dt;
-      while (this.chaseT <= 0) {
-        const step = this.chaseStep++ % 8, at = t + 0.02;
-        this.chaseT += 0.2;
-        if (step % 2 === 0) this.osc('sine', 120, at, 0.003, 0.9, 0.22, this.chaseBus, 42);
-        if (step === 2 || step === 6) this.burst(at, 0.14, 0.4, 'highpass', 1500, 0.7, this.chaseBus);
-        const bass = [45, 45, 46, 45, 45, 45, 44, 46][step];
-        this.osc('sawtooth', 440 * Math.pow(2, (bass - 69) / 12), at, 0.005, 0.25, 0.18, this.dist);
-        if (step === 7 && Math.random() < 0.5) this.osc('sawtooth', 440 * Math.pow(2, (bass + 13 - 69) / 12), at, 0.01, 0.12, 0.3, this.dist);
+  }
+
+  /**
+   * An original bouncy zone tune (C major, 4 bars + 4 bars). In the corrupted world the very same notes are
+   * played slow, a tritone lower, out of tune, with "reversed" swells, dropouts and static: a happy song, broken.
+   */
+  sequence(t, music, terror) {
+    if (music === 'off') { this.nextT = 0; return; }
+    const MEL = [
+      72, 76, 79, 76, 81, 79, 76, 74, 72, 0, 74, 76, 77, 76, 74, 0,
+      77, 81, 84, 81, 79, 77, 76, 74, 76, 79, 74, 0, 71, 74, 72, 0,
+      69, 72, 76, 72, 77, 76, 72, 69, 71, 74, 79, 74, 77, 76, 74, 71,
+      72, 76, 81, 79, 77, 76, 79, 84, 83, 0, 79, 0, 84, 0, 0, 0,
+    ];
+    const ROOTS = [36, 36, 41, 43, 33, 31, 41, 36];
+    const broken = music === 'corrupt' || music === 'menu';
+    const chase = music === 'chase';
+    const step = chase ? 0.16 : broken ? 0.36 : 0.2;
+    const shift = broken || chase ? -6 : 0;
+    if (!this.nextT || this.nextT < t - 0.5) this.nextT = t + 0.05;
+    const lead = broken || chase ? this.dist : this.mus;
+    while (this.nextT < t + 0.25) {
+      const at = this.nextT, i = this.seqI++ % 64, bar = Math.floor(i / 8), e = i % 8;
+      const note = MEL[i], root = ROOTS[bar] + shift;
+      const hz = (n, cents = 0) => 440 * Math.pow(2, (n - 69 + cents / 100) / 12);
+      if (!broken && !chase) {
+        // normal world: bright square lead, bouncy bass, light drums
+        if (note) { this.osc('square', hz(note), at, 0.005, 0.07, step * 0.85, this.mus); this.osc('triangle', hz(note + 12), at, 0.005, 0.03, step * 0.5, this.mus); }
+        this.osc('triangle', hz(root + (e % 2 ? 12 : 0)), at, 0.005, 0.22, step * 0.8, this.mus);
+        if (e === 0 || e === 4) this.osc('sine', 110, at, 0.002, 0.5, 0.14, this.mus, 45);
+        if (e === 2 || e === 6) this.burst(at, 0.09, 0.16, 'highpass', 1800, 0.8, this.mus);
+        this.burst(at, 0.03, 0.05, 'highpass', 7000, 0.7, this.mus);
+      } else {
+        // corrupted: slow, low, out of tune; some notes come in backwards, some are missing
+        const warble = (Math.random() - 0.5) * (50 + terror * 80) + Math.sin(this.seqI * 0.37) * 30;
+        if (note && Math.random() > 0.14) {
+          const rev = Math.random() < 0.22;
+          const o = this.ctx.createOscillator(), g = this.ctx.createGain(), f = this.ctx.createBiquadFilter();
+          o.type = chase ? 'sawtooth' : 'square'; o.frequency.setValueAtTime(hz(note, warble), at);
+          o.frequency.linearRampToValueAtTime(hz(note, warble - 40 - terror * 60), at + step);
+          f.type = 'lowpass'; f.frequency.value = chase ? 2400 : 1100 + terror * 900;
+          const len = step * (chase ? 0.8 : 1.6), peak = chase ? 0.09 : 0.1;
+          g.gain.setValueAtTime(0.0001, at);
+          if (rev) { g.gain.exponentialRampToValueAtTime(peak, at + len * 0.9); g.gain.linearRampToValueAtTime(0.0001, at + len); }
+          else { g.gain.exponentialRampToValueAtTime(peak, at + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, at + len); }
+          o.connect(f); f.connect(g); g.connect(lead); g.connect(this.echo); o.start(at); o.stop(at + len + 0.05);
+        }
+        if (e % 2 === 0) this.osc('sawtooth', hz(root - 12, (Math.random() - 0.5) * 30), at, 0.01, chase ? 0.2 : 0.14, step * 1.8, this.dist);
+        if (chase ? e % 2 === 0 : e === 0) this.osc('sine', chase ? 120 : 80, at, 0.003, chase ? 0.9 : 0.7, chase ? 0.2 : 0.5, chase ? this.chaseBus : this.mus, 38);
+        if (chase && (e === 2 || e === 6)) this.burst(at, 0.14, 0.35, 'highpass', 1500, 0.7, this.chaseBus);
+        if (!chase && Math.random() < 0.03 + terror * 0.05) this.burst(at, 0.2 + Math.random() * 0.3, 0.12, 'bandpass', 2400, 0.5, this.mus);
       }
-    } else this.chaseT = 0;
+      this.nextT += step * (broken ? 1 + (Math.random() - 0.5) * 0.12 * (1 + terror) : 1);
+    }
   }
 
   /** One-shot effects. vol scales with distance for things that happen to other players. */
@@ -161,6 +193,19 @@ export class Sound {
       case 'static': this.burst(t, 0.25 + Math.random() * 0.3, 0.18 * v, 'bandpass', 2400, 0.5); break;
       case 'tick': this.osc('square', 1200, t, 0.002, 0.06, 0.05); break;
       case 'go': this.osc('sawtooth', 110, t, 0.01, 0.3, 1.5, this.echo, 55); this.burst(t, 1.2, 0.3, 'lowpass', 800, 1, m, 100); break;
+      case 'portal': this.burst(t, 0.9, 0.4 * v, 'bandpass', 200, 0.8, m, 3500); this.osc('sine', 220, t, 0.05, 0.25 * v, 0.9, this.echo, 880); this.osc('sine', 330, t, 0.05, 0.15 * v, 0.9, this.echo, 110); break;
+      case 'pop':
+        for (const f of [900, 1040, 1380, 520]) { const o = this.osc('sawtooth', f * 0.6, t, 0.03, 0.18 * v, 0.9, m, f); const l = this.ctx.createOscillator(), lg = this.ctx.createGain(); l.frequency.value = 26; lg.gain.value = 70; l.connect(lg); lg.connect(o.frequency); l.start(t); l.stop(t + 1); }
+        this.burst(t, 0.6, 0.5 * v, 'highpass', 1200); break;
+      case 'bell': for (const [i, f] of [523, 1046, 1568, 659].entries()) this.osc('sine', f, t, 0.003, (i ? 0.08 : 0.3) * v, 2.4, this.echo); break;
+      case 'valve': this.burst(t, 0.15, 0.3 * v, 'bandpass', 600, 2); this.osc('square', 180, t, 0.003, 0.08 * v, 0.1); break;
+      case 'steam': this.burst(t, 1.2, 0.3 * v, 'highpass', 3000, 0.5); break;
+      case 'panel': this.osc('square', 880, t, 0.003, 0.1 * v, 0.12); this.osc('square', 1320, t + 0.08, 0.003, 0.1 * v, 0.2); break;
+      case 'core': this.osc('sawtooth', 120, t, 0.01, 0.25 * v, 0.6, this.dist || m, 240); this.burst(t, 0.6, 0.25 * v, 'lowpass', 500); break;
+      case 'burn': this.burst(t, 0.5, 0.5 * v, 'bandpass', 1500, 0.7, m, 400); this.osc('sawtooth', 300, t, 0.005, 0.2 * v, 0.3, m, 120); break;
+      case 'boost': this.burst(t, 0.35, 0.3 * v, 'bandpass', 500, 1, m, 5000); this.osc('square', 440, t, 0.003, 0.06 * v, 0.2, m, 1760); break;
+      case 'bumper': this.osc('square', 1200, t, 0.002, 0.15 * v, 0.08); this.osc('sine', 600, t, 0.002, 0.3 * v, 0.2, m, 1200); break;
+      case 'task': for (const [i, f] of [659, 784, 988, 1319].entries()) this.osc('triangle', f, t + i * 0.09, 0.005, 0.2 * v, 0.6); break;
     }
   }
 }
