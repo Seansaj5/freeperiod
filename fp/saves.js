@@ -18,7 +18,7 @@ export function syncGame(game, opts) {
   return p;
 }
 
-async function doSync(game, { keepalive = false } = {}) {
+async function doSync(game, { keepalive = false, pullBy = 0 } = {}) {
   const localRaw = store.get(game.saveKey);
   const record = store.json(recKey(game.id), null);
   let cloud = null;
@@ -29,6 +29,7 @@ async function doSync(game, { keepalive = false } = {}) {
   const action = decideSync({ localRaw, cloud, record });
   try {
     if (action === 'pull') {
+      if (pullBy && Date.now() > pullBy) return 'none'; // too late: the game may already be running
       // The GET may have taken a while; never clobber progress made meanwhile.
       if (store.get(game.saveKey) !== localRaw) return 'none';
       if (localRaw && localRaw !== cloud.data) store.set('fp.backup.' + game.id, localRaw);

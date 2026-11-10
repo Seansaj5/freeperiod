@@ -63,3 +63,22 @@ test('pagehide POSTs directly with keepalive, no GET first', async () => {
   assert.deepEqual(JSON.parse(localStorage.getItem('fp.sync.close-call')), { hash: hashString('DATA'), at: 42 });
   delete globalThis.addEventListener; delete globalThis.removeEventListener;
 });
+
+test('pullBy: a pull whose GET answers after the deadline writes nothing', async () => {
+  const s = await setup(async () => {
+    await new Promise(r => setTimeout(r, 60));
+    return res({ ok: true, save: { data: 'CLOUD', at: 7 } });
+  });
+  localStorage.setItem('cc.v1', 'FRESH');
+  assert.equal(await s.syncGame(game, { pullBy: Date.now() + 10 }), 'none');
+  assert.equal(localStorage.getItem('cc.v1'), 'FRESH');
+  assert.equal(localStorage.getItem('fp.sync.close-call'), null);
+  assert.equal(localStorage.getItem('fp.backup.close-call'), null);
+});
+
+test('pullBy: a pull answering before the deadline still pulls', async () => {
+  const s = await setup(async () => res({ ok: true, save: { data: 'CLOUD', at: 7 } }));
+  localStorage.setItem('cc.v1', 'FRESH');
+  assert.equal(await s.syncGame(game, { pullBy: Date.now() + 5000 }), 'pull');
+  assert.equal(localStorage.getItem('cc.v1'), 'CLOUD');
+});

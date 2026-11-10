@@ -71,10 +71,15 @@ async function run(rawGame) {
     : Promise.resolve();
   let frame = null;
   let helloSeen = false;
+  let tokenSent = false; // hub has sent fp:token to the current frame
+  let ready = false;     // frame creation allowed (after the save sync)
 
   const postToken = () => {
     if (!frame || !frame.contentWindow || !gameOrigin) return;
-    try { frame.contentWindow.postMessage({ type: 'fp:token', token: session.getToken() || null }, gameOrigin); } catch { /* frame gone */ }
+    try {
+      frame.contentWindow.postMessage({ type: 'fp:token', token: session.getToken() || null }, gameOrigin);
+      tokenSent = true;
+    } catch { /* frame gone */ }
   };
 
   window.addEventListener('message', (e) => {
@@ -88,6 +93,7 @@ async function run(rawGame) {
         postToken();
       });
     } else if (d.type === 'fp:session') {
+      if (!tokenSent) return; // hub token wins until it has told the frame
       const u = d.user;
       if (typeof d.token === 'string' && d.token && u && typeof u === 'object' && typeof u.username === 'string') {
         session.adopt(d.token, { username: u.username, role: u.role });
@@ -98,19 +104,11 @@ async function run(rawGame) {
   });
   session.onChange(() => { if (helloSeen) postToken(); });
 
-  // Pull the cloud save before the game reads it (but never wait long).
-  if (game.saveKey && session.getToken()) {
-    await Promise.race([
-      syncGame(game).catch(() => 'none'),
-      new Promise((r) => setTimeout(r, 4000)),
-    ]);
-  }
-  if (game.saveKey) watch(game);
-
   let timer;
   function start() {
     clearInterval(timer);
     helloSeen = false;
+    tokenSent = false;
     stage.innerHTML = '';
     loader.classList.remove('gone');
     setStatus('Loading the game...');
@@ -134,19 +132,15 @@ async function run(rawGame) {
     }, 1000);
 
     frame.addEventListener('load', () => {
+      if (!playing) { playing = true; playTimer = setInterval(() => { if (document.visibilityState === 'visible') addPlay(game.id, 15); }, 15000); }
       clearInterval(timer);
       loader.classList.add('gone');
       frame.focus();
     }, { once: true });
   }
-  start();
+  let playing = false, playTimer;
 
-  touchRecent(game.id);
-  setInterval(() => {
-    if (document.visibilityState === 'visible') addPlay(game.id, 15);
-  }, 15000);
-
-  $('reload').addEventListener('click', start);
+  $('reload').addEventListener('click', () => { if (ready) start(); });
 
   function fullscreen() {
     if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
@@ -155,4 +149,20 @@ async function run(rawGame) {
   }
   $('full').addEventListener('click', fullscreen);
   document.querySelector('.bar').addEventListener('mouseup', () => setTimeout(() => frame && document.activeElement === document.body && frame.focus(), 0));
+
+  // Show the loader straight away; the save sync (max 4 s) runs behind it.
+  touchRecent(game.id);
+  const syncing = game.saveKey && session.getToken();
+  if (syncing) {
+    loader.classList.remove('gone');
+    setStatus('Syncing your save\u2026');
+    stage.append(loader);
+    await Promise.race([
+      syncGame(game, { pullBy: Date.now() + 4000 }).catch(() => 'none'),
+      new Promise((r) => setTimeout(r, 4000)),
+    ]);
+  }
+  if (game.saveKey) { try { watch(game); } catch { /* sync is optional */ } }
+  ready = true;
+  start();
 }
