@@ -47,7 +47,12 @@ Shared libraries for games go in `lib/` (Three.js r170 is there, plus the post-p
 
 ## Files
 - `index.html` + `fp/home.js`: the home page (featured banner with live server status, Jump back in, Tell Sean bar,
-  game grid with favorites / play time / hover previews, ranked leaderboard, search with `/`)
+  game grid with favorites / play time / hover previews, Top players card, ranked leaderboard, search with `/`)
+- `leaderboards.html` + `fp/leaderboards.js`: every game's leaderboards (a tab per game, a chip per board, podium + top 50,
+  your row pinned when you are further down, This week for the counters, a Friends filter from chat, the owner's hide switch).
+  `fp/boards.js` is the catalog (tabs, boards, number formats) and the checks shared with the home card (`fp/top-players.js`);
+  `boards.css` is the look of both. The Bing Ball server works out every board (`GET /api/fp/leaderboard?board=<id>`,
+  `GET /api/fp/leaderboards`, owner-only `POST /api/fp/board-hide`; its `server/fpboards.js` says which save fields are read)
 - `play.html`: plays one game full-window in a frame, with Reload / New tab / Fullscreen
 - `games.js`: the list of games (a plain script that sets `window.GAMES`)
 - `fp/`: the hub's modules. `api.js` (Bing Ball server calls, `?api=` test override), `store.js` (safe localStorage),

@@ -12,6 +12,7 @@ import { mountSuggest } from './suggest.js';
 import { mountChatButton } from './chat/button.js';
 import { mountStreakCard } from './streak.js';
 import { mountFriendsNow } from './chat/activity.js';
+import { mountTopPlayers } from './top-players.js';
 
 const GAMES = (window.GAMES || []).map(resolveGame);
 const $ = (id) => document.getElementById(id);
@@ -503,6 +504,7 @@ renderHero();
 renderRecent();
 renderChips();
 renderGrid();
+mountTopPlayers($('tops'), { games: GAMES }); // every game's top 3, linking to leaderboards.html
 mountBoard();
 loadBoard(board.mode);
 $('foot-count').textContent = `${GAMES.length} game${GAMES.length === 1 ? '' : 's'} and counting`;
