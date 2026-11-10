@@ -699,7 +699,22 @@ export function mountMessages(el, ctx) {
       if (store) { const keep = stick; paint(); if (keep) toBottom(); }
       for (const arr of [...pendingByTarget.values()]) for (const t of [...arr]) if (t.failed && t.network) retry(t);
     },
+    // Polling instead of Realtime (it can't join): the open conversation's newest page, merged in like resync().
+    async resyncOpen() {
+      const s = store;
+      if (!s || !s.loaded) return;
+      let ok = false;
+      try {
+        const got = await loadMessages(s.target, { limit: PAGE });
+        ok = true;
+        if (Array.isArray(got) && !s.newerCut) { addAll(s, got); enforceCap(s); }
+      } catch { /* next poll */ }
+      if (s === store) { const keep = stick; paint(); if (keep) toBottom(); }
+      if (ok) for (const t of [...(s.temps || [])]) if (t.failed && t.network) retry(t);
+    },
     repaint() { if (store) { const keep = stick; paint(); if (keep) scroller.scrollTop = scroller.scrollHeight; } },
+    // The overlay closes: nothing of the feed stays open on top of the game.
+    closePopups() { if (closeLightbox) closeLightbox(); closeEmojiPicker(); },
     // Restart of the app's stores. Unsent messages of the signed-in account (uid) stay; anyone else's are cancelled. Returns how many were dropped.
     reset(uid = '') {
       let dropped = 0;

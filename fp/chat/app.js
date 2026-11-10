@@ -69,7 +69,8 @@ export function mountChatApp(root, { compact = false } = {}) {
 
   // ---------- state ----------
   let st = null;               // chat state from client.js
-  let conn = 'live';           // 'live' | 'reconnecting'
+  let conn = 'live';           // 'live' | 'reconnecting' | 'polling' (Realtime blocked: the open view is fetched every few s)
+  let paused = false;          // the overlay is closed: no Realtime (see pauseLive)
   let mode = 'server';         // rail: 'server' | 'dms'
   let channels = [];
   let cur = null;              // open channel
@@ -285,6 +286,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     let kind = null;
     if (st === 'waking' || st === 'asleep' || st === 'error' || st === 'guest') kind = st;
     else if (st === 'ready' && conn === 'reconnecting') kind = 'reconnecting';
+    else if (st === 'ready' && conn === 'polling') kind = 'polling';
     banner.hidden = !kind;
     root.classList.toggle('has-banner', !!kind);
     if (!kind) return;
@@ -296,6 +298,7 @@ export function mountChatApp(root, { compact = false } = {}) {
         : 'It naps after a quiet week. Sean can wake it up, so check back soon.'],
       error: [icon('alert'), sessionError() || 'Chat can’t be reached right now', 'Check your connection, then try again.'],
       reconnecting: [h('i', { class: 'cx-spin' }), 'Reconnecting…', 'Anything you send now goes out when the connection is back.'],
+      polling: [icon('clock'), 'Live updates are blocked on this network — checking every few seconds', 'Messages you send still go out right away.'],
       guest: [icon('sparkle'), 'You’re reading as a guest', 'Announcements and rules are open to everyone. Log in to chat, react and see every channel.'],
     }[kind];
     const action = kind === 'guest' ? h('button', { type: 'button', class: 'cx-btn', onclick: openLogin }, icon('login'), 'Log in to chat')
@@ -464,7 +467,7 @@ export function mountChatApp(root, { compact = false } = {}) {
   function switchTyping(target) {
     if (typingH) { try { typingH.stop(); } catch { /* ignore */ } typingH = null; }
     drawTyping([]);
-    if (!target || st !== 'ready' || typeof data.typing !== 'function') return;
+    if (!target || st !== 'ready' || paused || typeof data.typing !== 'function') return;
     try { typingH = data.typing(target); typingH.onTyping((users) => drawTyping(users)); } catch { typingH = null; }
   }
   let lastPing = 0;
@@ -476,7 +479,7 @@ export function mountChatApp(root, { compact = false } = {}) {
   }
   function subscribeTarget(target) {
     const key = tkey(target);
-    if (subs.has(key)) return;
+    if (subs.has(key) || paused) return;
     try {
       const unsub = data.subscribe(target, {
         insert: onInsert,
@@ -727,6 +730,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     clearInterval(muteTimer); muteTimer = 0;
     clearInterval(friendTimer); friendTimer = 0;
     switchTyping(null);
+    stopPolling();
     closeProfileCard(); closeMenu();
   }
   function onInsert(m) {
@@ -754,22 +758,104 @@ export function mountChatApp(root, { compact = false } = {}) {
       Promise.resolve().then(() => (typeof data.listMembers === 'function' ? data.listMembers() : null)).then((l) => { if (Array.isArray(l)) { setMembersList(l); messages.repaint(); drawMembers(); setComposer(); } }).catch(() => {});
     }
   }
-  let joining = false; // the first join after start(): no banner, but catch up once it is live
+  // ---------- connection ----------
+  // rt: Realtime as data.js reports it ('connecting' = the first join, no banner). The browser's 'online' event only
+  // means a network is back: the view catches up when Realtime has really (re)joined, on every move to 'live'.
+  // Realtime that can't join for a while (a school filter blocking WebSockets, the plan's connection cap) gets a
+  // fallback: the open conversation and the unread counts are fetched every few seconds, with a calm line instead of
+  // an endless "Reconnecting…". While the overlay is closed (paused) nothing is live at all.
+  const POLL_AFTER_MS = 12000, POLL_EVERY_MS = 5000;
+  let rt = 'connecting';
+  let offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  let polling = false, pollTimer = 0, watchTimer = 0, notLiveSince = Date.now(), pollN = 0;
   function setConn(s) {
-    if (s === 'connecting') { joining = true; return; }
-    const next = s === 'reconnecting' || s === 'offline' ? 'reconnecting' : 'live';
-    if (s === 'live' && joining) { joining = false; if (conn === 'live') { if (started) catchUp(); return; } }
-    if (next === conn) return;
-    const was = conn;
-    conn = next;
-    drawBanner(); drawSide();
-    if (was === 'reconnecting' && next === 'live' && started) catchUp();
+    const next = s === 'live' ? 'live' : s === 'connecting' ? 'connecting' : 'reconnecting';
+    if (next === rt || paused) return;
+    const was = rt;
+    rt = next;
+    if (next === 'live') {
+      notLiveSince = 0;
+      stopPolling();
+      if (started && was !== 'live') catchUp(); // first join or rejoin: fetch whatever Realtime didn't deliver
+    } else if (!notLiveSince) notLiveSince = Date.now();
+    armPolling();
+    drawConn();
   }
-  const onOnline = () => setConn('online');
-  const onOffline = () => setConn('reconnecting');
+  function drawConn() {
+    const k = paused ? 'live' : offline ? 'reconnecting' : polling ? 'polling' : rt === 'reconnecting' ? 'reconnecting' : 'live';
+    if (k === conn) return;
+    conn = k;
+    drawBanner(); drawSide();
+  }
+  function armPolling() {
+    clearTimeout(watchTimer); watchTimer = 0;
+    if (rt === 'live' || paused || !started || polling) return;
+    const wait = Math.max(0, POLL_AFTER_MS - (Date.now() - (notLiveSince || Date.now())));
+    watchTimer = setTimeout(() => { watchTimer = 0; if (rt !== 'live' && !paused && started) startPolling(); }, wait);
+  }
+  function startPolling() {
+    if (polling) return;
+    polling = true; pollN = 0;
+    drawConn();
+    pollOnce();
+    pollTimer = setInterval(pollOnce, POLL_EVERY_MS);
+  }
+  function stopPolling() {
+    clearTimeout(watchTimer); watchTimer = 0;
+    if (!polling) return;
+    polling = false; clearInterval(pollTimer); pollTimer = 0;
+    drawConn();
+  }
+  function pollOnce() {
+    if (document.hidden || paused || offline || !started) return;
+    pollN++;
+    messages.resyncOpen();
+    if (st === 'ready') {
+      Promise.resolve().then(() => data.unreadCounts()).then(applyUnread).catch(() => {});
+      if (pollN % 6 === 1) loadDMs(); // new DMs and groups about every 30 s
+    }
+  }
+  const onOnline = () => { offline = false; drawConn(); if (rt === 'live') { if (started) catchUp(); } else armPolling(); };
+  const onOffline = () => { offline = true; drawConn(); };
   addEventListener('online', onOnline);
   addEventListener('offline', onOffline);
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) conn = 'reconnecting';
+  if (offline) conn = 'reconnecting';
+
+  // ---------- pause (the overlay is closed): no Realtime, nothing polled here; stores, unsent messages and drafts stay ----------
+  function goLive() {
+    for (const c of channels) subscribeTarget({ channel: c.id });
+    for (const d of dms) subscribeTarget({ dm: d.id });
+    liveServer();
+    if (st === 'ready') { clearInterval(friendTimer); friendTimer = setInterval(() => { if (!document.hidden) loadFriends(); }, 45000); }
+    if (st === 'ready' && !presenceH && typeof data.presence === 'function') {
+      try { presenceH = data.presence({ onSync: (x) => { online = new Set(idsOf(x)); drawMembers(); drawSide(); drawHead(); } }); } catch { presenceH = null; }
+    }
+    if (rt !== 'live' && !notLiveSince) notLiveSince = Date.now();
+    armPolling();
+  }
+  function pauseLive() {
+    if (paused) return;
+    paused = true;
+    for (const k of [...subs.keys()]) unsubscribe(k);
+    if (serverOff) { try { serverOff(); } catch { /* ignore */ } serverOff = null; }
+    if (presenceH) { try { presenceH.stop(); } catch { /* ignore */ } presenceH = null; }
+    clearInterval(friendTimer); friendTimer = 0;
+    switchTyping(null);
+    stopPolling();
+    rt = 'connecting'; notLiveSince = 0;
+    closeProfileCard(); closeMenu(); messages.closePopups();
+    drawConn();
+  }
+  function resumeLive() {
+    if (!paused) return;
+    paused = false;
+    if (started) {
+      goLive(); // Realtime joins again; its 'live' catches the view up (unsent messages go out too)
+      if (mode === 'server' && cur) switchTyping({ channel: cur.id });
+      else if (mode === 'dms' && curDM) switchTyping({ dm: curDM });
+    }
+    drawConn();
+  }
 
   function applyUnread(rows) {
     unread.clear();
@@ -791,7 +877,7 @@ export function mountChatApp(root, { compact = false } = {}) {
   // Realtime on profiles (names, flair, roles, time-outs, bans), channels (the owner's changes) and DM membership.
   let dmReload = 0;
   function liveServer() {
-    if (typeof data.subscribeServer !== 'function') return;
+    if (typeof data.subscribeServer !== 'function' || paused || serverOff) return;
     try {
       serverOff = data.subscribeServer({
         profile: (row) => mergeProfile(row),
@@ -865,14 +951,9 @@ export function mountChatApp(root, { compact = false } = {}) {
       return;
     }
     loading = false;
-    for (const c of channels) subscribeTarget({ channel: c.id });
-    for (const d of dms) subscribeTarget({ dm: d.id });
-    liveServer();
     loadEmoji();
-    if (st === 'ready') { loadFriends(); friendTimer = setInterval(() => { if (!document.hidden) loadFriends(); }, 45000); }
-    if (st === 'ready' && typeof data.presence === 'function') {
-      try { presenceH = data.presence({ onSync: (x) => { online = new Set(idsOf(x)); drawMembers(); drawSide(); drawHead(); } }); } catch { presenceH = null; }
-    }
+    if (st === 'ready') loadFriends();
+    if (!paused) goLive();
     armMuteTimer();
     drawMembers();
     ready = true;
@@ -948,6 +1029,10 @@ export function mountChatApp(root, { compact = false } = {}) {
       if (!ready) { pendingOpen = target; return; }
       doOpen(target);
     },
+    // The overlay: closed = paused (no Realtime socket; unsent messages, drafts and the loaded conversations stay),
+    // opened = live again with a catch-up.
+    pause() { pauseLive(); },
+    resume() { resumeLive(); },
     destroy() {
       stopLive();
       offState();
