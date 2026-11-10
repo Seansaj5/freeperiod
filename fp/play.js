@@ -1,0 +1,158 @@
+// Play page: one game full-window in an iframe, plus account features
+// (cloud-save sync before load, login hand-off into the frame, recent list, play time).
+import * as session from './session.js';
+import { syncGame, watch } from './saves.js';
+import { touchRecent, addPlay } from './meta.js';
+import { resolveGame } from './status.js';
+
+const $ = (id) => document.getElementById(id);
+const id = new URLSearchParams(location.search).get('g');
+const found = (window.GAMES || []).find((g) => g.id === id);
+const stage = $('stage');
+
+if (!found) {
+  $('title').textContent = 'Game not found';
+  document.querySelector('.tools').style.display = 'none';
+  const wrap = document.createElement('div');
+  wrap.className = 'missing';
+  const inner = document.createElement('div');
+  const h1 = document.createElement('h1');
+  h1.textContent = "That game isn't here";
+  const a = document.createElement('a');
+  a.className = 'tool main';
+  a.href = './';
+  a.textContent = 'See all games';
+  inner.append(h1, a);
+  wrap.append(inner);
+  stage.append(wrap);
+} else {
+  run(found);
+}
+
+async function run(rawGame) {
+  const game = resolveGame(rawGame);
+  const gameUrl = game.url;
+  let gameOrigin = '';
+  try { gameOrigin = new URL(gameUrl, location.href).origin; } catch { /* leave empty: no hand-off */ }
+
+  document.title = `${game.title} · Free Period`;
+  $('title').textContent = game.title;
+  $('controls').textContent = game.controls || '';
+  $('newtab').href = gameUrl;
+
+  // Loader overlay (static markup only; dynamic text via textContent).
+  const loader = document.createElement('div');
+  loader.className = 'loader';
+  loader.innerHTML = `
+    <div class="bg"></div>
+    <div class="box">
+      <div class="spinner"></div>
+      <h1></h1>
+      <p id="status">Loading the game...</p>
+      <div class="why" id="why"></div>
+    </div>`;
+  loader.querySelector('.bg').style.backgroundImage = `url('${game.thumb}')`;
+  loader.querySelector('h1').textContent = game.title;
+  const statusEl = loader.querySelector('#status');
+  const whyEl = loader.querySelector('#why');
+  const setStatus = (text, secs) => {
+    statusEl.textContent = text;
+    if (secs != null) {
+      const sp = document.createElement('span');
+      sp.className = 'secs';
+      sp.textContent = ` ${secs}s`;
+      statusEl.append(sp);
+    }
+  };
+
+  // Account bits. Everything here tolerates a missing token or an unreachable API.
+  const settled = session.getToken()
+    ? session.resume().catch(() => null).then(() => {})
+    : Promise.resolve();
+  let frame = null;
+  let helloSeen = false;
+
+  const postToken = () => {
+    if (!frame || !frame.contentWindow || !gameOrigin) return;
+    try { frame.contentWindow.postMessage({ type: 'fp:token', token: session.getToken() || null }, gameOrigin); } catch { /* frame gone */ }
+  };
+
+  window.addEventListener('message', (e) => {
+    if (!frame || !gameOrigin || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
+    const d = e.data;
+    if (!d || typeof d !== 'object') return;
+    if (d.type === 'fp:hello') {
+      settled.then(() => {
+        if (!frame || e.source !== frame.contentWindow) return; // reloaded meanwhile
+        helloSeen = true;
+        postToken();
+      });
+    } else if (d.type === 'fp:session') {
+      const u = d.user;
+      if (typeof d.token === 'string' && d.token && u && typeof u === 'object' && typeof u.username === 'string') {
+        session.adopt(d.token, { username: u.username, role: u.role });
+      } else if (d.token === null && session.getToken()) {
+        session.logout();
+      }
+    }
+  });
+  session.onChange(() => { if (helloSeen) postToken(); });
+
+  // Pull the cloud save before the game reads it (but never wait long).
+  if (game.saveKey && session.getToken()) {
+    await Promise.race([
+      syncGame(game).catch(() => 'none'),
+      new Promise((r) => setTimeout(r, 4000)),
+    ]);
+  }
+  if (game.saveKey) watch(game);
+
+  let timer;
+  function start() {
+    clearInterval(timer);
+    helloSeen = false;
+    stage.innerHTML = '';
+    loader.classList.remove('gone');
+    setStatus('Loading the game...');
+    frame = document.createElement('iframe');
+    frame.src = gameUrl;
+    frame.title = game.title;
+    frame.allow = 'fullscreen; autoplay; gamepad; clipboard-read; clipboard-write; microphone';
+    frame.allowFullscreen = true;
+    stage.append(frame, loader);
+
+    const t0 = Date.now();
+    timer = setInterval(() => {
+      const s = Math.round((Date.now() - t0) / 1000);
+      if (s >= 4) {
+        setStatus(game.wakes ? 'Waking up the server...' : 'Still loading...', s);
+        whyEl.textContent = game.wakes
+          ? 'The game runs on a free server that naps when nobody is playing. The first load can take up to a minute, then it is fast.'
+          : '';
+      }
+      if (s >= 90) whyEl.textContent = 'Taking longer than usual. Try Reload, or New tab up top.';
+    }, 1000);
+
+    frame.addEventListener('load', () => {
+      clearInterval(timer);
+      loader.classList.add('gone');
+      frame.focus();
+    }, { once: true });
+  }
+  start();
+
+  touchRecent(game.id);
+  setInterval(() => {
+    if (document.visibilityState === 'visible') addPlay(game.id, 15);
+  }, 15000);
+
+  $('reload').addEventListener('click', start);
+
+  function fullscreen() {
+    if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
+    frame && frame.focus();
+  }
+  $('full').addEventListener('click', fullscreen);
+  document.querySelector('.bar').addEventListener('mouseup', () => setTimeout(() => frame && document.activeElement === document.body && frame.focus(), 0));
+}
