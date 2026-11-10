@@ -19,7 +19,7 @@ let n = 0;
 async function load({ fetch, search = '', hidden = false } = {}) {
   globalThis.localStorage = fakeStorage();
   globalThis.sessionStorage = fakeStorage();
-  globalThis.location = { search };
+  globalThis.location = { search, hostname: 'localhost' }; // the ?api= override only works on localhost
   const listeners = {};
   globalThis.document = {
     visibilityState: hidden ? 'hidden' : 'visible',
