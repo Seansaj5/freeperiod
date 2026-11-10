@@ -91,12 +91,13 @@ export function checkProfile(patch) {
   if (has('status_text') && (len(p.status_text) > LIMITS.status_text || CONTROL.test(p.status_text))) bad('status_text', 'Up to 80 characters');
   if (has('banner_color') && !isHex(p.banner_color)) bad('banner_color', 'Colors look like #12ab3f');
   if (has('dm_policy') && !['everyone', 'friends'].includes(p.dm_policy)) bad('dm_policy', 'Pick everyone or friends only');
+  if (has('show_activity') && typeof p.show_activity !== 'boolean') bad('show_activity', 'Pick on or off');
   for (const e of validFlair(Object.fromEntries(Object.entries(p).filter(([k]) => ['name_color', 'name_color2', 'theme_a', 'theme_b', 'name_font', 'name_fill', 'name_glow', 'frame', 'effect'].includes(k)))).errors) out.push(e);
   return out;
 }
 /** The editable profile columns (the column grant), in one place. */
 export const PROFILE_FIELDS = Object.freeze(['display_name', 'pronouns', 'about', 'status_emoji', 'status_text', 'avatar_path', 'banner_path', 'banner_color',
-  'name_color', 'theme_a', 'theme_b', 'name_color2', 'name_font', 'name_fill', 'name_glow', 'frame', 'effect', 'dm_policy']);
+  'name_color', 'theme_a', 'theme_b', 'name_color2', 'name_font', 'name_fill', 'name_glow', 'frame', 'effect', 'dm_policy', 'show_activity']);
 /** Only what changed (empty strings count as null): one updateProfile call per Save (profile updates are rate limited). */
 export function profileDiff(orig, draft) {
   const norm = (v) => (v === '' || v === undefined ? null : v);
@@ -107,6 +108,7 @@ export function profileDiff(orig, draft) {
   }
   if ('name_fill' in out && out.name_fill === null) out.name_fill = 'solid';
   if ('name_glow' in out) out.name_glow = !!out.name_glow;
+  if ('show_activity' in out) out.show_activity = out.show_activity !== false; // null/missing = the default, on
   return out;
 }
 /** Group name: optional, up to 40, no control / lookalike characters. */

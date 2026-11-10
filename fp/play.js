@@ -4,9 +4,14 @@ import * as session from './session.js';
 import { syncGame, watch } from './saves.js';
 import { touchRecent, addPlay, flush as flushMeta } from './meta.js';
 import { resolveGame } from './status.js';
+import { startActivity, cleanRoom, withJoin } from './chat/activity.js';
 
 const $ = (id) => document.getElementById(id);
-const id = new URLSearchParams(location.search).get('g');
+const params = new URLSearchParams(location.search);
+const id = params.get('g');
+// A friend's Join button (home page): play.html?g=<game>&room=<CODE>. Games that can deep-join (games.js `joins`) get
+// ?join=<CODE> on their own URL and go straight into that room.
+const joinRoom = cleanRoom(params.get('room'));
 const found = (window.GAMES || []).find((g) => g.id === id);
 const stage = $('stage');
 
@@ -31,7 +36,7 @@ if (!found) {
 
 async function run(rawGame) {
   const game = resolveGame(rawGame);
-  const gameUrl = game.url;
+  const gameUrl = game.joins && joinRoom ? withJoin(game.url, joinRoom) : game.url;
   let gameOrigin = '';
   try { gameOrigin = new URL(gameUrl, location.href).origin; } catch { /* leave empty: no hand-off */ }
 
@@ -41,6 +46,8 @@ async function run(rawGame) {
     .then(({ CHAT }) => (CHAT && CHAT.url && CHAT.key ? import('./chat/overlay.js') : null))
     .then((m) => { if (m) chatOverlay = m.mountChatOverlay(document.querySelector('.bar')); })
     .catch(() => { /* chat is optional */ });
+  // Friends' activity: chat friends see what is being played here, and the room once the game reports one (fp:room).
+  const activity = startActivity(game.id);
   document.title = `${game.title} · Free Period`;
   $('title').textContent = game.title;
   $('controls').textContent = game.controls || '';
@@ -109,6 +116,8 @@ async function run(rawGame) {
       } else if (d.token === null && session.getToken()) {
         session.logout();
       }
+    } else if (d.type === 'fp:room') {
+      activity.setRoom(cleanRoom(d.room)); // the room code the game is in now (null = none)
     }
   });
   session.onChange(() => { if (helloSeen) postToken(); });
@@ -118,6 +127,7 @@ async function run(rawGame) {
     clearInterval(timer);
     helloSeen = false;
     tokenSent = false;
+    activity.setRoom(null); // a reloaded game starts outside any room until it says otherwise
     stage.innerHTML = '';
     loader.classList.remove('gone');
     setStatus('Loading the game...');

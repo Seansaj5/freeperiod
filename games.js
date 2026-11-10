@@ -20,6 +20,9 @@
 //   beta      true shows a Beta badge (the game is playable but unfinished)
 //   apiGame   true for a game served by the Free Period API server (Bing Ball): its url and status URLs follow the
 //             ?api= test override (https://bing-ball.onrender.com is swapped for the override)
+//   joins     true if the game can go straight into a room from its URL (?join=<CODE>) and tells the hub which room it is
+//             in (postMessage { type: 'fp:room', room }): a friend's Join button on the home page then joins that room.
+//             Without it, Join just opens the game
 //   featured  the big banner at the top of the home page (only one)
 //   added     date it went up (NEW badge for two weeks)
 window.GAMES = [
@@ -53,6 +56,7 @@ window.GAMES = [
     accent: '#ffb020',
     beta: true,
     saveKey: 'closecall.v1',
+    joins: true,
     added: '2026-11-07',
   },
   {
@@ -65,6 +69,7 @@ window.GAMES = [
     controls: 'WASD move · Shift sprint · Space jump · E R Q abilities · F hide · EXE: click + E R Q F moves, G disguise, V awaken · Esc pause',
     accent: '#ff2a3a',
     saveKey: 'horrorexe.v1',
+    joins: true,
     added: '2026-11-09',
   },
 ];

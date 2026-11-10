@@ -27,6 +27,7 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
   if (!orig.name_fill) orig.name_fill = 'solid';
   if (!orig.dm_policy) orig.dm_policy = 'everyone';
   orig.name_glow = !!orig.name_glow;
+  orig.show_activity = me.show_activity !== false; // 0010: on unless turned off
   const draft = { ...orig };
   const files = { avatar: null, banner: null }; // { file, url } of the person's own picked file
   const effects = []; // mounted effect previews, stopped on close
@@ -266,7 +267,19 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
     dmNote.textContent = draft.dm_policy === 'friends' ? 'Only your friends can start a DM or add you to a group. Hallpass can always message you back.' : 'Anyone can start a DM with you (people you block can’t).';
   };
   drawDm();
+  // Friends' activity (0010): the home page's "Friends playing now" row and its Join button
+  const act = h('input', { type: 'checkbox', role: 'switch', dataset: { field: 'show_activity' } });
+  act.checked = draft.show_activity !== false;
+  const actNote = h('p', { class: 'cx-hint' });
+  const drawAct = () => {
+    actNote.textContent = draft.show_activity !== false
+      ? 'Your friends see the game you have open on Free Period, and can join your room.'
+      : 'Nobody sees what you’re playing.';
+  };
+  act.addEventListener('change', () => { set('show_activity', act.checked); drawAct(); });
+  drawAct();
   panes.blocked.append(h('div', { class: 'cx-ed-field' }, h('label', { class: 'cx-label', text: 'DMs from' }), dmSeg, dmNote, errSlot('dm_policy')),
+    h('div', { class: 'cx-ed-field' }, h('label', { class: 'cx-check cx-switch' }, act, h('span', {}, h('b', { text: 'Show friends what I’m playing' }))), actNote, errSlot('show_activity')),
     h('h3', { class: 'cx-sheet-sub', text: 'Blocked people' }), h('p', { class: 'cx-hint', text: 'Unblocking takes effect right away.' }), blockedList);
 
   // ---------- tabs ----------
