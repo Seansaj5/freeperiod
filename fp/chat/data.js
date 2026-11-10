@@ -733,7 +733,7 @@ export async function findProfiles(prefix) {
 }
 
 const USER_COLS = ['display_name', 'pronouns', 'about', 'status_emoji', 'status_text', 'avatar_path', 'banner_path', 'banner_color', 'name_color',
-  'dm_policy', 'theme_a', 'theme_b', 'name_color2', 'name_font', 'name_fill', 'name_glow', 'frame', 'effect'];
+  'dm_policy', 'theme_a', 'theme_b', 'name_color2', 'name_font', 'name_fill', 'name_glow', 'frame', 'effect', 'show_activity'];
 // One update per Save with the changed columns only (10 per minute). Banned members can't (RLS: 0 rows -> not_allowed).
 // A new avatar/banner path deletes the previous file afterwards (each folder holds at most 2).
 export async function updateProfile(patch = {}) {
@@ -933,3 +933,49 @@ export async function botUsage() {
 
 // Pure helpers, exported for the repo's unit tests (tests/chat-data.test.mjs).
 export const _internals = { toChatError, imageSize, present, likeSafe, checkField };
+
+// ---------- friends' activity (0010): "Amy is playing Bing Ball" + Join ----------
+// The play page sends setActivity about every 90 s while a game is open and visible, and clearActivityOnExit() as it
+// closes; the home page polls friendsPlaying() about once a minute. The database decides who sees what (accepted friends,
+// no blocks, the owner's show_activity setting) and refuses anything but these game ids and short room codes.
+export const ACTIVITY_GAMES = Object.freeze(['bing-ball', 'close-call', 'horror-exe']);
+export const ACTIVITY_ROOM = /^[A-Z0-9]{3,8}$/;
+let activityToken = null; // the access token of the last heartbeat: the exit call is sent without awaiting anything
+/** true = shown to friends; false = the person's "Show friends what I'm playing" is off (the database cleared the row). */
+export async function setActivity(game, room = null) {
+  if (!ACTIVITY_GAMES.includes(game)) throw fail('not_allowed', 'game');
+  const r = room == null || room === '' ? null : String(room).trim().toUpperCase();
+  if (r !== null && !ACTIVITY_ROOM.test(r)) throw fail('not_allowed', 'room');
+  needMe();
+  const c = sb();
+  try { const s = await c.auth.getSession(); activityToken = (s && s.data && s.data.session && s.data.session.access_token) || null; } catch { activityToken = null; }
+  return check(await c.rpc('set_activity', { game, room: r })) === true;
+}
+export async function clearActivity() {
+  activityToken = null;
+  needMe();
+  check(await sb().rpc('clear_activity'));
+}
+// pagehide: a keepalive request outlives the page (nothing is awaited). Best effort: a row that stays goes stale in 3 min.
+export function clearActivityOnExit() {
+  const token = activityToken;
+  activityToken = null;
+  if (!token) return false;
+  try {
+    const c = sb();
+    const url = String(c.supabaseUrl || '').replace(/\/+$/, '') + '/rest/v1/rpc/clear_activity';
+    const p = globalThis.fetch(url, { method: 'POST', keepalive: true, headers: { apikey: c.supabaseKey, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' });
+    if (p && p.catch) p.catch(() => {});
+    return true;
+  } catch { return false; }
+}
+/** Friends playing right now (fresh by the server clock), newest first: { user_id, game, room, started_at, seen_at, playing_secs, profile }. */
+export async function friendsPlaying() {
+  if (!myId()) return [];
+  const rows = check(await sb().rpc('friends_playing')) || [];
+  if (!rows.length) return [];
+  const ids = [...new Set(rows.map((r) => r.user_id))];
+  const profiles = check(await sb().from('profiles').select('*').in('id', ids)) || [];
+  const by = new Map(profiles.map((p) => [p.id, p]));
+  return rows.filter((r) => by.has(r.user_id)).map((r) => ({ ...r, profile: by.get(r.user_id) }));
+}

@@ -11,6 +11,7 @@ import { mountAccount, openAuthSheet } from './account-ui.js';
 import { mountSuggest } from './suggest.js';
 import { mountChatButton } from './chat/button.js';
 import { mountStreakCard } from './streak.js';
+import { mountFriendsNow } from './chat/activity.js';
 
 const GAMES = (window.GAMES || []).map(resolveGame);
 const $ = (id) => document.getElementById(id);
@@ -495,6 +496,7 @@ addEventListener('storage', (e) => { if (e.key === 'fp.meta') refreshMeta(); });
 // ---------- start ----------
 mountAccount($('account'));
 mountChatButton($('chat-btn')); // stays hidden (and loads nothing) until chat is set up
+mountFriendsNow($('friends-now'), { games: GAMES }); // "Friends playing now": hidden unless a chat friend is playing
 mountSuggest($('suggest'));
 mountStreakCard($('streak'), { onLogin: () => openAuthSheet('login') }); // daily check-in + the streak card
 renderHero();
