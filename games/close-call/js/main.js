@@ -21,7 +21,10 @@ import { account, accountToken, initAccount, saved, logIn, logOut, saveNow } fro
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-const serverUrl = params.get('server') || SERVER_URL;
+// ?server= is a local-testing override only: on the real site it would let a link send this player's account token to
+// any server (the hello message carries it), so it is honored on localhost / 127.0.0.1 alone.
+const localHost = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+const serverUrl = (localHost && params.get('server')) || SERVER_URL;
 const httpUrl = serverUrl.replace(/^ws/, 'http');
 
 // ---------------- save data ----------------
