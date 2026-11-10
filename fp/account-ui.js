@@ -146,7 +146,8 @@ function cardHead(user) {
   const pills = p && k ? k.common.badgePills(p) : [];
   if (!(p && k) && st) { const b = bestBadge(st.badges); if (b) pills.push(h('span', { class: 'fp-me-pill', text: b.label })); }
   const name = p && k ? k.common.nameEl(p, 'b', 'fp-me-name') : h('b', { class: 'fp-me-name', text: user.username });
-  const role = user.role && user.role !== 'player' ? h('span', { class: 'fp-badge ' + user.role, text: user.role }) : null;
+  // the chat pills already say Owner / Mod; without chat the role badge says it
+  const role = !(p && k) && user.role && user.role !== 'player' ? h('span', { class: 'fp-badge ' + user.role, text: user.role }) : null;
   const status = p && (p.status_emoji || p.status_text)
     ? h('p', { class: 'fp-me-status' }, p.status_emoji ? h('span', { class: 'fp-me-emoji', text: p.status_emoji }) : null, h('span', { text: p.status_text || '' }))
     : null;
@@ -154,10 +155,13 @@ function cardHead(user) {
   const trophies = trophyCount();
   return h('div', { class: 'fp-me-card' + (theme ? ' themed' : ''), style: theme ? '--me-theme:' + theme : null },
     banner(p, k),
-    h('div', { class: 'fp-me-top' }, av, h('div', { class: 'fp-me-pills' }, pills)),
+    h('span', { class: 'fp-me-grab', 'aria-hidden': 'true' }),
+    h('button', { type: 'button', class: 'fp-me-x', 'aria-label': 'Close', onclick: () => document.dispatchEvent(new CustomEvent('fp:me-close')) }, icon('x')),
+    h('div', { class: 'fp-me-top' }, av),
     h('div', { class: 'fp-me-id' },
       h('div', { class: 'fp-me-names' }, name, role),
       h('span', { class: 'fp-me-user', text: '@' + user.username }),
+      pills.length ? h('div', { class: 'fp-me-pills' }, pills) : null,
       status,
       h('div', { class: 'fp-me-chips' },
         st ? h('span', { class: 'fp-me-chip streak' }, icon('flame'), `${st.days}-day streak`) : null,
@@ -196,6 +200,7 @@ export function mountAccount(el, { live = !!(document.body && document.body.clas
     const p = pop;
     pop = null;
     if (chat.kit) chat.kit.common.stopFrames(p.el);
+    if (p.fx) { p.fx.stop(); p.fx = null; }
     p.el.remove(); p.scrim.remove();
     document.removeEventListener('keydown', onKey, true);
     document.removeEventListener('pointerdown', onOutside, true);
@@ -253,19 +258,30 @@ export function mountAccount(el, { live = !!(document.body && document.body.clas
     const p = myChat(), ready = chat.state === 'ready' && !!chat.kit;
     if (chat.kit) chat.kit.common.stopFrames(pop.el);
     const unread = countLabel(chat.unread);
-    pop.el.replaceChildren(
-      cardHead(user),
+    if (pop.fx) { pop.fx.stop(); pop.fx = null; }
+    const head = cardHead(user);
+    // the profile effect plays over the card while it is open (as on the chat profile card)
+    if (p && p.effect && chat.kit) {
+      const mine = pop;
+      import('./chat/effects.js').then((fx) => {
+        if (pop !== mine || !head.isConnected) return;
+        try { mine.fx = fx.mountEffect(head, p.effect, { accent: chat.kit.flair.isHex(p.name_color) ? p.name_color : undefined }); } catch { /* no effect */ }
+      }).catch(() => {});
+    }
+    pop.el.replaceChildren(...[
+      head,
       h('div', { class: 'fp-me-menu' },
         item('user', 'View profile', { href: 'profile.html?u=' + encodeURIComponent(user.username) }),
         ready && p ? item('edit', 'Edit profile', { onClick: openEditor }) : null,
         ready && p ? item('smile', p.status_text || p.status_emoji ? 'Change status' : 'Set a status', { onClick: drawStatus }) : null,
-        chatConfigured() ? item('chat', 'Messages', { href: 'chat.html', extra: unread ? h('span', { class: 'fp-me-count', 'aria-label': chat.unread + ' unread direct messages', text: unread }) : null }) : null,
+        chatConfigured() && chat.state !== 'off' ? item('chat', 'Messages', { href: 'chat.html', extra: unread ? h('span', { class: 'fp-me-count', 'aria-label': chat.unread + ' unread direct messages', text: unread }) : null }) : null,
         user.role === 'owner' ? item('inbox', 'Inbox', { onClick: () => { closeCard({ focus: false }); openInbox(); } }) : null,
         h('div', { class: 'fp-me-sep', role: 'separator' }),
         themeRow(),
         h('div', { class: 'fp-me-sep', role: 'separator' }),
         item('logout', 'Log out', { cls: 'danger', onClick: async () => { closeCard(); await session.logout(); toast('Logged out'); } })),
-      chatConfigured() && !p ? h('p', { class: 'fp-me-note', text: chat.state === 'ready' || chat.state === 'waking' ? 'Loading your chat profile...' : 'Open Messages to set up your chat profile: avatar, frame, name style and status.' }) : null);
+      // chat up but no profile yet: say so; chat off, asleep or broken: the card simply has no chat parts
+      chatConfigured() && !p && (chat.state === 'ready' || chat.state === 'waking') ? h('p', { class: 'fp-me-note', text: chat.state === 'waking' ? 'Waking up chat...' : 'Loading your chat profile...' }) : null].filter(Boolean));
     place();
   }
   function drawStatus() {
@@ -273,6 +289,8 @@ export function mountAccount(el, { live = !!(document.body && document.body.clas
     const p = myChat();
     if (!p || !chat.kit) return;
     pop.sub = 'status';
+    if (pop.fx) { pop.fx.stop(); pop.fx = null; }
+    if (chat.kit) chat.kit.common.stopFrames(pop.el);
     let emoji = p.status_emoji || '', busy = false;
     const err = h('p', { class: 'fp-err', role: 'alert' });
     const text = h('input', { class: 'fp-me-input', type: 'text', maxlength: String(STATUS_TEXT_MAX), placeholder: 'What are you up to?', 'aria-label': 'Status text', value: p.status_text || '' });
@@ -344,6 +362,7 @@ export function mountAccount(el, { live = !!(document.body && document.body.clas
     readMine();      // fresh profile + unread count each time it opens
   }
 
+  document.addEventListener('fp:me-close', () => closeCard());
   chatListeners.add(() => { render(); if (pop && !pop.sub) { const had = pop.el.contains(document.activeElement) ? document.activeElement.textContent : null; drawMenu(); if (had) { const again = [...pop.el.querySelectorAll('.fp-me-item')].find((n) => n.textContent === had); if (again) again.focus(); } } });
   session.onChange(() => { closeCard({ focus: false }); chat.profile = null; chat.unread = 0; render(); });
   onStreak(render);
