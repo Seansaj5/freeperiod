@@ -68,7 +68,7 @@ export function mountAccount(el) {
       user.role === 'owner' ? h('button', { type: 'button', role: 'menuitem', onclick: () => { closeMenu(); openInbox(); } }, 'Inbox') : null,
       h('button', { type: 'button', role: 'menuitem', onclick: async () => { closeMenu(); await session.logout(); toast('Logged out'); } }, 'Log out'),
     ];
-    root.replaceChildren(btn, menuOpen ? h('div', { class: 'fp-menu', role: 'menu' }, items) : null);
+    root.replaceChildren(...[btn, menuOpen ? h('div', { class: 'fp-menu', role: 'menu' }, items) : null].filter(Boolean));
   }
   root.addEventListener('keydown', (e) => {
     if (!menuOpen) return;
@@ -77,7 +77,8 @@ export function mountAccount(el) {
     if (e.key === 'ArrowDown') { e.preventDefault(); mi[(i + 1) % mi.length].focus(); }
     if (e.key === 'ArrowUp') { e.preventDefault(); mi[(i - 1 + mi.length) % mi.length].focus(); }
   });
-  document.addEventListener('click', (e) => { if (menuOpen && !root.contains(e.target)) closeMenu(); });
+  // composedPath, not contains(): the chip's own click re-renders it, so by the time this runs e.target is detached.
+  document.addEventListener('click', (e) => { if (menuOpen && !e.composedPath().includes(root)) closeMenu(); });
   session.onChange(() => { menuOpen = false; render(); });
   render();
 }
