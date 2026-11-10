@@ -67,6 +67,8 @@ function cacheGet() {
 }
 function cachePut(v) { const me = session.userKey(); if (me && v) store.setJson(KEY, { user: me, view: v }); }
 export function getStreak() { return session.getToken() ? view : null; }
+/** The last known streak for the signed-in account: this visit's answer, else the cached one (trophies, profile). */
+export function peekStreak() { return session.getToken() ? view || cacheGet() : null; }
 
 export async function checkin({ force = false, quiet = false } = {}) {
   const token = session.getToken(), me = session.userKey();

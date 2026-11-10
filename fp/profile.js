@@ -32,6 +32,42 @@ export function horrorExe() {
   return { rounds: fmt(s.rounds), wins: fmt(s.wins), escapes: fmt(s.escapes), played: fmtTime((getMeta().play || {})['horror-exe'] || 0) };
 }
 
+// ---------- public career card (anyone's; GET /api/player/<name>: matches, wins, goals, MVPs, level, ranks, styles) ----------
+const CARD_TTL = 5 * 60000;
+const cards = new Map();      // lowercase name -> { at, p: Promise }
+export const validName = (name) => typeof name === 'string' && /^[A-Za-z0-9_]{3,16}$/.test(name);
+/**
+ * The Bing Ball career card for `name`, or null (no such account). Kept for 5 minutes per page; a failed look is not kept.
+ * Throws like api.call (e.waking when the server is asleep).
+ */
+export function careerCard(name, { timeout = 20000 } = {}) {
+  if (!validName(name)) return Promise.resolve(null);
+  const key = name.toLowerCase(), hit = cards.get(key);
+  if (hit && Date.now() - hit.at < CARD_TTL) return hit.p;
+  const p = call('/api/player/' + encodeURIComponent(name), { timeout })
+    .then((d) => (d && d.profile && typeof d.profile === 'object' ? d.profile : null))
+    .catch((e) => { cards.delete(key); if (e && e.status === 404) return null; throw e; });
+  cards.set(key, { at: Date.now(), p });
+  return p;
+}
+/** The numbers trophies read from a career card. */
+export function careerFacts(card) {
+  if (!card || typeof card !== 'object') return null;
+  const c = card.career && typeof card.career === 'object' ? card.career : {};
+  const n = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
+  return { matches: n(c.matches), wins: n(c.wins), goals: n(c.goals), mvps: n(c.mvps), level: n(card.level) };
+}
+/** Raw numbers from this device's saves (trophies and the profile page). */
+export function saveFacts() {
+  const cc = saved('closecall.v1'), hx = saved('horrorexe.v1');
+  const n = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
+  const hs = hx && hx.stats && typeof hx.stats === 'object' ? hx.stats : null;
+  return {
+    cc: cc ? { best: n(cc.best), cars: Array.isArray(cc.owned) ? new Set(cc.owned).size : 0, cash: n(cc.cash) } : null,
+    hx: hs ? { wins: n(hs.wins), escapes: n(hs.escapes), rounds: n(hs.rounds) } : null,
+  };
+}
+
 export async function openProfile() {
   const user = session.getUser();
   const sheet = openSheet({ title: user ? user.username : 'Profile' });
