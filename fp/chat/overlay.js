@@ -160,13 +160,22 @@ export function mountChatOverlay(bar) {
 
   // A game that grabs focus by itself (right after opening the panel, or when its page finishes loading) must not take the
   // keyboard from the panel: if the frame wins focus in that window, give it straight back to the message box.
-  let guardUntil = 0;
-  const guard = () => { guardUntil = Date.now() + 2500; };
+  // Real intent toward the game (pointer over / pressed on / touched in the stage) drops the guard at once.
+  let guardUntil = 0, toGame = false;
+  const guard = () => { guardUntil = Date.now() + 2500; toGame = false; };
+  const stage = document.getElementById('stage');
+  if (stage) {
+    const intent = () => { toGame = true; guardUntil = 0; };
+    stage.addEventListener('pointerdown', intent, true);
+    stage.addEventListener('touchstart', intent, { capture: true, passive: true });
+    stage.addEventListener('pointerover', intent, true);
+    stage.addEventListener('pointerout', (e) => { if (!stage.contains(e.relatedTarget)) toGame = false; }, true);
+  }
   document.addEventListener('load', (e) => { if (isOpen && e.target && e.target.tagName === 'IFRAME') guard(); }, true);
   addEventListener('blur', () => {
-    if (!isOpen || Date.now() > guardUntil) return;
+    if (!isOpen || toGame || Date.now() > guardUntil) return;
     setTimeout(() => {
-      if (!isOpen || !document.activeElement || document.activeElement.tagName !== 'IFRAME') return;
+      if (!isOpen || toGame || !document.activeElement || document.activeElement.tagName !== 'IFRAME') return;
       const box = panel && panel.querySelector('textarea');
       (box || panel).focus({ preventScroll: true });
     }, 0);
@@ -198,10 +207,21 @@ export function mountChatOverlay(bar) {
       const ready = panel.querySelector('.cx-side button, .cx-side a');
       if (ready && pending) { const t = pending; pending = null; try { app.open(t); } catch { /* ignore */ } }
       const box = panel.querySelector('textarea');
-      if (box && fine && (document.activeElement === panel || document.activeElement === document.body || document.activeElement.tagName === 'IFRAME')) box.focus();
+      if (box && fine && (document.activeElement === panel || document.activeElement === document.body)) box.focus();
       if ((ready && !pending && (box || !fine)) || tries > 40) clearInterval(settle);
     }, 150);
   }
+
+  // Fullscreen shows only the fullscreen element's subtree: carry the panel (and pop-ups) into it, and back out again.
+  function place() {
+    if (!panel) return;
+    const fs = document.fullscreenElement || document.webkitFullscreenElement;
+    const home = fs && fs !== document.documentElement ? fs : (bar.closest('.player') || document.body);
+    if (panel.parentNode !== home) home.append(panel);
+    panel.classList.toggle('fs', home !== bar.closest('.player'));
+  }
+  document.addEventListener('fullscreenchange', place);
+  document.addEventListener('webkitfullscreenchange', place);
 
   const api = {
     get isOpen() { return isOpen; },
@@ -214,8 +234,9 @@ export function mountChatOverlay(bar) {
       const my = ++epoch;
       if (!panel) {
         panel = h('div', { class: 'fpco-panel', id: 'chat-panel', role: 'dialog', 'aria-label': 'Chat', tabindex: '-1' });
-        (bar.closest('.player') || document.body).append(panel);
+        place();
       }
+      place();
       btn.setAttribute('aria-expanded', 'true');
       if (M) drawBadge();
       // Pull keyboard focus out of the game frame right away.

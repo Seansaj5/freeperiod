@@ -12,10 +12,13 @@ export function chatToast({ title = '', body = '', onClick } = {}) {
   const now = Date.now();
   if (now - last < TOAST_GAP) return false;
   last = now;
+  const home = () => { const f = document.fullscreenElement || document.webkitFullscreenElement; return f && f !== document.documentElement ? f : document.body; };
   if (!box || !box.isConnected) {
     box = h('div', { class: 'fpco-toasts', role: 'status', 'aria-live': 'polite' });
-    document.body.append(box);
+    document.addEventListener('fullscreenchange', () => { if (box) home().append(box); });
+    document.addEventListener('webkitfullscreenchange', () => { if (box) home().append(box); });
   }
+  if (box.parentNode !== home()) home().append(box);
   if (current) current.dismiss();
   const short = String(body).replace(/\s+/g, ' ').trim();
   const el = h('button', { type: 'button', class: 'fpco-toast' },
