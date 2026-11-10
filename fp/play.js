@@ -2,7 +2,7 @@
 // (cloud-save sync before load, login hand-off into the frame, recent list, play time).
 import * as session from './session.js';
 import { syncGame, watch } from './saves.js';
-import { touchRecent, addPlay } from './meta.js';
+import { touchRecent, addPlay, flush as flushMeta } from './meta.js';
 import { resolveGame } from './status.js';
 
 const $ = (id) => document.getElementById(id);
@@ -139,6 +139,8 @@ async function run(rawGame) {
     }, { once: true });
   }
   let playing = false, playTimer;
+  // Play time is counted locally and goes up every few minutes; what is left goes up as the page closes.
+  addEventListener('pagehide', () => { flushMeta({ keepalive: true }).catch(() => {}); });
 
   $('reload').addEventListener('click', () => { if (ready) start(); });
 

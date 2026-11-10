@@ -165,10 +165,11 @@ test('meta: logout clears it; A\'s meta is never merged into B\'s', async () => 
 });
 
 test('meta: a guest\'s favorites still merge into the account on sign-in', async () => {
-  await setup();
+  const srv = await setup();
   meta.toggleFav('horror-exe');
   assert.equal(JSON.parse(localStorage.getItem('fp.meta')).user, undefined);
   await session.register('Newbie', 'pw');
   const m = await meta.pullMerge();
   assert.deepEqual(m.favs, ['horror-exe']);
+  assert.deepEqual(srv.users.newbie.meta.favs, ['horror-exe'], 'favsAt lets the toggle replace the empty cloud list');
 });

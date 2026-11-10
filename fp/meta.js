@@ -6,7 +6,10 @@ import { call } from './api.js';
 import * as session from './session.js';
 import { cleanMeta, mergeMeta } from './sync.js';
 
-let timer = null;
+// Few writes (every account sits in one store file): favorites and recents go up 3 s after a change; play time is
+// counted locally and goes up at most every PLAY_UPLOAD_MS while playing, plus once on pagehide (flush).
+export const PLAY_UPLOAD_MS = 180000;
+let timer = null, dirty = false, lastUpload = null;
 
 const owner = (raw) => (raw && typeof raw.user === 'string' ? raw.user : '');
 export function getMeta() {
@@ -20,21 +23,27 @@ function put(m) {
   if (user) out.user = user;
   store.setJson('fp.meta', out);
 }
-function save(m) { put(m); schedule(); }
+function save(m, soon = true) { put(m); dirty = true; if (soon) schedule(); }
 
 function schedule() {
   if (!session.getToken()) return;
   clearTimeout(timer);
   timer = setTimeout(upload, 3000);
 }
-async function upload() {
+// favsAt = the time of the last favorites toggle: the server keeps whichever list was toggled last and merges the rest.
+async function upload({ keepalive = false } = {}) {
+  clearTimeout(timer);
   if (!session.getToken()) return;
   const me = session.userKey(), m = getMeta();
+  dirty = false;
+  lastUpload = Date.now();
   try {
-    const d = await call('/api/fp/meta', { body: { favs: m.favs, recent: m.recent, play: m.play }, auth: true });
+    const d = await call('/api/fp/meta', { body: { favs: m.favs, favsAt: m.at, recent: m.recent, play: m.play }, auth: true, keepalive });
     if (d.meta && session.userKey() === me) put(mergeMeta(getMeta(), d.meta));
-  } catch { /* retried on next change */ }
+  } catch { dirty = true; /* retried on the next change or flush */ }
 }
+// Send what has not gone up yet (the play page calls it on pagehide, with keepalive).
+export function flush(opts) { return dirty && session.getToken() ? upload(opts) : Promise.resolve(); }
 
 export function touchRecent(id) {
   const m = getMeta();
@@ -45,7 +54,9 @@ export function addPlay(id, secs) {
   if (!(secs > 0)) return;
   const m = getMeta();
   m.play[id] = (m.play[id] || 0) + secs;
-  save(m);
+  save(m, false);
+  if (lastUpload == null) lastUpload = Date.now();
+  else if (Date.now() - lastUpload >= PLAY_UPLOAD_MS && session.getToken()) upload();
 }
 export function toggleFav(id) {
   const m = getMeta();
