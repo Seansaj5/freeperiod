@@ -1,6 +1,7 @@
 // Signed-in session. Only a 401 signs the user out; network trouble never does.
 import * as store from './store.js';
 import { call, useToken, WAKE_TIMEOUT } from './api.js';
+import { hashString } from './sync.js';
 
 let user = null;
 let memToken = null; // the token when storage is blocked: signed in for this page's lifetime at least
@@ -50,6 +51,15 @@ export async function register(username, password) {
 }
 export async function logout() {
   const token = getToken();
+  // A save played but never synced has no record: mark it as the leaving user's, so the next account treats it as foreign (pull, or back up + clear) rather than pushing it.
+  const leaving = userKey();
+  if (leaving) {
+    for (const g of Array.isArray(globalThis.GAMES) ? globalThis.GAMES : []) {
+      if (!g || !g.saveKey || !g.id) continue;
+      const raw = store.get(g.saveKey);
+      if (raw != null && !store.get('fp.sync.' + g.id)) store.setJson('fp.sync.' + g.id, { hash: hashString(raw), at: 0, user: leaving });
+    }
+  }
   store.del('fp.meta'); // favorites, recent and play time stay with the account, never with the next person on this computer
   store.set('fp.loggedOut', '1');
   clear();

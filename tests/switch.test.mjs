@@ -173,3 +173,26 @@ test('meta: a guest\'s favorites still merge into the account on sign-in', async
   assert.deepEqual(m.favs, ['horror-exe']);
   assert.deepEqual(srv.users.newbie.meta.favs, ['horror-exe'], 'favsAt lets the toggle replace the empty cloud list');
 });
+
+test('logout: a local save with no sync record is marked as the leaving user\'s, so the next account never pushes it', async () => {
+  const srv = await setup();
+  globalThis.GAMES = [game, { id: 'no-save-game' }];
+  try {
+    await session.login('Ann', 'pw');
+    localStorage.setItem('closecall.v1', 'A-unsynced'); // played, never synced: no fp.sync record
+    assert.equal(localStorage.getItem('fp.sync.close-call'), null);
+    await session.logout();
+    const rec = JSON.parse(localStorage.getItem('fp.sync.close-call'));
+    assert.deepEqual(rec, { hash: sync.hashString('A-unsynced'), at: 0, user: 'ann' });
+    assert.equal(localStorage.getItem('fp.sync.no-save-game'), null);
+    await session.login('Bee', 'pw');
+    assert.equal(await saves.syncGame(game), 'clear'); // foreign: backed up and cleared, not pushed
+    assert.equal(srv.posts.length, 0);
+    assert.equal(localStorage.getItem('fp.backup.close-call'), 'A-unsynced');
+    // an existing record is left alone
+    localStorage.setItem('closecall.v1', 'B-play');
+    localStorage.setItem('fp.sync.close-call', JSON.stringify({ hash: 'x', at: 9, user: 'bee' }));
+    await session.logout();
+    assert.deepEqual(JSON.parse(localStorage.getItem('fp.sync.close-call')), { hash: 'x', at: 9, user: 'bee' });
+  } finally { delete globalThis.GAMES; }
+});
