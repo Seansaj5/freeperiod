@@ -3,7 +3,7 @@
 import { h } from '../../ui.js';
 import { planUpload } from '../media.js';
 import { icon, nameOf, finePointer } from './common.js';
-import { openEmojiPicker } from './emoji-picker.js';
+import { openEmojiPicker, closeEmojiPicker } from './emoji-picker.js';
 
 const MAX_BODY = 2000;
 const MAX_FILES = 4;
@@ -100,7 +100,7 @@ export function mountComposer(el, { onSend, onTyping, onLogin } = {}) {
     const files = d.files.map((f) => f.file);
     const ok = onSend && onSend({ body: body.trim() ? body : '', files, replyTo: d.reply ? d.reply.id : null, reply: d.reply });
     if (ok === false) return;
-    for (const f of d.files) setTimeout(() => URL.revokeObjectURL(f.url), 60e3); // the pending message shows them meanwhile
+    for (const f of d.files) URL.revokeObjectURL(f.url); // the pending message made its own copies
     d.files = []; d.errors = []; d.text = '';
     ta.value = '';
     setReply(null);
@@ -133,8 +133,24 @@ export function mountComposer(el, { onSend, onTyping, onLogin } = {}) {
     },
   }));
 
+  function dropDrafts() {
+    for (const d of drafts.values()) for (const f of d.files) URL.revokeObjectURL(f.url);
+    drafts.clear();
+  }
+
   return {
     addFiles,
+    // A different account: forget every draft (text, reply, pictures) and free the picture previews.
+    clearDrafts() {
+      dropDrafts();
+      key = ''; ta.value = ''; reply.hidden = true; tray.replaceChildren(); tray.hidden = true;
+      autosize(); refresh();
+    },
+    destroy() {
+      clearTimeout(showNotice.t);
+      closeEmojiPicker();
+      dropDrafts();
+    },
     focus() { if (mode === 'open' && finePointer()) ta.focus(); },
     // A send that failed before it became a pending message: put the text back so nothing is lost.
     restore(body) {

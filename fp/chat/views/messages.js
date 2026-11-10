@@ -3,10 +3,11 @@
 // Message bodies go through format.js (tokens -> DOM); nothing here uses innerHTML.
 import { h, openSheet, toast } from '../../ui.js';
 import { parseMessage, renderTokens, mentionsMe } from '../format.js';
-import { loadMessages, react as sendReact, editMessage, deleteMessage, retrySend, chatError as dataError } from '../data.js';
+import { loadMessages, react as sendReact, editMessage, deleteMessage, retrySend, discardSend, chatError as dataError } from '../data.js';
 import { QUICK_REACTIONS, emojiName } from '../emoji-data.js';
 import { icon, avatar, nameEl, nameOf, roleMark, timeShort, fullStamp, dayKey, dayLabel, mediaSrc, finePointer } from './common.js';
-import { openEmojiPicker } from './emoji-picker.js';
+import { openEmojiPicker, closeEmojiPicker } from './emoji-picker.js';
+import { CAP, matchTemp, splitPending, capWindow } from '../feedlogic.js';
 
 const PAGE = 50;
 const GROUP_MS = 5 * 60e3;
@@ -23,6 +24,8 @@ export function mountMessages(el, ctx) {
   el.replaceChildren(scroller, jump);
 
   const stores = new Map(); // target key -> store
+  const pendingByTarget = new Map(); // target key -> unsent (pending / failed) temps; outlives a store reset, re-attached when the channel loads
+  let closeLightbox = null;
   let store = null;          // the open conversation
   let stick = true;          // pinned to the bottom?
   let editing = null;        // message id being edited
@@ -60,7 +63,9 @@ export function mountMessages(el, ctx) {
     return [...by.values()];
   }
   function newStore(target, channel) {
-    return { key: tkey(target), target, channel, msgs: [], ids: new Map(), temps: [], hasMore: true, loading: false, loaded: false, olderErr: false, newFrom: null, scroll: null, unseen: 0 };
+    const key = tkey(target);
+    if (!pendingByTarget.has(key)) pendingByTarget.set(key, []);
+    return { key, target, channel, msgs: [], ids: new Map(), temps: pendingByTarget.get(key), newerCut: false, reloading: false, hasMore: true, loading: false, loaded: false, olderErr: false, newFrom: null, scroll: null, unseen: 0 };
   }
   function addAll(s, ms) {
     for (const m of ms) {
@@ -72,10 +77,32 @@ export function mountMessages(el, ctx) {
     s.msgs.sort(sortKey);
   }
   const find = (id) => { for (const s of stores.values()) { const m = s.ids.get(id); if (m) return [s, m]; } return [null, null]; };
-  const findTemp = (tempId) => { for (const s of stores.values()) { const m = s.temps.find((x) => x.tempId === tempId); if (m) return [s, m]; } return [null, null]; };
-  function dropTemp(s, m) {
-    s.temps = s.temps.filter((x) => x !== m);
-    for (const f of m._local || []) setTimeout(() => URL.revokeObjectURL(f.url), 5000);
+  const findTemp = (tempId) => { for (const [k, arr] of pendingByTarget) { const m = arr.find((x) => x.tempId === tempId); if (m) return [stores.get(k) || null, m]; } return [null, null]; };
+  const revokeLocal = (m, wait = 5000) => { for (const f of m._local || []) { if (wait) setTimeout(() => URL.revokeObjectURL(f.url), wait); else URL.revokeObjectURL(f.url); } m._local = []; };
+  function dropTemp(m, wait = 5000) { // in place: the store shares this array
+    for (const arr of pendingByTarget.values()) { const i = arr.indexOf(m); if (i >= 0) arr.splice(i, 1); }
+    revokeLocal(m, wait);
+  }
+  // Over 500 messages: drop the far end (the oldest, or the newest while the reader is up in the history; coming back re-fetches).
+  function enforceCap(s) {
+    const up = s === store && !stick;
+    const r = capWindow(s.msgs, CAP, up);
+    if (!r.dropped.length) return;
+    s.msgs = r.keep;
+    for (const m of r.dropped) s.ids.delete(m.id);
+    if (up) s.newerCut = true; else s.hasMore = true;
+  }
+  async function reloadLatest(s) {
+    if (!s || s.reloading) return;
+    s.reloading = true;
+    let got;
+    try { got = await loadMessages(s.target, { limit: PAGE }); } catch { s.reloading = false; return; }
+    s.reloading = false;
+    if (!Array.isArray(got)) return;
+    s.msgs = []; s.ids.clear();
+    addAll(s, got);
+    s.hasMore = got.length >= PAGE; s.newerCut = false; s.unseen = 0;
+    if (s === store) { paint(); toBottom(); ctx.onRead && ctx.onRead(s.target); }
   }
 
   // ---------- scroll ----------
@@ -91,16 +118,17 @@ export function mountMessages(el, ctx) {
     if (!store || stick) { jump.hidden = true; return; }
     const far = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > scroller.clientHeight * 1.5;
     if (store.unseen > 0) { jump.hidden = false; jump.className = 'cx-jump new'; jumpText.textContent = store.unseen + (store.unseen === 1 ? ' new message' : ' new messages'); }
-    else if (far) { jump.hidden = false; jump.className = 'cx-jump'; jumpText.textContent = 'Jump to present'; }
+    else if (far || store.newerCut) { jump.hidden = false; jump.className = 'cx-jump'; jumpText.textContent = 'Jump to present'; }
     else jump.hidden = true;
   }
   scroller.addEventListener('scroll', () => {
     stick = nearBottom();
-    if (store && stick) { if (store.unseen) store.unseen = 0; ctx.onRead && ctx.onRead(store.target); }
+    if (store && stick) { if (store.newerCut) reloadLatest(store); else { if (store.unseen) store.unseen = 0; ctx.onRead && ctx.onRead(store.target); } }
     drawJump();
     if (store && store.loaded && store.hasMore && !store.loading && !store.olderErr && scroller.scrollTop < 700) loadOlder();
   }, { passive: true });
-  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (stick && store) scroller.scrollTop = scroller.scrollHeight; }).observe(scroller);
+  const feedRO = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { if (stick && store) scroller.scrollTop = scroller.scrollHeight; }) : null;
+  if (feedRO) feedRO.observe(scroller);
 
   async function loadOlder() {
     const s = store;
@@ -114,10 +142,17 @@ export function mountMessages(el, ctx) {
     got = Array.isArray(got) ? got : [];
     if (got.length < PAGE) s.hasMore = false;
     addAll(s, got);
-    if (s !== store) return;
-    const fromBottom = scroller.scrollHeight - scroller.scrollTop; // keep what the reader is looking at in place
+    if (s !== store) { enforceCap(s); return; }
+    // keep the row the reader is looking at in place (anchor on a row: the cap may drop rows at the bottom too)
+    const top = scroller.getBoundingClientRect().top;
+    const seen = [...list.querySelectorAll('.cx-msg')].filter((r) => r.getBoundingClientRect().bottom > top + 1);
+    const anchor = seen[1] || seen[0]; // not the first row: its own grouping (and height) can change when older rows join it
+    const aId = anchor && anchor.dataset.mid, aTop = anchor ? anchor.getBoundingClientRect().top : 0, fromBottom = scroller.scrollHeight - scroller.scrollTop;
+    enforceCap(s);
     paint();
-    scroller.scrollTop = scroller.scrollHeight - fromBottom;
+    const again = aId != null && list.querySelector('[data-mid="' + CSS.escape(aId) + '"]');
+    if (again) scroller.scrollTop += again.getBoundingClientRect().top - aTop;
+    else scroller.scrollTop = scroller.scrollHeight - fromBottom;
   }
 
   // ---------- rendering ----------
@@ -219,7 +254,7 @@ export function mountMessages(el, ctx) {
     if (m.failed) {
       main.append(h('div', { class: 'cx-state bad', role: 'alert' }, icon('alert'), h('span', { text: 'Not sent: ' + (m.error || 'no connection') }),
         h('button', { type: 'button', class: 'cx-mini', onclick: () => retry(m) }, icon('retry'), 'Retry'),
-        h('button', { type: 'button', class: 'cx-mini ghost', onclick: () => { const [s] = findTemp(m.tempId); if (s) { dropTemp(s, m); repaintRow(m); paint(); } } }, 'Discard')));
+        h('button', { type: 'button', class: 'cx-mini ghost', onclick: () => discard(m) }, 'Discard')));
     }
     row.append(gutter, main);
     // The hover toolbar is built on first hover / focus / tap, not for every row up front.
@@ -256,9 +291,9 @@ export function mountMessages(el, ctx) {
     ta.value = m.body || '';
     const save = () => {
       const v = ta.value.trim();
+      if (v.length > 2000) { toast('That message is too long (max 2000 characters)', 'err'); return; } // stay in the edit box
       editing = null;
       if (!v || v === m.body) { m._v++; repaintRow(m); return; }
-      if (v.length > 2000) { toast('That message is too long (max 2000 characters)', 'err'); return; }
       const old = { body: m.body, edited_at: m.edited_at };
       m.body = v; m.edited_at = new Date().toISOString(); m._v++; repaintRow(m);
       Promise.resolve().then(() => editMessage(m.id, v)).catch((e) => { Object.assign(m, old); m._v++; repaintRow(m); toast(err(e), 'err'); });
@@ -399,6 +434,12 @@ export function mountMessages(el, ctx) {
     go.focus();
   }
 
+  // Discard cancels the queued / retrying send as well as removing the row (one the server already took can't be undone: its row just arrives).
+  function discard(m) {
+    try { discardSend(m.tempId); } catch { /* nothing queued */ }
+    dropTemp(m);
+    if (store) paint();
+  }
   function retry(m) {
     m.failed = false; m.pending = true; m.error = ''; m._v++; repaintRow(m);
     Promise.resolve().then(() => retrySend(m.tempId)).then((real) => api.sent(m.tempId, real), (e) => api.failed(m.tempId, err(e)));
@@ -436,7 +477,7 @@ export function mountMessages(el, ctx) {
       img.removeAttribute('src');
       mediaSrc(atts[i]).then((src) => { if (src) { img.src = src; open.href = src; } });
     }
-    function shut() { document.removeEventListener('keydown', onKey, true); box.remove(); if (opener && opener.focus) opener.focus(); }
+    function shut() { document.removeEventListener('keydown', onKey, true); box.remove(); if (closeLightbox === shut) closeLightbox = null; if (opener && opener.focus) opener.focus(); }
     function onKey(e) {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); shut(); }
       else if (e.key === 'ArrowLeft' && atts.length > 1) go(i - 1);
@@ -446,6 +487,7 @@ export function mountMessages(el, ctx) {
     close.addEventListener('click', shut);
     box.addEventListener('click', (e) => { if (e.target === box || e.target.classList.contains('cx-lb-fig')) shut(); });
     document.addEventListener('keydown', onKey, true);
+    closeLightbox = shut;
     document.body.append(box);
     go(i);
     box.focus();
@@ -480,7 +522,8 @@ export function mountMessages(el, ctx) {
         markNew(); paint();
         if (s.newFrom != null) { const d = newDiv; requestAnimationFrame(() => { if (store === s && d.isConnected) scroller.scrollTop = d.offsetTop - 80; stick = nearBottom(); drawJump(); }); }
         else if (s.scroll == null) toBottom(); else { scroller.scrollTop = s.scroll; stick = nearBottom(); drawJump(); }
-        if (stick && ctx.onRead) ctx.onRead(s.target);
+        if (s.newerCut) reloadLatest(s);
+        else if (stick && ctx.onRead) ctx.onRead(s.target);
         return;
       }
       list.replaceChildren(skeleton());
@@ -496,6 +539,7 @@ export function mountMessages(el, ctx) {
       got = Array.isArray(got) ? got : [];
       addAll(s, got);
       s.hasMore = got.length >= PAGE;
+      s.newerCut = false;
       s.loaded = true;
       if (store !== s) return;
       markNew();
@@ -522,14 +566,17 @@ export function mountMessages(el, ctx) {
       const s = stores.get(key);
       if (!s || !s.loaded) return;
       if (s.ids.has(m.id)) { api.update(m); return; }
-      if (isMine(m)) { // our own message coming back before sendMessage resolved: it replaces the pending copy
-        const t = s.temps.find((x) => !x.failed && (x.body || '') === (m.body || ''));
-        if (t) dropTemp(s, t);
+      const t = matchTemp(s.temps, m); // our own message coming back before sendMessage resolved: it replaces the pending copy
+      if (t) dropTemp(t);
+      if (s.newerCut) { // the window ends mid-history: the newest messages are re-fetched when the reader comes back
+        if (s === store && !isMine(m)) { s.unseen++; drawJump(); }
+        return;
       }
       const keep = stick;
       addAll(s, [m]);
-      if (s !== store) return;
+      if (s !== store) { enforceCap(s); return; }
       if (!keep && !isMine(m)) s.unseen++;
+      enforceCap(s);
       paint();
       if (keep || isMine(m)) toBottom(); else drawJump();
     },
@@ -554,7 +601,7 @@ export function mountMessages(el, ctx) {
       applyReact(m, ev.emoji, !!ev.on, mine);
     },
     // Sending: a local copy right away, then the real one (or Retry).
-    pending(pm, { target: tg = null, body = '', files = [], reply = null, author = null } = {}) {
+    pending(pm, { target: tg = null, body = '', files = [], reply = null, author = null, clientId = '' } = {}) {
       if (!pm || pm.tempId == null) return;
       const target = tg || (pm.dm_id ? { dm: pm.dm_id } : pm.channel_id ? { channel: pm.channel_id } : (store && store.target));
       if (!target) return;
@@ -564,20 +611,26 @@ export function mountMessages(el, ctx) {
         pending: true, failed: false, body: pm.body ?? body, author_id: pm.author_id || me().id, author: pm.author || author,
         created_at: pm.created_at || new Date().toISOString(), reply_to: pm.reply_to ?? (reply ? reply.id : null), reply: pm.reply || reply,
       });
+      if (m.client_id == null && clientId) m.client_id = clientId;
       m._local = files.map((f) => ({ url: URL.createObjectURL(f), gif: f.type === 'image/gif' }));
       norm(m);
       s.temps.push(m);
       if (s === store) { paint(); toBottom(); }
     },
+    hasTemp: (tempId) => findTemp(tempId)[1] != null,
     sent(tempId, real) {
-      const [s, t] = findTemp(tempId);
-      if (t) dropTemp(s, t);
-      const target = s ? s.target : null;
+      const [, t] = findTemp(tempId);
+      if (t) dropTemp(t);
       if (real && real.id != null) {
-        const ss = s || stores.get(tkey(real.dm_id ? { dm: real.dm_id } : { channel: real.channel_id }));
-        if (ss && !ss.ids.has(real.id)) addAll(ss, [real]);
-        if (ss === store) { paint(); if (stick) toBottom(); }
-      } else if (target && s === store) paint();
+        const ss = stores.get(tkey(real.dm_id ? { dm: real.dm_id } : { channel: real.channel_id }));
+        if (ss && ss.loaded && !ss.newerCut && !ss.ids.has(real.id)) {
+          addAll(ss, [real]);
+          if (ss === store) { enforceCap(ss); paint(); if (stick) toBottom(); }
+          else enforceCap(ss);
+          return;
+        }
+      }
+      if (store) paint();
     },
     failed(tempId, text) {
       const [s, t] = findTemp(tempId);
@@ -591,13 +644,30 @@ export function mountMessages(el, ctx) {
       for (const s of list2) {
         try {
           const got = await loadMessages(s.target, { limit: PAGE });
-          if (Array.isArray(got)) addAll(s, got);
+          if (Array.isArray(got) && !s.newerCut) { addAll(s, got); enforceCap(s); }
         } catch { /* next reconnect */ }
       }
       if (store) { const keep = stick; paint(); if (keep) toBottom(); }
     },
     repaint() { if (store) { const keep = stick; paint(); if (keep) scroller.scrollTop = scroller.scrollHeight; } },
-    reset() { stores.clear(); store = null; list.replaceChildren(); },
+    // Restart of the app's stores. Unsent messages of the signed-in account (uid) stay; anyone else's are cancelled. Returns how many were dropped.
+    reset(uid = '') {
+      let dropped = 0;
+      for (const arr of pendingByTarget.values()) {
+        const { drop } = splitPending(arr, uid);
+        for (const t of drop) { try { discardSend(t.tempId); } catch { /* nothing queued */ } dropTemp(t, 0); dropped++; }
+      }
+      stores.clear(); store = null; editing = null; list.replaceChildren();
+      return dropped;
+    },
+    destroy() {
+      if (feedRO) feedRO.disconnect();
+      if (closeLightbox) closeLightbox();
+      closeEmojiPicker();
+      for (const arr of pendingByTarget.values()) for (const t of arr) { if (t.failed) { try { discardSend(t.tempId); } catch { /* ignore */ } } revokeLocal(t, 0); }
+      pendingByTarget.clear(); stores.clear(); store = null; editing = null; touched = null;
+      list.replaceChildren();
+    },
   };
   return api;
 }

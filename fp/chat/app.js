@@ -1,11 +1,12 @@
 // The chat app: rail, channel list, messages, composer, members, status banners. Used by the Messages page
 // (chat.html) and, with { compact: true }, by the play-page overlay (one panel at a time, no title or history changes).
-import { h } from '../ui.js';
+import { h, toast } from '../ui.js';
 import * as session from '../session.js';
 import { chatState, onChatState, ensureChatSession, me as chatMe, chatError as sessionError } from './client.js';
 import * as data from './data.js';
 import { tabTitle, badge } from './unread.js';
 import { mentionsMe } from './format.js';
+import { newClientId } from './feedlogic.js';
 import { mountRail } from './views/rail.js';
 import { mountChannels } from './views/channels.js';
 import { mountMessages } from './views/messages.js';
@@ -63,6 +64,7 @@ export function mountChatApp(root, { compact = false } = {}) {
   let typingH = null;
   let gen = 0;                 // bumps on every (re)start so late answers are dropped
   let started = '';            // '' | 'ready:<uid>' | 'guest'
+  let lastUid = null;          // account of the previous start (null before the first)
   let loading = false;
   let viewVersion = 0;
   let layout = compact ? 'narrow' : 'wide';
@@ -284,14 +286,16 @@ export function mountChatApp(root, { compact = false } = {}) {
     if (st !== 'ready' || !cur || mode !== 'server') return false;
     const target = { channel: cur.id };
     let tempId = null;
+    const clientId = newClientId(); // the server row echoes it back; that is how the echo finds this pending copy
     let p;
     try {
-      p = data.sendMessage(target, { body, replyTo: replyTo || undefined, files, onPending: (pm) => {
+      p = data.sendMessage(target, { body, replyTo: replyTo || undefined, files, clientId, onPending: (pm) => {
         tempId = pm && pm.tempId;
-        messages.pending(pm, { target, body, files, reply, author: myProfile() });
+        messages.pending(pm, { target, body, files, reply, author: myProfile(), clientId });
       } });
     } catch (e) { p = Promise.reject(e); }
     Promise.resolve(p).then((m) => { if (tempId != null) messages.sent(tempId, m); else if (m) messages.insert(m); }, (e) => {
+      if (tempId != null && !messages.hasTemp(tempId)) return; // discarded (or dropped with the account): nothing left to mark
       let text = '';
       try { text = data.chatError(e); } catch { /* ignore */ }
       text = text || 'Couldn’t send that';
@@ -363,7 +367,11 @@ export function mountChatApp(root, { compact = false } = {}) {
     stopLive();
     const g = gen;
     started = mine;
-    messages.reset();
+    const uid = st === 'ready' ? myId() : '';
+    if (lastUid !== null && uid !== lastUid) composer.clearDrafts(); // another account: its drafts and previews go
+    lastUid = uid;
+    const dropped = messages.reset(uid); // unsent messages of this account stay (Retry / Discard); anyone else's are cancelled
+    if (dropped) toast(dropped === 1 ? 'An unsent message was dropped because the account changed.' : dropped + ' unsent messages were dropped because the account changed.', 'err');
     unread.clear(); online = new Set(); blocked = new Set(); setMembersList([]);
     channels = []; cur = null; mode = 'server';
     loading = true;
@@ -461,6 +469,8 @@ export function mountChatApp(root, { compact = false } = {}) {
     destroy() {
       stopLive();
       offState();
+      messages.destroy();
+      composer.destroy();
       if (ro) ro.disconnect();
       removeEventListener('online', onOnline);
       removeEventListener('offline', onOffline);
