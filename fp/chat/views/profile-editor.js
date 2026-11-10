@@ -1,11 +1,13 @@
 // Profile editor (a sheet with a live preview of the card and of a chat line): basics (display name, pronouns, About me,
 // status, picture, banner), name style (color, font, solid / gradient, second color, glow), profile theme, avatar frame
-// and profile effect (Nitro-style, free for everyone), and the block list. One updateProfile call per Save with only
-// what changed (profile updates are rate limited); limits are enforced before saving.
+// and profile effect (Nitro-style, free for everyone; the streak-earned ones show a lock until earned), and the block
+// list. One updateProfile call per Save with only what changed (profile updates are rate limited); limits are enforced
+// before saving.
 import { h, openSheet, toast } from '../../ui.js';
 import * as data from '../data.js';
 import { planUpload } from '../media.js';
-import { FONTS, FRAMES, EFFECTS, FONT_LABELS, FRAME_LABELS, EFFECT_LABELS, cardTheme, isHex, paintName, DEFAULT_NAME_COLOR, DEFAULT_NAME_COLOR2 } from '../flair.js';
+import { FONTS, FRAMES, EFFECTS, FONT_LABELS, FRAME_LABELS, EFFECT_LABELS, cardTheme, isHex, paintName, flairLocked, unlockHint,
+  DEFAULT_NAME_COLOR, DEFAULT_NAME_COLOR2 } from '../flair.js';
 import { mountEffect } from '../effects.js';
 import { checkProfile, profileDiff, PROFILE_FIELDS, LIMITS } from '../perms.js';
 import { icon, avatar, nameEl, nameOf, roleMark, badgeMarks, stopFrames, finePointer } from './common.js';
@@ -16,7 +18,7 @@ const errText = (e) => { try { return data.chatError(e) || 'Something went wrong
 // No pink or purple defaults: lime, cyan, amber, green, gold, coral, ice, white.
 const SWATCHES = ['#c6ff3d', '#3de0ff', '#ffb020', '#62ff8f', '#ffd84a', '#ff7a3d', '#9ee7ff', '#f3f6ff'];
 const THEMES = [['#16361f', '#0b1e33', 'Lime night'], ['#0b2b3d', '#071322', 'Deep sea'], ['#3a1408', '#120a0a', 'Ember'], ['#0f3a2c', '#06140f', 'Forest'],
-  ['#3a2a06', '#140d03', 'Gold'], ['#12304a', '#0a1420', 'Ice'], ['#1d2433', '#0a0d14', 'Slate']];
+  ['#3a2a06', '#140d03', 'Gold'], ['#12304a', '#0a1420', 'Ice'], ['#1d2433', '#0a0d14', 'Slate'], ['#1a1c22', '#030304', 'Symbiote']];
 const TABS = [['profile', 'Profile'], ['style', 'Style'], ['frame', 'Frame'], ['effect', 'Effect'], ['blocked', 'Privacy']];
 
 /** cx: { me(), blockedProfiles() -> Profile[], unblock(id) -> Promise, applyProfile(row) } */
@@ -166,7 +168,7 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
     text('about', 'About me', LIMITS.about, { area: true, placeholder: 'A little about you' }),
     statusText, errSlot('status_emoji'),
     pictureField('avatar'), pictureField('banner'),
-    colorField('banner_color', 'Banner color', { fallback: '#16361f', none: 'None', swatches: ['#16361f', '#0b2b3d', '#3a1408', '#3a2a06', '#12304a', '#1d2433'] }));
+    colorField('banner_color', 'Banner color', { fallback: '#16361f', none: 'None', swatches: ['#16361f', '#0b2b3d', '#3a1408', '#3a2a06', '#12304a', '#1d2433', '#07080b'] }));
 
   // ---------- Style ----------
   const fillSeg = h('div', { class: 'cx-seg', role: 'radiogroup', 'aria-label': 'Name fill' });
@@ -181,6 +183,7 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
   glow.checked = !!draft.name_glow;
   glow.addEventListener('change', () => set('name_glow', glow.checked));
   const fonts = h('div', { class: 'cx-ed-fonts', role: 'radiogroup', 'aria-label': 'Name font' });
+  const fontHint = h('p', { class: 'cx-hint cx-ed-fonthint', text: 'Symbiote paints your name in living black goo. Your name color is its accent (with Gradient, it runs into the second color).' });
   // built once; the samples repaint in place (keeps keyboard focus) whenever the name style changes
   const drawFonts = () => {
     if (!fonts.childElementCount) {
@@ -196,6 +199,7 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
       b.classList.toggle('on', f === cur);
       b.setAttribute('aria-checked', f === cur ? 'true' : 'false');
     }
+    fontHint.hidden = cur !== 'symbiote';
   };
   const themeRow = h('div', { class: 'cx-ed-themes' });
   const drawThemes = () => {
@@ -212,18 +216,26 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
     h('div', { class: 'cx-ed-field' }, h('label', { class: 'cx-label', text: 'Fill' }), fillSeg),
     second,
     h('label', { class: 'cx-check cx-switch' }, glow, h('span', {}, h('b', { text: 'Glow' }), ' A soft neon glow around your name')),
-    h('div', { class: 'cx-ed-field' }, h('label', { class: 'cx-label', text: 'Font' }), fonts, errSlot('name_font')),
+    h('div', { class: 'cx-ed-field' }, h('label', { class: 'cx-label', text: 'Font' }), fonts, fontHint, errSlot('name_font')),
     h('div', { class: 'cx-ed-field' }, h('label', { class: 'cx-label', text: 'Profile theme' }), themeRow, h('div', { class: 'cx-ed-two' }, themeA, themeB)));
 
   // ---------- Frame ----------
   const frames = h('div', { class: 'cx-ed-frames', role: 'radiogroup', 'aria-label': 'Avatar frame' });
+  // Earned flair still shows (so people see what a streak gets them), dimmed, with a lock and what unlocks it; picking it
+  // only says so. The database refuses it too until the Bing Ball server has recorded it as earned.
+  const lockedTile = (id, label, art, kind) => h('button', { type: 'button', role: 'radio', class: 'cx-ed-tile locked' + (kind === 'effect' ? ' fx' : ''), 'aria-checked': 'false',
+    'aria-disabled': 'true', title: unlockHint(id), 'aria-label': label + ', locked. ' + unlockHint(id) + ' to unlock it.', dataset: { [kind]: id, locked: '' },
+    onclick: () => toast(unlockHint(id) + ' to unlock ' + label + '.') },
+  art, h('span', { class: 'cx-ed-lock', 'aria-hidden': 'true' }, icon('lock')), h('small', { text: label }), h('small', { class: 'cx-ed-unlock', text: unlockHint(id) }));
   const drawFrames = () => {
     const loc = files.avatar ? files.avatar.url : '';
     frames.replaceChildren(...[null, ...FRAMES].map((id) => {
       const on = (draft.frame || null) === id;
+      const art = h('span', { class: 'cx-ed-tile-art' }, avatar({ ...view(), frame: id }, { size: 64, frame: 'auto', localSrc: loc }));
+      if (id && !on && flairLocked(me, id)) return lockedTile(id, FRAME_LABELS[id], art, 'frame');
       return h('button', { type: 'button', role: 'radio', class: 'cx-ed-tile' + (on ? ' on' : ''), 'aria-checked': on ? 'true' : 'false', dataset: { frame: id || 'none' },
-        onclick: () => { set('frame', id); for (const b of frames.children) { const yes = b.dataset.frame === (id || 'none'); b.classList.toggle('on', yes); b.setAttribute('aria-checked', yes ? 'true' : 'false'); } } },
-      h('span', { class: 'cx-ed-tile-art' }, avatar({ ...view(), frame: id }, { size: 64, frame: 'auto', localSrc: loc })), h('small', { text: id ? FRAME_LABELS[id] : 'None' }));
+        onclick: () => { set('frame', id); for (const b of frames.children) { if ('locked' in b.dataset) continue; const yes = b.dataset.frame === (id || 'none'); b.classList.toggle('on', yes); b.setAttribute('aria-checked', yes ? 'true' : 'false'); } } },
+      art, h('small', { text: id ? FRAME_LABELS[id] : 'None' }));
     }));
   };
   panes.frame.append(h('p', { class: 'cx-hint', text: 'Frames animate on your card. In chat they move when someone hovers your messages.' }), frames, errSlot('frame'));
@@ -237,10 +249,11 @@ export function openProfileEditor(cx, { tab: startTab = 'profile' } = {}) {
     fx.replaceChildren(...[null, ...EFFECTS].map((id, i) => {
       const on = (draft.effect || null) === id;
       const art = h('span', { class: 'cx-ed-fx-art', style: theme ? 'background:' + theme : '' });
-      const b = h('button', { type: 'button', role: 'radio', class: 'cx-ed-tile fx' + (on ? ' on' : ''), 'aria-checked': on ? 'true' : 'false', dataset: { effect: id || 'none' },
-        onclick: () => { set('effect', id); for (const x of fx.children) { const yes = x.dataset.effect === (id || 'none'); x.classList.toggle('on', yes); x.setAttribute('aria-checked', yes ? 'true' : 'false'); } } },
-      art, h('small', { text: id ? EFFECT_LABELS[id] : 'None' }));
-      if (id) effects.push(mountEffect(art, id, { seed: 11 + i }));
+      const b = id && !on && flairLocked(me, id) ? lockedTile(id, EFFECT_LABELS[id], art, 'effect')
+        : h('button', { type: 'button', role: 'radio', class: 'cx-ed-tile fx' + (on ? ' on' : ''), 'aria-checked': on ? 'true' : 'false', dataset: { effect: id || 'none' },
+          onclick: () => { set('effect', id); for (const x of fx.children) { if ('locked' in x.dataset) continue; const yes = x.dataset.effect === (id || 'none'); x.classList.toggle('on', yes); x.setAttribute('aria-checked', yes ? 'true' : 'false'); } } },
+        art, h('small', { text: id ? EFFECT_LABELS[id] : 'None' }));
+      if (id) effects.push(mountEffect(art, id, { seed: 11 + i, accent: isHex(draft.name_color) ? draft.name_color : undefined }));
       return b;
     }));
     fxDrawn = true;

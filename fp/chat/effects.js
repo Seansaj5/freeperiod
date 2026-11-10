@@ -1,4 +1,4 @@
-// Profile effects: 10 canvas overlays for the profile card (drawn in code, no outside art).
+// Profile effects: 13 canvas overlays for the profile card (drawn in code, no outside art).
 // mountEffect(el, id) lays a <canvas> over `el` (position: relative is added) and returns { el, stop() }.
 // One requestAnimationFrame loop per card; it stops while the card is off-screen (shared IntersectionObserver) and,
 // with prefers-reduced-motion, draws a single settled frame instead of animating. No blur filters: soft glows are
@@ -61,7 +61,84 @@ function starPath(ctx, x, y, R, rot) {
   ctx.closePath();
 }
 
-// ---- the ten effects: make(rand) -> { fps?, init(w, h), step(dt, t), draw(ctx, w, h, t), still?(t) } ----
+// ---- goo (the symbiote effects): shared shapes and paint ----
+const rgbOf = (hex) => (typeof hex === 'string' && /^#[0-9a-f]{6}$/.test(hex) ? [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) : [207, 224, 255]);
+// size factor: 1 on the 340 px card, smaller in the editor's tiles
+const gooScale = (w, h) => Math.max(0.5, Math.min(1.1, Math.min(w / 340, h / 440) * 1.05));
+// body: lit from the top left; rim light: the accent, shifting through an oily teal and green
+// (body runs from (0,0) to (bx,by): the whole card for the tendrils, just the banner for the drips)
+function gooPaint(ctx, bx, by, [r, g, b]) {
+  const body = ctx.createLinearGradient(0, 0, bx, by);
+  body.addColorStop(0, '#2c3039'); body.addColorStop(0.25, '#0e1014'); body.addColorStop(0.6, '#030304'); body.addColorStop(1, '#090a0d');
+  const rim = ctx.createLinearGradient(0, 0, bx, by);
+  rim.addColorStop(0, `rgba(${r},${g},${b},0.4)`); rim.addColorStop(0.4, 'rgba(127,216,255,0.36)'); rim.addColorStop(0.7, 'rgba(157,255,196,0.34)'); rim.addColorStop(1, `rgba(${r},${g},${b},0.6)`);
+  return { body, rim, acc: [r, g, b] };
+}
+// an oily sheen sliding across the goo only (source-atop keeps it on what is already drawn)
+function gooSheen(ctx, w, h, t, paint) {
+  const span = w + h, x = ((t * 34) % (span + 240)) - 120, [r, g, b] = paint.acc;
+  const sh = ctx.createLinearGradient(x - 90, 0, x + 90, h * 0.35);
+  sh.addColorStop(0, 'rgba(127,216,255,0)'); sh.addColorStop(0.35, 'rgba(127,216,255,0.22)'); sh.addColorStop(0.55, `rgba(${r},${g},${b},0.2)`);
+  sh.addColorStop(0.75, 'rgba(255,231,160,0.16)'); sh.addColorStop(1, 'rgba(255,231,160,0)');
+  ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = sh; ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'source-over';
+}
+// both sides of a ribbon along pts with half-width wf(s)
+function ribbonSides(pts, wf, L, R) {
+  const N = pts.length - 1;
+  for (let i = 0; i <= N; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N, i + 1)];
+    let tx = b[0] - a[0], ty = b[1] - a[1];
+    const m = Math.hypot(tx, ty) || 1; tx /= m; ty /= m;
+    const w = wf(i / N);
+    L.push([pts[i][0] - ty * w, pts[i][1] + tx * w]); R.push([pts[i][0] + ty * w, pts[i][1] - tx * w]);
+  }
+}
+function smoothTo(ctx, p) {
+  for (let i = 1; i < p.length - 1; i++) ctx.quadraticCurveTo(p[i][0], p[i][1], (p[i][0] + p[i + 1][0]) / 2, (p[i][1] + p[i + 1][1]) / 2);
+  ctx.lineTo(p[p.length - 1][0], p[p.length - 1][1]);
+}
+function ribbonPath(ctx, L, R) {
+  ctx.beginPath(); ctx.moveTo(L[0][0], L[0][1]); smoothTo(ctx, L);
+  const back = R.slice().reverse(); ctx.lineTo(back[0][0], back[0][1]); smoothTo(ctx, back); ctx.closePath();
+}
+// a wobbling blob of goo
+function blobPts(x, y, R, t, p, p2) {
+  const out = [];
+  for (let i = 0; i < 36; i++) { const a = (i / 36) * TAU; const r = R * (1 + 0.12 * Math.sin(3 * a + t * 0.6 + p) + 0.07 * Math.sin(5 * a - t * 0.9 + p2)); out.push([x + Math.cos(a) * r, y + Math.sin(a) * r]); }
+  return out;
+}
+function closedPath(ctx, p) {
+  const n = p.length, mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], m0 = mid(p[n - 1], p[0]);
+  ctx.beginPath(); ctx.moveTo(m0[0], m0[1]);
+  for (let i = 0; i < n; i++) { const m = mid(p[i], p[(i + 1) % n]); ctx.quadraticCurveTo(p[i][0], p[i][1], m[0], m[1]); }
+  ctx.closePath();
+}
+// a highlight line on a ribbon's lit side (light from the top left), from s0 to s1 of its length
+function litLine(ctx, pts, off, s0, s1) {
+  const N = pts.length - 1, i0 = Math.round(N * s0), i1 = Math.round(N * s1), q = [];
+  for (let i = i0; i <= i1; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N, i + 1)];
+    let tx = b[0] - a[0], ty = b[1] - a[1];
+    const m = Math.hypot(tx, ty) || 1; tx /= m; ty /= m;
+    let nx = -ty, ny = tx;
+    if (nx + ny > 0) { nx = -nx; ny = -ny; }
+    const o = off(i / N); q.push([pts[i][0] + nx * o, pts[i][1] + ny * o]);
+  }
+  if (q.length < 2) return;
+  ctx.beginPath(); ctx.moveTo(q[0][0], q[0][1]); smoothTo(ctx, q); ctx.stroke();
+}
+// a drip from the goo at (x, y0): wide where it leaves, a neck, then a round drop of radius r at the bottom
+function dripPath(ctx, x, y0, len, r) {
+  const top = r * 2.3, neck = r * 0.5, cy = y0 + len, ax = r * 0.72, ay = r * 0.68;
+  ctx.beginPath(); ctx.moveTo(x - top, y0 - 4);
+  ctx.bezierCurveTo(x - top * 0.35, y0 + Math.min(len * 0.12, r * 2), x - neck, y0 + len * 0.38, x - ax, cy - ay);
+  ctx.arc(x, cy, r, Math.atan2(-ay, -ax), Math.atan2(-ay, ax), true);
+  ctx.bezierCurveTo(x + neck, y0 + len * 0.38, x + top * 0.35, y0 + Math.min(len * 0.12, r * 2), x + top, y0 - 4);
+  ctx.closePath();
+}
+
+// ---- the effects: make(rand, opts) -> { fps?, init(w, h), step(dt, t), draw(ctx, w, h, t), still?(t) } ----
 const MAKE = {
   sparkles(rand) {
     const COLORS = ['#ffffff', '#fff1a8', '#c6ff3d', '#a6f4ff'];
@@ -416,7 +493,204 @@ const MAKE = {
       },
     };
   },
+
+  // ---- the symbiote set (living black goo; opts.accent = the name color tints its rim light) ----
+  tendrils(rand, opts) {
+    // Goo gathers in the card's corners and along its sides; tendrils grow out of it and crawl along the edges, writhing
+    // (a wave runs down each one), creeping in and drawing back. They keep to the edges so the card stays readable.
+    const acc = rgbOf(opts.accent);
+    let W = 0, H = 0, S = 1, masses = [], arms = [], paint = null;
+    const arm = (x, y, th0, curl, len, wb) => ({ x, y, th0, curl, len, wb, amp: 0.28 + rand() * 0.22, k: 0.7 + rand() * 0.6, w: 1.4 + rand() * 1.2,
+      p: rand() * TAU, cw: 0.35 + rand() * 0.35, cp: rand() * TAU, pts: [], L: [], R: [] });
+    return {
+      init(w, h) {
+        W = w; H = h; S = gooScale(w, h); paint = null;
+        const R = (v) => v * S;
+        // corners, then one mass on each side
+        masses = [[0, 0, R(46)], [w, 0, R(40)], [0, h, R(42)], [w, h, R(50)], [0, h * (0.4 + rand() * 0.15), R(24)], [w, h * (0.5 + rand() * 0.15), R(24)]]
+          .map(([x, y, r]) => ({ x, y, r, p: rand() * TAU, p2: rand() * TAU }));
+        const d = (deg) => (deg * Math.PI) / 180;
+        arms = [
+          arm(R(26), R(12), d(10), d(32), R(124), R(11)), arm(R(12), R(28), d(78), d(-36), R(104), R(10)),
+          arm(w - R(22), R(12), d(170), d(-30), R(98), R(10)), arm(w - R(12), R(24), d(100), d(32), R(84), R(9)),
+          // the bottom corners climb the sides (the card's buttons sit along the bottom edge)
+          arm(R(12), h - R(26), d(-84), d(26), R(116), R(11)), arm(R(24), h - R(8), d(-38), d(-40), R(46), R(8)),
+          arm(w - R(14), h - R(30), d(-96), d(-26), R(122), R(12)), arm(w - R(26), h - R(8), d(-142), d(40), R(48), R(8)),
+          arm(R(8), masses[4].y - R(8), d(-64), d(-40), R(74), R(8)), arm(R(8), masses[4].y + R(8), d(62), d(40), R(66), R(7.5)),
+          arm(w - R(8), masses[5].y - R(8), d(-116), d(40), R(76), R(8)), arm(w - R(8), masses[5].y + R(8), d(120), d(-36), R(62), R(7.5)),
+        ];
+      },
+      step(dt, t) {
+        for (const a of arms) {
+          const N = 26, len = a.len * (0.74 + 0.26 * Math.sin(t * a.cw + a.cp)), ds = len / N;
+          let x = a.x, y = a.y;
+          a.pts.length = 0; a.L.length = 0; a.R.length = 0;
+          a.pts.push([x, y]);
+          for (let i = 1; i <= N; i++) {
+            const s = i / N, th = a.th0 + a.curl * s * s + a.amp * s * Math.sin(a.k * s * TAU - t * a.w + a.p);
+            x += Math.cos(th) * ds; y += Math.sin(th) * ds; a.pts.push([x, y]);
+          }
+          ribbonSides(a.pts, (s) => a.wb * (1 - s) ** 0.62 + 1.1 * S, a.L, a.R);
+        }
+      },
+      draw(ctx, w, h, t) {
+        if (!paint) paint = gooPaint(ctx, w, h, acc);
+        const blobs = masses.map((m) => blobPts(m.x, m.y, m.r, t, m.p, m.p2));
+        // rim light under every fill (only its outer half shows), then the goo, then light on top
+        ctx.strokeStyle = paint.rim; ctx.lineWidth = 2 * S; ctx.lineJoin = 'round';
+        for (const b of blobs) { closedPath(ctx, b); ctx.stroke(); }
+        for (const a of arms) { ribbonPath(ctx, a.L, a.R); ctx.stroke(); }
+        ctx.fillStyle = paint.body;
+        for (const b of blobs) { closedPath(ctx, b); ctx.fill(); }
+        for (const a of arms) { ribbonPath(ctx, a.L, a.R); ctx.fill(); }
+        gooSheen(ctx, w, h, t, paint);
+        ctx.strokeStyle = '#ffffff'; ctx.lineCap = 'round';
+        for (const a of arms) {
+          ctx.globalAlpha = 0.6; ctx.lineWidth = Math.max(0.9, a.wb * 0.16);
+          litLine(ctx, a.pts, (s) => (a.wb * (1 - s) ** 0.62) * 0.5, 0.06, 0.78);
+        }
+        // a wet crescent on each mass, on the side facing the card's middle
+        ctx.globalAlpha = 0.5; ctx.lineWidth = 1.8 * S;
+        for (const m of masses) {
+          const toC = Math.atan2(h / 2 - m.y, w / 2 - m.x);
+          ctx.beginPath(); ctx.arc(m.x, m.y, m.r * 0.78, toC - 0.5, toC + 0.1); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      },
+    };
+  },
+
+  goo(rand, opts) {
+    // A lip of goo along the top of the card; drips run down the banner, swell, let a drop fall and spring back.
+    const acc = rgbOf(opts.accent);
+    let W = 0, H = 0, S = 1, BH = 120, drips = [], drops = [], paint = null, ph = 0;
+    const lip = (x, t) => S * (15 + 4.5 * Math.sin(x * 0.028 / S + t * 0.5 + ph) + 3 * Math.sin(x * 0.07 / S - t * 0.8) + 1.4 * Math.sin(x * 0.17 / S + t * 1.3));
+    const reset = (d, fresh) => {
+      d.max = BH * (0.22 + rand() ** 1.4 * 0.7); d.r = S * (4.4 + rand() * 3); d.v = S * (9 + rand() * 12);
+      d.len = fresh ? d.r * 1.3 + rand() * (d.max - d.r * 1.3) : d.r * 1.3; d.snap = 0;
+    };
+    return {
+      init(w, h) {
+        W = w; H = h; S = gooScale(w, h); BH = h > 260 ? 120 : h * 0.62; paint = null; ph = rand() * TAU; drops = [];
+        const n = Math.max(3, Math.round(w / (44 * S)));
+        drips = Array.from({ length: n }, (_, i) => { const d = { x: ((i + 0.5) / n) * w + (rand() - 0.5) * (w / n) * 0.5, p: rand() * TAU }; reset(d, true); return d; });
+      },
+      step(dt, t) {
+        for (const d of drips) {
+          if (d.snap > 0) { d.snap -= dt; d.len = Math.max(d.r * 1.3, d.len - 260 * S * dt); if (d.snap <= 0) reset(d, false); continue; }
+          d.len += d.v * dt * (1.15 - (0.75 * d.len) / d.max);
+          if (d.len >= d.max) {
+            drops.push({ x: d.x + Math.sin(t * 1.3 + d.p) * 1.5 * S, y: lip(d.x, t) + d.len, vy: 20 * S, r: d.r * 0.85, life: 0 });
+            d.snap = 0.35;
+          }
+        }
+        for (const o of drops) { o.vy += 620 * S * dt; o.y += o.vy * dt; o.life += dt; }
+        drops = drops.filter((o) => o.y < BH + 46 * S && o.life < 2);
+      },
+      draw(ctx, w, h, t) {
+        if (!paint) paint = gooPaint(ctx, w * 0.3, BH * 1.1, acc);
+        const shapes = [];
+        // the lip: the top edge, then its wavy lower edge
+        const lp = [];
+        for (let x = -8; x <= w + 8; x += 8 * S) lp.push([x, lip(x, t)]);
+        shapes.push((c) => { c.beginPath(); c.moveTo(-10, -10); c.lineTo(w + 10, -10); c.lineTo(w + 10, lp[lp.length - 1][1]); for (let i = lp.length - 1; i >= 0; i--) c.lineTo(lp[i][0], lp[i][1]); c.closePath(); });
+        for (const d of drips) {
+          const x = d.x + Math.sin(t * 1.3 + d.p) * 1.5 * S, y0 = lip(x, t) - 3, r = d.r * (0.62 + (0.38 * d.len) / d.max), len = Math.max(r * 1.3, d.len);
+          shapes.push((c) => dripPath(c, x, y0, len, r));
+        }
+        for (const o of drops) shapes.push((c) => { c.beginPath(); c.moveTo(o.x, o.y - o.r * 2.6); c.quadraticCurveTo(o.x + o.r * 0.25, o.y - o.r, o.x + o.r, o.y); c.arc(o.x, o.y, o.r, 0, Math.PI); c.quadraticCurveTo(o.x - o.r * 0.25, o.y - o.r, o.x, o.y - o.r * 2.6); c.closePath(); });
+        ctx.strokeStyle = paint.rim; ctx.lineWidth = 2 * S; ctx.lineJoin = 'round';
+        for (const sh of shapes) { sh(ctx); ctx.stroke(); }
+        ctx.fillStyle = paint.body;
+        for (const sh of shapes) { sh(ctx); ctx.fill(); }
+        gooSheen(ctx, w, h, t, paint);
+        // wet light: along the lip, down each drip, a spot on each drop
+        ctx.strokeStyle = '#ffffff'; ctx.lineCap = 'round'; ctx.globalAlpha = 0.4; ctx.lineWidth = 1.5 * S;
+        ctx.beginPath(); for (let i = 0; i < lp.length; i++) { const [x, y] = lp[i]; if (i) ctx.lineTo(x, y - 4 * S); else ctx.moveTo(x, y - 4 * S); } ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        for (const d of drips) {
+          const x = d.x + Math.sin(t * 1.3 + d.p) * 1.5 * S, y0 = lip(x, t), r = d.r * (0.62 + (0.38 * d.len) / d.max), len = Math.max(r * 1.3, d.len);
+          ctx.globalAlpha = 0.55; ctx.lineWidth = Math.max(0.9, r * 0.28);
+          if (len > r * 2.4) { ctx.beginPath(); ctx.moveTo(x - r * 0.5, y0 + r * 0.6); ctx.lineTo(x - r * 0.42, y0 + len - r * 1.5); ctx.stroke(); }
+          ctx.globalAlpha = 0.9; ctx.beginPath(); ctx.arc(x - r * 0.38, y0 + len - r * 0.4, Math.max(0.8, r * 0.22), 0, TAU); ctx.fill();
+        }
+        ctx.globalAlpha = 0.85;
+        for (const o of drops) { ctx.beginPath(); ctx.arc(o.x - o.r * 0.35, o.y - o.r * 0.3, Math.max(0.7, o.r * 0.25), 0, TAU); ctx.fill(); }
+        ctx.globalAlpha = 1;
+      },
+      still(t) { drops = []; for (const d of drips) if (d.snap > 0) reset(d, true); },
+    };
+  },
+
+  // ---- earned (30-day streak) ----
+  inferno(rand) {
+    // Flames lick up from the bottom of the card: layered tongues (red, orange, gold, white-hot) that sway and leap,
+    // flame wisps breaking off their tips, embers rising, a heat glow.
+    let W = 0, H = 0, S = 1, tongues = [], wisps = [], embers = [], heat = null, nextWisp = 0;
+    const ember = (e, anywhere) => {
+      e.x = rand() * W; e.y = anywhere ? H * (0.3 + rand() * 0.7) : H + 4; e.vy = -(30 + rand() * 60) * S; e.vx = (rand() - 0.5) * 14 * S;
+      e.life = 1.6 + rand() * 2.2; e.age = anywhere ? rand() * e.life : 0; e.s = (0.9 + rand() * 1.4) * Math.max(0.6, S); e.p = rand() * TAU; e.f = 7 + rand() * 9;
+    };
+    return {
+      init(w, h) {
+        W = w; H = h; S = Math.max(0.45, Math.min(1.1, Math.min(w / 340, h / 440) * 1.05)); heat = null; wisps = [];
+        const n = Math.max(5, Math.round(w / (22 * S)));
+        tongues = Array.from({ length: n }, (_, i) => ({ x: ((i + 0.5) / n) * w + (rand() - 0.5) * (w / n) * 0.6, bw: (30 + rand() * 18) * S,
+          h0: Math.min(h * 0.24, (58 + rand() * 40) * S) * (i % 3 === 1 ? 1.22 : 1), f1: 1.6 + rand() * 1.4, f2: 3.4 + rand() * 2.6, f3: 0.9 + rand() * 0.9, p: rand() * TAU, p2: rand() * TAU }));
+        embers = Array.from({ length: count(30, w, h) }, () => { const e = {}; ember(e, true); return e; });
+      },
+      step(dt, t) {
+        if (t >= nextWisp) {
+          const g = tongues[(rand() * tongues.length) | 0];
+          wisps.push({ x: g.x + Math.sin(t * g.f3 + g.p) * g.bw * 0.3, y: H - g.h0 * 0.95, vy: -(70 + rand() * 60) * S, s: (7 + rand() * 7) * S, age: 0, life: 0.45 + rand() * 0.35 });
+          nextWisp = t + 0.06 + rand() * 0.12;
+        }
+        for (const o of wisps) { o.age += dt; o.y += o.vy * dt; }
+        wisps = wisps.filter((o) => o.age < o.life);
+        for (const e of embers) {
+          e.age += dt; e.x += (e.vx + Math.sin(t * 1.5 + e.p) * 16 * S) * dt; e.y += e.vy * dt;
+          if (e.age > e.life || e.y < -10) ember(e, false);
+        }
+      },
+      draw(ctx, w, h, t) {
+        if (!heat) { heat = ctx.createLinearGradient(0, h * 0.5, 0, h); heat.addColorStop(0, 'rgba(255,70,10,0)'); heat.addColorStop(0.7, 'rgba(255,70,10,0.16)'); heat.addColorStop(1, 'rgba(255,110,20,0.4)'); }
+        ctx.globalAlpha = 0.85 + 0.15 * Math.sin(t * 2.3); ctx.fillStyle = heat; ctx.fillRect(0, h * 0.5, w, h * 0.5);
+        ctx.globalCompositeOperation = 'lighter';
+        const glowS = glow('#ff6a1a');
+        for (const g of tongues) { ctx.globalAlpha = 0.32; ctx.drawImage(glowS, g.x - g.bw, h - g.bw * 0.9, g.bw * 2, g.bw * 1.8); }
+        // translucent layers: added up they glow white-hot at the base but the card's buttons stay readable through them
+        for (const [k, color, a] of [[1, '#ff3a14', 0.4], [0.74, '#ff7a1a', 0.4], [0.5, '#ffb43a', 0.36], [0.26, '#fff0b8', 0.3]]) {
+          ctx.fillStyle = color; ctx.globalAlpha = a;
+          for (const g of tongues) {
+            const hh = g.h0 * k * (0.72 + 0.2 * Math.sin(t * g.f1 + g.p) + 0.1 * Math.sin(t * g.f2 + g.p2)), ww = g.bw * (0.45 + 0.55 * k);
+            const sway = Math.sin(t * g.f3 + g.p) * g.bw * 0.32 + Math.sin(t * g.f2 * 0.7 + g.p2) * g.bw * 0.1;
+            ctx.beginPath(); ctx.moveTo(g.x - ww / 2, h + 2);
+            ctx.bezierCurveTo(g.x - ww * 0.58, h - hh * 0.42, g.x + sway * 0.4 - ww * 0.22, h - hh * 0.72, g.x + sway, h - hh);
+            ctx.bezierCurveTo(g.x + sway * 0.4 + ww * 0.22, h - hh * 0.72, g.x + ww * 0.58, h - hh * 0.42, g.x + ww / 2, h + 2);
+            ctx.closePath(); ctx.fill();
+          }
+        }
+        for (const o of wisps) {
+          const u = o.age / o.life, s = o.s * (1 - u * 0.7);
+          ctx.globalAlpha = (1 - u) * 0.75; ctx.fillStyle = u < 0.4 ? '#ffb43a' : '#ff6a1a';
+          ctx.beginPath(); ctx.moveTo(o.x, o.y - s * 1.6); ctx.quadraticCurveTo(o.x + s * 0.55, o.y, o.x, o.y + s * 0.5); ctx.quadraticCurveTo(o.x - s * 0.55, o.y, o.x, o.y - s * 1.6); ctx.fill();
+        }
+        const hot = glow('#ffd36b'), cool = glow('#ff5a1a');
+        for (const e of embers) {
+          const u = e.age / e.life, a = (u < 0.1 ? u / 0.1 : 1 - (u - 0.1) / 0.9) * (0.6 + 0.4 * Math.sin(t * e.f + e.p));
+          if (a <= 0.02) continue;
+          const s = e.s * 4;
+          ctx.globalAlpha = a * 0.6; ctx.drawImage(u < 0.5 ? hot : cool, e.x - s, e.y - s, s * 2, s * 2);
+          ctx.globalAlpha = a; ctx.fillStyle = '#fff3c4'; ctx.fillRect(e.x - e.s / 2, e.y - e.s / 2, e.s, e.s);
+        }
+      },
+      still(t) { nextWisp = t; },
+    };
+  },
 };
+
+/** The maker of effect `id` (make(rand, opts) -> { init, step, draw, ... }), or null: for tests, which run them on a fake canvas. */
+export const effectMaker = (id) => (EFFECTS.includes(id) && Object.prototype.hasOwnProperty.call(MAKE, id) ? MAKE[id] : null);
 
 // ---- mounting ----
 let io = null;
@@ -430,7 +704,7 @@ const motionQuery = () => (typeof matchMedia === 'function' ? matchMedia('(prefe
 
 /**
  * Lays profile effect `id` over `el` (the profile card), replacing any effect it had. null / unknown id removes it.
- * opts.seed fixes the random layout (screenshots, tests).
+ * opts.seed fixes the random layout (screenshots, tests); opts.accent (#rrggbb) tints the symbiote effects' rim light.
  * @returns {{ el: HTMLCanvasElement|null, stop(): void }}
  */
 export function mountEffect(el, id, opts = {}) {
@@ -444,7 +718,7 @@ export function mountEffect(el, id, opts = {}) {
   el.classList.add('fp-has-effect');
   el.append(cv);
   const ctx = cv.getContext('2d');
-  const fx = MAKE[id](seeded(opts.seed ?? Math.random() * 4294967296));
+  const fx = MAKE[id](seeded(opts.seed ?? Math.random() * 4294967296), { accent: opts.accent });
   const mq = motionQuery();
   let W = 0, H = 0, dpr = 1, raf = 0, last = 0, t = 0, acc = 0, visible = true, stopped = false;
   let reduced = !!(mq && mq.matches);

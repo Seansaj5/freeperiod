@@ -2,7 +2,7 @@
 // About me, member since, game stats, and the profile effect over the card. mountCard() is shared by the popout (any
 // name or avatar) and the editor's live preview. Text only through textContent; pictures only through mediaSrc.
 import { h } from '../../ui.js';
-import { cardTheme, isHex, badgeInfo } from '../flair.js';
+import { cardTheme, isHex, badgeInfo, SYMBIOTE_EFFECTS } from '../flair.js';
 import { mountEffect } from '../effects.js';
 import { roleOfProfile, timedOut, isStaffRole } from '../perms.js';
 import { icon, avatar, stopFrames, nameEl, nameOf, badgePills, mediaSrc, timeoutLeft, finePointer } from './common.js';
@@ -45,7 +45,7 @@ export function mountCard(el, profile, opts = {}) {
   const body = h('div', { class: 'cx-pc-body' });
   el.replaceChildren(banner, h('div', { class: 'cx-pc-top' }, avBox, pills), body);
   let p = profile || {}, o = opts;
-  let bannerKey = null, avKey = null, fx = null, fxId = null;
+  let bannerKey = null, avKey = null, fx = null, fxKey = null;
 
   function drawBanner() {
     const color = isHex(p.banner_color) ? p.banner_color : null;
@@ -68,10 +68,13 @@ export function mountCard(el, profile, opts = {}) {
   }
   function drawEffect() {
     const id = p.effect || null;
-    if (id === fxId) return;
-    fxId = id;
+    // the symbiote effects take the name color as their accent (a change of color redraws them; other effects keep running)
+    const accent = SYMBIOTE_EFFECTS.includes(id) && isHex(p.name_color) ? p.name_color : '';
+    const key = id ? id + '|' + accent : null;
+    if (key === fxKey) return;
+    fxKey = key;
     if (fx) { fx.stop(); fx = null; }
-    if (id) fx = mountEffect(el, id, o.effectSeed != null ? { seed: o.effectSeed } : {});
+    if (id) fx = mountEffect(el, id, { ...(o.effectSeed != null ? { seed: o.effectSeed } : {}), accent: accent || undefined });
   }
   function draw() {
     const theme = cardTheme(p);
@@ -108,7 +111,7 @@ export function mountCard(el, profile, opts = {}) {
   return {
     el,
     update(next, more) { p = next || p; if (more) o = { ...o, ...more }; draw(); },
-    stop() { stopFrames(avBox); if (fx) fx.stop(); fx = null; fxId = null; },
+    stop() { stopFrames(avBox); if (fx) fx.stop(); fx = null; fxKey = null; },
   };
 }
 
