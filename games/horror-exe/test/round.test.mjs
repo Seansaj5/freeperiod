@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Round } from '../shared/round.js';
-import { ROUND, SURV, EXE, ST, F, CHARS, TASKS, TASK, PORTAL, HIDE, VARIANTS } from '../shared/rules.js';
+import { ROUND, SURV, EXE, ST, F, CHARS, TASKS, TASK, PORTAL, HIDE, VARIANTS, AWAKEN, levelOf, LEVEL } from '../shared/rules.js';
 import { stepMove, body } from '../shared/move.js';
 import { terrainH, supportAt, SPRINGS, M, PORTALS, BOOSTS, OBJ, EXITS, MAP, LOCKERS } from '../shared/map.js';
 
@@ -39,24 +39,29 @@ test('EXE is frozen in the intro and cannot attack', () => {
   assert.equal(R.phase, 'play');
 });
 
-test('three hits knock a survivor down; one revive each; going down again means taken', () => {
-  const R = new Round({ seed: 5, players: [...humans, { id: 3, name: 'C', char: 'bolt' }], exeId: 2 });
+test('health: Grin hits hard, EXE hits light; one revive each; going down again means taken', () => {
+  const R = new Round({ seed: 5, players: [...humans, { id: 3, name: 'C', char: 'bolt' }, { id: 4, name: 'X', variant: 'grin' }], exeId: 4 });
   playing(R);
   const s = R.ents.get(1);
-  const strike = () => { place(R, 1, 0, 3, 0, 0); place(R, 2, 0, 1, 0, 0); s.fx.invuln = 0; R.ents.get(2).cd.atk = 0; return R.action(2, { k: 'atk' }); };
-  assert.ok(strike()); assert.equal(s.hp, 2);
-  assert.ok(strike()); assert.equal(s.hp, 1);
-  assert.ok(strike()); assert.equal(s.st, ST.down);
-  place(R, 2, 40, 40); place(R, 3, 0.8, 3, 0, 0);
+  const strike = () => { place(R, 1, 0, 3, 0, 0); place(R, 4, 0, 1, 0, 0); s.fx.invuln = 0; R.ents.get(4).cd.atk = 0; return R.action(4, { k: 'atk' }); };
+  assert.ok(strike()); assert.equal(s.hp, SURV.hp - VARIANTS.grin.dmg);
+  assert.ok(strike()); assert.ok(strike()); assert.equal(s.st, ST.down, 'three Grin hits');
+  place(R, 4, 40, 40); place(R, 3, 0.8, 3, 0, 0);
   tick(R, SURV.reviveTime + 0.2);
-  assert.equal(s.st, ST.alive); assert.equal(s.revived, 1);
+  assert.equal(s.st, ST.alive); assert.equal(s.revived, 1); assert.equal(s.hp, SURV.heart, 'back with one heart');
   place(R, 3, 40, -40);
   assert.ok(strike());
   assert.equal(s.st, ST.out, 'no second revive');
+  // EXE's claws are light
+  const R2 = new Round({ seed: 6, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X', variant: 'exe' }], exeId: 2 });
+  playing(R2);
+  place(R2, 1, 0, 3, 0, 0); place(R2, 2, 0, 1, 0, 0);
+  assert.ok(R2.action(2, { k: 'atk' }));
+  assert.equal(R2.ents.get(1).hp, SURV.hp - VARIANTS.exe.dmg);
   // bleeding out still works for someone who has a revive left
-  const c = R.ents.get(3); c.hp = 1; c.fx.invuln = 0;
-  place(R, 3, 0, 3, 0, 0); place(R, 2, 0, 1, 0, 0); R.ents.get(2).cd.atk = 0;
-  assert.ok(R.action(2, { k: 'atk' }));
+  const c = R.ents.get(3); c.hp = 50; c.fx.invuln = 0;
+  place(R, 3, 0, 3, 0, 0); place(R, 4, 0, 1, 0, 0); R.ents.get(4).cd.atk = 0;
+  assert.ok(R.action(4, { k: 'atk' }));
   assert.equal(c.st, ST.down);
   tick(R, SURV.downTime + 0.5);
   assert.equal(c.st, ST.out);
@@ -119,7 +124,7 @@ test('disguise: only in the normal world; it copies a survivor; attacking pops o
   tick(R, EXE.popTime + 0.05);
   place(R, 3, 10, 12, 0, 0); place(R, 2, 10, 10, 0, 0);
   assert.ok(R.action(2, { k: 'atk' }));
-  assert.equal(R.ents.get(3).hp, SURV.hp - 1);
+  assert.equal(R.ents.get(3).hp, SURV.hp - VARIANTS.exe.dmg);
   // Rook punches a disguised EXE: it is unmasked and stunned
   tick(R, EXE.disguiseCd + 0.1);
   place(R, 2, 30, 30, 0, 0);
@@ -156,7 +161,7 @@ test('zone tasks: shards, valves, panels, bells and the fire core; all five open
   R.hit(null, me);
   assert.equal(me.carrying, false);
   assert.equal(R.core.state, 2);
-  tick(R, SURV.invulnTime);
+  tick(R, 1);
   place(R, 1, R.core.x, R.core.z, 0, 1); tick(R, 0.2);
   assert.ok(me.carrying);
   assert.equal(R.exitsOpen, false);
@@ -201,13 +206,13 @@ test('Rook stuns EXE, Mira knocks it back, Bolt dashes through hits', () => {
   assert.equal(R.ents.get(4).hp, SURV.hp, 'dash makes you untouchable');
 });
 
-test('sense reveals sprinting survivors in the same world only', () => {
-  const R = new Round({ seed: 13, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X' }, { id: 3, name: 'B', char: 'pip' }], exeId: 2 });
+test('Echo (EXE Q) reveals sprinting survivors in the same world only', () => {
+  const R = new Round({ seed: 13, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X', variant: 'exe' }, { id: 3, name: 'B', char: 'pip' }], exeId: 2 });
   playing(R);
   place(R, 1, 60, 0, 0, 1); R.ents.get(1).sprinting = true;
   place(R, 3, 60, 10, 0, 0); R.ents.get(3).sprinting = true;
   place(R, 2, -40, 0, 0, 1);
-  assert.ok(R.action(2, { k: 'sense' }));
+  assert.ok(R.action(2, { k: 'ab3' }));
   assert.ok(R.flagsOf(R.ents.get(1)) & F.REVEAL);
   assert.ok(!(R.flagsOf(R.ents.get(3)) & F.REVEAL));
 });
@@ -224,17 +229,17 @@ test('lockers: hide from hits and Sense; not while EXE watches; stay too long = 
   place(R, 2, 80, 80, 0, 0);
   assert.ok(R.action(1, { k: 'hide' }));
   assert.ok(R.flagsOf(me) & F.HIDDEN);
-  place(R, 2, me.x, me.z + 1.5, Math.PI, 0); R.ents.get(2).cd.sense = 0;
-  R.action(2, { k: 'sense' });
+  place(R, 2, me.x, me.z + 1.5, Math.PI, 0); R.ents.get(2).cd.ab3 = 0;
+  R.action(2, { k: 'ab3' });
   assert.ok(!(R.flagsOf(me) & F.REVEAL), 'Sense cannot find you');
   assert.equal(R.victimFor(R.ents.get(2), 5), null, 'cannot be hit');
   place(R, 2, 80, 80, 0, 0);
   tick(R, HIDE.max + 0.1);
   assert.ok(me.qte, 'stayed too long: minigame');
   R.action(1, { k: 'qte', ok: false });
-  assert.equal(me.hp, SURV.hp - 1, 'failing costs a life');
+  assert.equal(me.hp, SURV.hp - SURV.qteDmg, 'failing costs a heart');
   assert.equal(me.hidden, 0, 'thrown out');
-  tick(R, HIDE.cooldown + SURV.invulnTime);
+  tick(R, HIDE.cooldown + 1);
   place(R, 1, L.fx, L.fz, 0, 0);
   assert.ok(R.action(1, { k: 'hide' }));
   tick(R, HIDE.max + 0.1);
@@ -284,14 +289,77 @@ test('R moves: Bloodhunt speeds up and reveals, Static Field slows and blocks ab
   assert.equal(R3.ents.get(1).hp, SURV.hp, 'harmless');
 });
 
-test('lava hurts survivors but never takes the last heart', () => {
+test('survivor R and Q: Q needs level 10; wrench slows, pound shoves, heal heals, iron blocks damage', () => {
+  const ps = [{ id: 1, name: 'P', char: 'pip' }, { id: 2, name: 'X', variant: 'grin' }, { id: 3, name: 'R', char: 'rook', unlock: { q: true } }, { id: 4, name: 'M', char: 'mira' }, { id: 5, name: 'B', char: 'bolt' }];
+  const R = new Round({ seed: 30, players: ps, exeId: 2 });
+  playing(R);
+  const x = R.ents.get(2);
+  assert.equal(R.action(1, { k: 'ab3' }), false, 'Pip has not unlocked Q');
+  place(R, 1, 0, 0, 0, 0); place(R, 2, 0, 10, Math.PI, 0);
+  assert.ok(R.action(1, { k: 'ab2' }));
+  assert.ok(R.flagsOf(x) & F.SLOWX, 'wrench slows EXE');
+  place(R, 3, 0, 8, 0, 0);
+  R.drain();
+  assert.ok(R.action(3, { k: 'ab2' }));
+  assert.ok(R.drain().some((e) => e.k === 'knock' && e.id === 2), 'ground pound shoves');
+  assert.ok(R.action(3, { k: 'ab3' }), 'Rook has Q unlocked');
+  place(R, 2, 0, 6, Math.PI, 0); x.cd.atk = 0; R.ents.get(3).fx.invuln = R.time + 4;
+  R.action(2, { k: 'atk' });
+  assert.equal(R.ents.get(3).hp, SURV.hp, 'Iron Body: no damage');
+  const b = R.ents.get(5); b.hp = 120; place(R, 5, 30, 30, 0, 0); place(R, 4, 31, 30, 0, 0);
+  assert.ok(R.action(4, { k: 'ab2' }));
+  assert.equal(b.hp, 220, 'Heart Toss heals one heart');
+  b.sta.stamina = 5;
+  assert.ok(R.action(5, { k: 'ab2' }));
+  assert.equal(b.sta.stamina, SURV.stamina, 'Second Wind');
+});
+
+test('monster moves: Spin Rush smashes, Long Reach drags, Roll the Dice does something; Awakening needs level 10 and a full meter', () => {
+  const R = new Round({ seed: 31, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X', variant: 'exe', unlock: { awaken: true } }], exeId: 2 });
+  playing(R);
+  place(R, 1, 0, 2, 0, 0); place(R, 2, 0, 0, 0, 0);
+  assert.ok(R.action(2, { k: 'ab4' }));
+  assert.ok(R.flagsOf(R.ents.get(2)) & F.SPIN);
+  tick(R, 0.1);
+  assert.ok(R.ents.get(1).hp < SURV.hp, 'spin hit');
+  const x = R.ents.get(2);
+  assert.equal(R.action(2, { k: 'awaken' }), false, 'meter not full');
+  x.meter = 100; x.fx.spin = 0;
+  assert.ok(R.action(2, { k: 'awaken' }));
+  assert.ok(R.flagsOf(x) & F.AWAKE);
+  assert.equal(R.action(2, { k: 'awaken' }), false, 'once per round');
+  const R2 = new Round({ seed: 32, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X', variant: 'grin' }], exeId: 2 });
+  playing(R2);
+  R2.ents.get(2).meter = 100;
+  assert.equal(R2.action(2, { k: 'awaken' }), false, 'not unlocked');
+  place(R2, 2, 0, 0, 0, 0); place(R2, 1, 0, 7, 0, 0);
+  assert.ok(R2.action(2, { k: 'ab4' }));
+  assert.ok(Math.hypot(R2.ents.get(1).x, R2.ents.get(1).z - 1.8) < 0.5, 'dragged right up to Grin');
+  const R3 = new Round({ seed: 33, players: [{ id: 1, name: 'A', char: 'bolt' }, { id: 2, name: 'X', variant: 'glitch' }], exeId: 2 });
+  playing(R3);
+  place(R3, 2, 0, 0, 0, 0); place(R3, 1, 0, 9, 0, 0);
+  R3.drain();
+  assert.ok(R3.action(2, { k: 'ab4' }));
+  const ev = R3.drain().find((e) => e.k === 'abl' && e.ab === 'dice');
+  assert.ok(['warp', 'swap', 'invert', 'storm'].includes(ev.rolls[0]));
+});
+
+test('levels: 3510 XP to reach level 10', () => {
+  assert.equal(levelOf(0).lv, 1);
+  assert.equal(levelOf(LEVEL.need(1)).lv, 2);
+  let t = 0; for (let l = 1; l < 10; l++) t += LEVEL.need(l);
+  assert.equal(levelOf(t - 1).lv, 9);
+  assert.equal(levelOf(t).lv, 10);
+});
+
+test('lava hurts survivors but never finishes them', () => {
   const R = new Round({ seed: 14, players: [{ id: 1, name: 'A', char: 'bolt' }], exeId: null });
   playing(R);
   const me = place(R, 1, -112, -42, 0, 0);
   tick(R, 0.1);
-  assert.equal(me.hp, SURV.hp - 1);
-  for (let i = 0; i < 4; i++) { tick(R, SURV.burnTime + SURV.invulnTime + 0.2); place(R, 1, -112, -42, 0, 0); }
-  assert.equal(me.hp, 1);
+  assert.equal(me.hp, SURV.hp - SURV.lavaDmg);
+  for (let i = 0; i < 10; i++) { tick(R, SURV.burnTime + 1.5); place(R, 1, -112, -42, 0, 0); }
+  assert.ok(me.hp > 0 && me.hp <= SURV.lavaDmg, `lava never finishes you (hp ${me.hp})`);
   assert.equal(me.st, ST.alive);
 });
 

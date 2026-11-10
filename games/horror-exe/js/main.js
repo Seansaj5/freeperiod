@@ -12,7 +12,7 @@ import { Title } from './title.js';
 import { Sound } from './audio.js';
 import { LocalSession, NetSession } from './net.js';
 import { SERVER_URL } from './config.js';
-import { CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, SURV, EXE, F, ST, PHASES, ROUND, TASKS, TASK, PORTAL, HIDE, QTE, moveSpeed, tickStamina } from '../shared/rules.js';
+import { CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, SURV, EXE, F, ST, PHASES, ROUND, TASKS, TASK, PORTAL, HIDE, QTE, AWAKEN, LEVEL, levelOf, moveSpeed, tickStamina } from '../shared/rules.js';
 import { stepMove, body } from '../shared/move.js';
 import { rayDist, terrainH, supportAt, solidAt, clampXZ, EXITS, V, S as HOLLOW, PORTALS, OBJ, ZONES, zoneAt, HALF, LAVA, GOO, ICE, L as LAKE, LOCKERS } from '../shared/map.js';
 import { defaultLook, randomLook, sanitizeLook, SKINS, COLORS, SHIRT_STYLES, PATTERNS, FACES, HATS, LABELS } from '../shared/looks.js';
@@ -36,6 +36,11 @@ if (!VARIANTS[save.variant]) save.variant = 'exe';
 const weak = (navigator.hardwareConcurrency || 4) <= 4 || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent);
 save.settings = Object.assign({ vol: 0.7, sens: 1, quality: weak ? 'low' : 'high', invert: false, retro: true }, stored.settings || {});
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* private mode */ } };
+save.xp = Object.assign(Object.fromEntries([...CHAR_IDS, ...VARIANT_IDS].map((k) => [k, 0])), save.xp || {});
+const UNLOCK_ALL = params.get('unlock') === '1';
+const lvOf = (k) => levelOf(save.xp[k] || 0);
+const unlocked = (k) => UNLOCK_ALL || lvOf(k).lv >= LEVEL.max;
+const myUnlock = () => ({ q: unlocked(save.char), awaken: unlocked(save.variant) });
 const myName = () => save.name.trim() || 'Player';
 
 // ------------------------------------------------------------------ renderer
@@ -101,8 +106,8 @@ function adaptResolution(dt) {
 
 // ------------------------------------------------------------------ input
 const touch = matchMedia('(pointer: coarse)').matches || params.has('touch');
-const input = { keys: new Set(), dx: 0, dy: 0, jump: false, abl: false, atk: false, sense: false, disguise: false, ab2: false, sprintToggle: false, stick: { x: 0, y: 0 } };
-const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyE', 'KeyQ', 'KeyF', 'KeyR']);
+const input = { keys: new Set(), dx: 0, dy: 0, jump: false, abl: false, atk: false, q: false, f: false, g: false, v: false, ab2: false, sprintToggle: false, stick: { x: 0, y: 0 } };
+const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyE', 'KeyQ', 'KeyF', 'KeyR', 'KeyG', 'KeyV']);
 addEventListener('keydown', (e) => {
   if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
   if (GAME_KEYS.has(e.code)) e.preventDefault();
@@ -111,9 +116,11 @@ addEventListener('keydown', (e) => {
   input.keys.add(e.code);
   if (e.code === 'Space') input.jump = true;
   if (e.code === 'KeyE') input.abl = true;
-  if (e.code === 'KeyQ') input.sense = true;
-  if (e.code === 'KeyF') input.disguise = true;
+  if (e.code === 'KeyQ') input.q = true;
+  if (e.code === 'KeyF') input.f = true;
   if (e.code === 'KeyR') input.ab2 = true;
+  if (e.code === 'KeyG') input.g = true;
+  if (e.code === 'KeyV') input.v = true;
   if (e.code === 'Escape' && match && !touch && !document.pointerLockElement) togglePause();
 });
 addEventListener('keyup', (e) => input.keys.delete(e.code));
@@ -151,9 +158,11 @@ if (touch) {
   btn('tJump', () => { input.jump = true; input.keys.add('Space'); setTimeout(() => input.keys.delete('Space'), 450); });
   btn('tAbl', () => { input.abl = true; });
   btn('tAtk', () => { input.atk = true; });
-  btn('tSense', () => { input.sense = true; });
-  btn('tDis', () => { input.disguise = true; });
+  btn('tSense', () => { input.q = true; });
+  btn('tDis', () => { input.f = true; });
   btn('tAb2', () => { input.ab2 = true; });
+  btn('tG', () => { input.g = true; });
+  btn('tV', () => { input.v = true; });
   btn('tQ', () => match && match.mini && match.mini.press('Q'));
   btn('tE', () => match && match.mini && match.mini.press('E'));
   btn('tSprint', () => { input.sprintToggle = !input.sprintToggle; $('tSprint').classList.toggle('on', input.sprintToggle); });
@@ -221,8 +230,9 @@ class Match {
     this.ready = false; this.done = false; this.over = null;
     this.yaw = 0; this.pitch = -0.22; this.ry = 0;
     this.sta = { stamina: SURV.stamina, exhausted: false, rest: 0 };
-    this.cd = { abl: 0, atk: 0, sense: 0, disguise: 0, ab2: 0 };
-    this.until = { fly: 0, dash: 0, lunge: 0, fade: 0, atk: 0, pop: 0, hunt: 0 };
+    this.cd = { abl: 0, atk: 0, disguise: 0, ab2: 0, ab3: 0, ab4: 0 };
+    this.until = { fly: 0, dash: 0, lunge: 0, fade: 0, atk: 0, pop: 0, hunt: 0, spin: 0, awake: 0, invis: 0, reach: 0 };
+    this.unlock = myUnlock(); this.ghostRigs = new Map(); this.throws = [];
     this.viewW = -1; this.disRigs = new Map(); this.miniT = 0; this.decoyRigs = new Map(); this.flickT = 0; this.printT = 0; this.warnT = 0; this.mini = null; this.hiddenAt = 0;
     this.phase = 'intro'; this.lastPh = -1; this.lastSt = ST.alive;
     this.specId = null; this.spectating = this.spectator;
@@ -274,21 +284,29 @@ class Match {
     this.slots = [];
     const mk = (key, name, accent) => { const d = document.createElement('div'); d.className = 'slot'; d.style.setProperty('--accent', accent); d.innerHTML = `<kbd>${key}</kbd><b>${esc(name)}</b><div class="cd hidden"></div>`; sl.appendChild(d); return { el: d, cdEl: d.querySelector('.cd') }; };
     sl.innerHTML = '';
-    if (this.role === 'surv') { const c = CHARS[this.kind]; this.slots.push({ ...mk(touch ? 'POWER' : 'E', c.abilityName, c.accent), key: 'abl', total: c.cd }); }
-    else if (this.role === 'exe') {
+    if (this.role === 'surv') {
+      const c = CHARS[this.kind];
+      this.slots.push({ ...mk(touch ? 'E' : 'E', c.abilityName, c.accent), key: 'abl', total: c.cd });
+      this.slots.push({ ...mk('R', c.r.name, c.accent), key: 'ab2', total: c.r.cd });
+      const q = mk('Q', this.unlock.q ? c.q.name : `🔒 ${c.q.name}`, c.accent); if (!this.unlock.q) q.el.classList.add('locked');
+      this.slots.push({ ...q, key: 'ab3', total: c.q.cd, locked: !this.unlock.q });
+    } else if (this.role === 'exe') {
       const v = VARIANTS[this.kind];
-      this.slots.push({ ...mk(touch ? 'HIT' : 'CLICK', 'Attack', '#ff2a3a'), key: 'atk', total: EXE.atkCd });
-      this.slots.push({ ...mk(touch ? 'POWER' : 'E', v.abilityName, '#ff2a3a'), key: 'abl', total: v.cd });
-      this.slots.push({ ...mk(touch ? 'SENSE' : 'Q', 'Sense', '#ff2a3a'), key: 'sense', total: EXE.senseCd });
-      this.slots.push({ ...mk(touch ? 'R' : 'R', v.ab2Name, '#ff8a3a'), key: 'ab2', total: v.cd2 });
-      this.slots.push({ ...mk(touch ? 'HIDE' : 'F', 'Disguise', '#9a7aff'), key: 'disguise', total: EXE.disguiseCd });
+      this.slots.push({ ...mk(touch ? 'HIT' : 'CLICK', v.atkName, '#ff2a3a'), key: 'atk', total: v.atkCd });
+      for (const [k, key] of [['abl', 'E'], ['ab2', 'R'], ['ab3', 'Q'], ['ab4', 'F']]) this.slots.push({ ...mk(key, v.moves[k].name, '#ff2a3a'), key: k, total: v.moves[k].cd });
+      this.slots.push({ ...mk('G', 'Disguise', '#9a7aff'), key: 'disguise', total: EXE.disguiseCd });
+      const aw = mk('V', this.unlock.awaken ? v.awake.name : `🔒 ${v.awake.name}`, '#ffd23d'); if (!this.unlock.awaken) aw.el.classList.add('locked');
+      aw.el.insertAdjacentHTML('beforeend', '<div class="meter"><i></i></div>');
+      this.slots.push({ ...aw, key: 'awaken', total: 1, locked: !this.unlock.awaken, meter: aw.el.querySelector('.meter i') });
     }
     $('hearts').classList.toggle('hidden', this.role !== 'surv');
     $('stam').classList.toggle('hidden', this.role !== 'surv');
     $('touch').classList.toggle('hidden', !touch);
     $('tAtk').classList.toggle('hidden', this.role !== 'exe');
     $('tSense').classList.toggle('hidden', this.role !== 'exe');
-    $('tDis').textContent = this.role === 'exe' ? 'DISGUISE' : 'HIDE';
+    $('tDis').textContent = this.role === 'exe' ? 'F' : 'HIDE';
+    $('tG').classList.toggle('hidden', this.role !== 'exe'); $('tV').classList.toggle('hidden', this.role !== 'exe' || !this.unlock.awaken);
+    $('tSense').textContent = 'Q';
     $('tDis').classList.toggle('hidden', this.role === 'spec');
     $('tAb2').classList.toggle('hidden', this.role !== 'exe');
     $('revInfo').classList.toggle('hidden', this.role !== 'surv');
@@ -299,10 +317,10 @@ class Match {
     const box = $('introBox');
     if (this.role === 'exe') {
       const v = VARIANTS[this.kind];
-      box.innerHTML = `<div class="who">You are</div><h1 class="glitch" data-text="${esc(v.name)}" style="color:#ff2a3a">${esc(v.name)}</h1><p>Catch them before they escape. Rift portals swap between the normal and the corrupted world (you are faster in the corrupted one).</p><p style="color:var(--muted)">${esc(v.abilityName)}: ${esc(v.desc)}<br>R: ${esc(v.ab2Name)}: ${esc(v.desc2)}<br>In the normal world press ${touch ? 'DISGUISE' : 'F'} to look like a survivor, then ${touch ? 'HIT' : 'click'} to pop out. ${touch ? 'HIT' : 'Click'} a locker to rip it open.</p>`;
+      box.innerHTML = `<div class="who">You are</div><h1 class="glitch" data-text="${esc(v.name)}" style="color:#ff2a3a">${esc(v.name)}</h1><p>${esc(v.role)}: ${esc(v.desc)} Catch them before they escape.</p><p style="color:var(--muted)">Click ${esc(v.atkName)} · E ${esc(v.moves.abl.name)} · R ${esc(v.moves.ab2.name)} · Q ${esc(v.moves.ab3.name)} · F ${esc(v.moves.ab4.name)}<br>G disguise as a survivor (normal world) · click a locker to rip it open${this.unlock.awaken ? `<br><b style="color:#ffd23d">V ${esc(v.awake.name)}</b> when your meter is full: ${esc(v.awake.desc)}` : `<br>Reach level 10 with ${esc(v.name)} to unlock its Awakening.`}</p>`;
     } else if (this.role === 'surv') {
       const c = CHARS[this.kind];
-      box.innerHTML = `<div class="who">You are</div><h1 style="color:${c.accent}">${esc(c.name)}</h1><p>Finish the 5 zone tasks to open the escape gates early (some are in the corrupted world: use the rift portals). Escape through a gate in the corrupted world.</p><p style="color:#ffb0b0">EXE can disguise as one of your friends in the normal world. You have 3 lives and can be revived once.</p><p style="color:var(--muted)">${touch ? 'HIDE' : 'F'} near a locker to hide (not while EXE is watching, and not for too long).</p><p style="color:var(--muted)">${esc(c.abilityName)}: ${esc(c.desc)}</p>`;
+      box.innerHTML = `<div class="who">You are</div><h1 style="color:${c.accent}">${esc(c.name)}</h1><p>Finish the 5 zone tasks to open the escape gates early (some are in the corrupted world: use the rift portals). Escape through a gate in the corrupted world.</p><p style="color:#ffb0b0">EXE can disguise as one of your friends in the normal world. You have 3 hearts and can be revived once.</p><p style="color:var(--muted)">${touch ? 'HIDE' : 'F'} near a locker to hide (not while EXE is watching, and not for too long).</p><p style="color:var(--muted)">E ${esc(c.abilityName)} · R ${esc(c.r.name)} · Q ${this.unlock.q ? esc(c.q.name) : `${esc(c.q.name)} (unlocks at level 10)`}</p>`;
     } else box.innerHTML = `<div class="who">Round in progress</div><h1>Watching</h1><p>You'll join the next round.</p>`;
     $('intro').classList.remove('hidden');
     clearTimeout(this.introT);
@@ -321,49 +339,75 @@ class Match {
     this.s.sendState({ x: b.x, y: b.y, z: b.z, ry: this.ry, f });
   }
 
-  useAbility(t, st, sf) {
-    if (st !== ST.alive || t < this.cd.abl || sf & F.STUN) return;
+  /** k: 'abl' (E), 'ab2' (R), 'ab3' (Q), 'ab4' (F, monsters only). Predicts the move locally, the round decides the rest. */
+  useMove(k, t, st, sf) {
+    if (st !== ST.alive || t < this.cd[k] || sf & F.STUN) return;
     const b = this.body;
     if (this.role === 'surv') {
       const c = CHARS[this.kind];
-      if (c.ability === 'dash') {
-        const sp = Math.hypot(b.vx, b.vz), dir = sp > 1 ? Math.atan2(b.vx, b.vz) : this.yaw;
-        this.ry = dir; this.cd.abl = t + c.cd; this.until.dash = t + c.dur;
-        b.vx = Math.sin(dir) * c.dashSpeed; b.vz = Math.cos(dir) * c.dashSpeed; b.vy = Math.max(b.vy, 0); b.lock = c.dur;
-        sound.play('dash'); fx.pulse('glitch', 0.25);
-      } else if (c.ability === 'fly') { this.cd.abl = t + c.cd; this.until.fly = t + c.dur; sound.play('fly'); }
-      else { this.ry = this.yaw; this.cd.abl = t + c.missCd; this.until.atk = t + 0.35; sound.play('swing'); }
+      if (sf & F.SLOWED) { feed('Static is blocking your abilities'); return; }
+      if (k === 'abl') {
+        if (c.ability === 'dash') {
+          const sp = Math.hypot(b.vx, b.vz), dir = sp > 1 ? Math.atan2(b.vx, b.vz) : this.yaw;
+          this.ry = dir; this.cd.abl = t + c.cd; this.until.dash = t + c.dur;
+          b.vx = Math.sin(dir) * c.dashSpeed; b.vz = Math.cos(dir) * c.dashSpeed; b.vy = Math.max(b.vy, 0); b.lock = c.dur;
+          sound.play('dash'); fx.pulse('glitch', 0.25);
+        } else if (c.ability === 'fly') { this.cd.abl = t + c.cd; this.until.fly = t + c.dur; sound.play('fly'); }
+        else { this.ry = this.yaw; this.cd.abl = t + c.missCd; this.until.atk = t + 0.35; sound.play('swing'); }
+      } else {
+        const ab = k === 'ab2' ? c.r : c.q;
+        if (k === 'ab3' && !this.unlock.q) { feed(`${esc(c.q.name)} unlocks at level 10 with ${esc(c.name)}`); return; }
+        this.cd[k] = t + ab.cd;
+        if (ab.id === 'wind') { this.sta.stamina = SURV.stamina; this.sta.exhausted = false; sound.play('dash'); }
+        else if (ab.id === 'after') { this.until.invis = t + ab.dur; sound.play('fade'); fx.pulse('glitch', 0.4); }
+        else if (ab.id === 'wrench' || ab.id === 'pound' || ab.id === 'spin') { this.ry = this.yaw; this.until.atk = t + 0.35; sound.play('swing'); }
+        else if (ab.id === 'iron') sound.play('punch');
+        else if (ab.id === 'turbo' || ab.id === 'heal') sound.play('revive', 0.6);
+      }
       this.pushState(true);
-      this.s.action({ k: 'abl' });
+      this.s.action({ k });
       return;
     }
-    if (this.phase === 'intro' || this.disguised || t < this.until.pop) return;
-    const v = VARIANTS[this.kind];
-    this.cd.abl = t + v.cd;
-    if (v.ability === 'lunge') {
-      this.ry = this.yaw; this.until.lunge = t + v.dur;
-      b.vx = Math.sin(this.yaw) * v.lungeSpeed; b.vz = Math.cos(this.yaw) * v.lungeSpeed; b.lock = v.dur;
-      sound.play('lunge'); this.pushState(true); this.s.action({ k: 'abl' });
-    } else if (v.ability === 'blink') {
-      this.s.action({ k: 'abl' });
-      let d = v.dist, p = null;
-      for (; d > 2; d -= 1) {
-        p = clampXZ({ x: b.x + Math.sin(this.yaw) * d, z: b.z + Math.cos(this.yaw) * d });
-        const y = supportAt(p.x, p.z, terrainH(p.x, p.z) + 0.5, false, b.w);
-        if (!solidAt(p.x, p.z, y, b.r, b.h, b.w)) { p.y = y; break; }
-        p = null;
+    if (this.phase === 'intro' || this.disguised || t < this.until.pop || t < this.until.spin) return;
+    const v = VARIANTS[this.kind], mv = v.moves[k], aw = t < this.until.awake;
+    this.cd[k] = t + mv.cd * (aw ? v.awake.cdMul : 1);
+    this.ry = this.yaw;
+    switch (mv.id) {
+      case 'dash': {
+        const dur = mv.dur * (aw ? 1.4 : 1);
+        this.until.lunge = t + dur; b.vx = Math.sin(this.yaw) * mv.speed; b.vz = Math.cos(this.yaw) * mv.speed; b.lock = dur;
+        sound.play('lunge');
+        break;
       }
-      if (p) { this.blinkFrom(b.x, b.y, b.z); b.x = p.x; b.y = p.y; b.z = p.z; b.vx = b.vz = b.vy = 0; }
-      this.ry = this.yaw; sound.play('blink'); fx.pulse('glitch', 0.9);
-      this.pushState(true);
-    } else if (v.ability === 'fade') {
-      this.until.fade = t + v.dur; sound.play('fade'); fx.pulse('static', 0.5);
-      this.s.action({ k: 'abl' });
+      case 'spin': this.until.spin = t + mv.dur; sound.play('lunge'); fx.pulse('glitch', 0.3); break;
+      case 'hunt': this.until.hunt = t + mv.dur; sound.play('hunt'); fx.pulse('sense'); break;
+      case 'echo': case 'ping': case 'scent': sound.play('sense'); fx.pulse('sense'); break;
+      case 'blink': {
+        this.s.action({ k });
+        let d = mv.dist, p = null;
+        for (; d > 2; d -= 1) {
+          p = clampXZ({ x: b.x + Math.sin(this.yaw) * d, z: b.z + Math.cos(this.yaw) * d });
+          const y = supportAt(p.x, p.z, terrainH(p.x, p.z) + 0.5, false, b.w);
+          if (!solidAt(p.x, p.z, y, b.r, b.h, b.w)) { p.y = y; break; }
+          p = null;
+        }
+        if (p) { this.blinkFrom(b.x, b.y, b.z); b.x = p.x; b.y = p.y; b.z = p.z; b.vx = b.vz = b.vy = 0; }
+        sound.play('blink'); fx.pulse('glitch', 0.9);
+        this.pushState(true);
+        return;
+      }
+      case 'static': sound.play('staticfield'); fx.pulse('glitch', 0.6); break;
+      case 'dice': sound.play('blink'); fx.pulse('glitch', 0.7); break;
+      case 'fade': this.until.fade = t + mv.dur; sound.play('fade'); fx.pulse('static', 0.5); break;
+      case 'decoy': sound.play('decoy'); break;
+      case 'reach': this.until.reach = t + 0.45; sound.play('swing'); break;
     }
+    this.pushState(true);
+    this.s.action({ k });
   }
 
   attack(t, st, sf) {
-    if (this.role !== 'exe' || st !== ST.alive || t < this.cd.atk || sf & F.STUN || this.phase === 'intro' || t < this.until.pop) return;
+    if (this.role !== 'exe' || st !== ST.alive || t < this.cd.atk || sf & F.STUN || this.phase === 'intro' || t < this.until.pop || t < this.until.spin) return;
     if (this.disguised) {
       // first click while disguised: pop out of the disguise (a short freeze while it transforms)
       this.until.pop = t + EXE.popTime; this.cd.atk = t + EXE.popTime; this.cd.disguise = t + EXE.disguiseCd; this.disguised = 0;
@@ -373,22 +417,23 @@ class Match {
       this.s.action({ k: 'atk' });
       return;
     }
-    this.cd.atk = t + EXE.atkCd; this.until.atk = t + 0.35; this.until.fade = 0;
+    const v = VARIANTS[this.kind];
+    this.cd.atk = t + v.atkCd * (t < this.until.awake ? 0.8 : 1); this.until.atk = t + 0.35; this.until.fade = 0;
     this.ry = this.yaw;
-    sound.play('swing');
+    sound.play('swing', this.kind === 'grin' ? 1 : 0.7);
     this.pushState(true);
     this.s.action({ k: 'atk' });
   }
 
-  ab2(t, st, sf) {
-    if (this.role !== 'exe' || st !== ST.alive || this.disguised || t < this.cd.ab2 || this.phase === 'intro' || sf & F.STUN) return;
+  awaken(t, st, meter) {
+    if (this.role !== 'exe' || st !== ST.alive || this.disguised || this.phase === 'intro') return;
     const v = VARIANTS[this.kind];
-    this.cd.ab2 = t + v.cd2;
-    if (v.ab2 === 'hunt') { this.until.hunt = t + v.dur2; sound.play('hunt'); fx.pulse('sense'); }
-    else if (v.ab2 === 'static') { sound.play('staticfield'); fx.pulse('glitch', 0.6); }
-    else sound.play('decoy');
+    if (!this.unlock.awaken) { feed(`Awakening unlocks at level 10 with ${esc(v.name)}`); return; }
+    if (this.awakeUsed) { feed('You already awakened this round'); return; }
+    if (meter < 100) { feed(`Your meter is at ${meter}%. Hit survivors to fill it faster.`); return; }
+    this.awakeUsed = true;
     this.pushState(true);
-    this.s.action({ k: 'ab2' });
+    this.s.action({ k: 'awaken' });
   }
 
   hide(st) {
@@ -402,13 +447,6 @@ class Match {
     if (this.viewW !== 0) { feed('You can only disguise in the <b>normal world</b>'); return; }
     sound.play('fade'); fx.pulse('glitch', 0.5);
     this.s.action({ k: 'disguise' });
-  }
-
-  sense(t, st) {
-    if (this.role !== 'exe' || st !== ST.alive || t < this.cd.sense || this.phase === 'intro' || this.disguised) return;
-    this.cd.sense = t + EXE.senseCd;
-    sound.play('sense'); fx.pulse('sense');
-    this.s.action({ k: 'sense' });
   }
 
   blinkFrom(x, y, z) {
@@ -457,7 +495,7 @@ class Match {
         world.setExits(this.info.exits, true);
         break;
       case 'hit':
-        if (mine) { fx.pulse('hit'); sound.play('hit'); banner('YOU GOT HIT', 'Run!'); }
+        if (mine) { fx.pulse('hit', Math.min(1.2, (e.dmg || 100) / 80)); sound.play('hit', Math.min(1, 0.5 + (e.dmg || 100) / 200)); banner(`-${e.dmg || ''}`, 'Run!'); }
         else sound.play('hit', vol(e.id) * 0.8);
         if (e.by === this.me) { sound.play('laugh', 0.5); fx.pulse('static', 0.4); }
         if (v) feed(`${by ? tagOf(by) : 'EXE'} hit ${tagOf(v)}`);
@@ -522,14 +560,49 @@ class Match {
         break;
       case 'atk': if (e.id !== this.me) sound.play('swing', vol(e.id)); break;
       case 'abl': {
-        if (e.id !== this.me) {
-          const nm = { dash: 'dash', fly: 'fly', punch: e.hit ? 'punch' : 'miss', bonk: e.hit ? 'bonk' : 'miss', lunge: 'lunge', blink: 'blink', fade: 'fade' }[e.ab];
-          if (nm) sound.play(nm, vol(e.id));
-          if (v) v.ablStart = nowS();
-        } else if (e.hit) { this.cd.abl = nowS() + CHARS[this.kind].cd; sound.play(e.ab === 'bonk' ? 'bonk' : 'punch'); }
-        if (e.hit) { sound.play('stun', e.target === this.me ? 1 : vol(e.target)); if (v) feed(`${tagOf(v)} ${e.ab === 'bonk' ? 'bonked' : 'stunned'} EXE`); if (e.target === this.me) fx.pulse('glitch', 0.6); }
+        const SFX = { dash: e.id && v && v.role === 'exe' ? 'lunge' : 'dash', fly: 'fly', punch: e.hit ? 'punch' : 'miss', bonk: e.hit ? 'bonk' : 'miss', spin: 'lunge', hunt: 'hunt', echo: 'sense', ping: 'sense', scent: 'sense', blink: 'blink', static: 'staticfield', dice: 'blink', fade: 'fade', decoy: 'decoy', reach: 'swing' };
+        if (e.id !== this.me) { if (SFX[e.ab]) sound.play(SFX[e.ab], vol(e.id)); if (v) v.ablStart = nowS(); if (e.ab === 'reach' && v) v.reachStart = nowS(); }
+        else if (e.hit && (e.ab === 'punch' || e.ab === 'bonk')) { this.cd.abl = nowS() + CHARS[this.kind].cd; sound.play(e.ab === 'bonk' ? 'bonk' : 'punch'); }
+        if ((e.ab === 'punch' || e.ab === 'bonk') && e.hit) { sound.play('stun', e.target === this.me ? 1 : vol(e.target)); if (v) feed(`${tagOf(v)} ${e.ab === 'bonk' ? 'bonked' : 'stunned'} EXE`); if (e.target === this.me) fx.pulse('glitch', 0.6); }
+        if (this.role === 'surv' && v && v.role === 'exe' && v.w === this.viewW) {
+          if (e.ab === 'echo' && e.ids && e.ids.includes(this.me)) { fx.say('IT HEARD YOU'); fx.pulse('static', 0.8); }
+          if (e.ab === 'ping') { fx.say('IT SEES EVERYONE'); fx.pulse('glitch', 0.6); feed('Corrupt Ping: Glitch.exe can see you, and you can see it'); }
+          if (e.ab === 'scent' && e.target === this.me) { fx.say('IT SMELLS YOUR BLOOD'); fx.pulse('static', 0.8); }
+          if (e.ab === 'hunt') { fx.say("IT'S HUNTING YOU"); fx.pulse('sense'); }
+        }
+        if (e.ab === 'dice' && e.rolls) {
+          const NAMES = { warp: 'warped behind someone', swap: 'swapped places with someone', invert: 'flipped everyone\'s controls', storm: 'made a static storm' };
+          if (e.id === this.me) feed(`Dice: ${e.rolls.map((r) => NAMES[r]).join(' + ')}`);
+          else if (this.role === 'surv' && e.rolls.includes('invert') && v && v.w === this.viewW) { banner('CONTROLS FLIPPED', 'Glitch.exe rolled the dice'); fx.pulse('glitch', 1); }
+        }
+        if (e.ab === 'reach' && e.hit === this.me) { banner('GRABBED', ''); sound.play('scare', 0.6); fx.pulse('pop'); }
         break;
       }
+      case 'sab': {
+        const SFX = { wind: 'dash', after: 'fade', wrench: 'swing', turbo: 'revive', pound: 'punch', iron: 'punch', heal: 'revive', spin: 'bonk' };
+        if (e.id !== this.me) sound.play(SFX[e.ab], vol(e.id)); else if (e.ab === 'pound' || e.ab === 'spin') sound.play(e.hit ? SFX[e.ab] : 'miss');
+        if (v) v.ablStart = nowS();
+        if (e.ab === 'wrench' && v) { this.throwWrench(v, e); if (e.hit) { sound.play('bonk', e.id === this.me ? 1 : vol(e.id)); feed(`${tagOf(v)} hit EXE with a wrench`); } else if (e.id === this.me) feed('Missed!'); }
+        if (e.ab === 'pound' && e.hit && v) feed(`${tagOf(v)} ground-pounded EXE`);
+        if (e.ab === 'spin' && e.hit && v) feed(`${tagOf(v)} hammer-spun EXE`);
+        if (e.ab === 'heal' && v) { const who = this.views.get(e.target); feed(`${tagOf(v)} healed ${who ? tagOf(who) : 'someone'}`); if (e.target === this.me) { banner('+1 HEART', '', true); sound.play('revive'); } }
+        if (e.ab === 'turbo' && v) feed(`${tagOf(v)}: Turbo Gadget! Tasks near ${esc(v.name)} go twice as fast`);
+        if (e.ab === 'iron' && v && e.id !== this.me) feed(`${tagOf(v)} turned to iron`);
+        if (e.id === this.me && e.ab === 'heal' && e.target !== this.me) sound.play('revive');
+        break;
+      }
+      case 'awaken': {
+        const AW = VARIANTS[e.v].awake;
+        if (mine) { this.until.awake = nowS() + AWAKEN.dur; banner(AW.name.toUpperCase(), 'AWAKENED'); }
+        else if (v && v.w === this.viewW) { banner(`${VARIANTS[e.v].name} AWAKENED`, AW.name, false); fx.pulse('pop'); }
+        sound.play('hunt'); sound.play('laugh', 0.9); fx.pulse('sense');
+        feed(`<b style="color:#ffd23d">${esc(VARIANTS[e.v].name)} awakened: ${esc(AW.name)}</b>`);
+        break;
+      }
+      case 'warp':
+        if (mine && this.body) { const b = this.body; b.x = e.x; b.y = e.y; b.z = e.z; b.vx = b.vy = b.vz = 0; fx.pulse('glitch', 0.6); }
+        if (v && v.w === this.viewW) this.blinkFrom(e.x, e.y, e.z);
+        break;
       case 'knock':
         if (mine && this.body) { const b = this.body; b.vx = e.dx; b.vz = e.dz; b.vy = 6; b.ground = false; b.lock = 0.4; }
         break;
@@ -644,7 +717,7 @@ class Match {
       const L = LOCKERS[hiddenIn - 1];
       b.x = L.x; b.y = L.y; b.z = L.z; b.vx = b.vy = b.vz = 0;
       if (this.hiddenAt !== hiddenIn) { this.hiddenAt = hiddenIn; this.yaw = L.ry; this.pitch = -0.05; }
-      if (input.disguise && !this.mini) this.hide(st);
+      if (input.f && !this.mini) this.hide(st);
     } else this.hiddenAt = 0;
     if (b && !hiddenIn && !(sf & F.QTE) && !this.mini && !this.spectator && this.aliveLike(st) && !(paused && this.solo)) {
       let f = 0, r = 0;
@@ -666,6 +739,10 @@ class Match {
       if (this.role === 'exe' && t < this.until.fade) flags |= F.FADE;
       if (this.role === 'exe' && t < this.until.pop) flags |= F.POP;
       if (this.role === 'exe' && t < this.until.hunt) flags |= F.HUNT;
+      if (this.role === 'exe' && t < this.until.spin) flags |= F.SPIN;
+      if (this.role === 'exe' && (t < this.until.awake || sf & F.AWAKE)) flags |= F.AWAKE;
+      flags |= sf & F.SLOWX;
+      if (sf & F.INVERT) { dx = -dx; dz = -dz; }
       flags |= sf & F.SLOWED;
       const disChar = this.disguised && this.views.get(this.disguised) ? this.views.get(this.disguised).char : null;
       const sprintEx = this.role === 'exe' && disChar && wantSprint && moving;
@@ -679,14 +756,16 @@ class Match {
       if (res.bumper) { sound.play('bumper'); world.kickBumper(res.bumper); }
       if (res.landed) sound.play('land', 0.5);
       if (b.lock <= 0 && moving && t > this.until.atk) this.ry = turnTo(this.ry, Math.atan2(dx, dz), 12 * dt);
-      if (input.abl) this.useAbility(t, st, sf);
+      if (input.abl) this.useMove('abl', t, st, sf);
       if (input.atk) this.attack(t, st, sf);
-      if (input.sense) this.sense(t, st);
-      if (input.disguise) { if (this.role === 'exe') this.disguise(t, st); else this.hide(st); }
-      if (input.ab2) this.ab2(t, st, sf);
+      if (input.ab2) this.useMove('ab2', t, st, sf);
+      if (input.q) this.useMove('ab3', t, st, sf);
+      if (input.f) { if (this.role === 'exe') this.useMove('ab4', t, st, sf); else this.hide(st); }
+      if (input.g) this.disguise(t, st);
+      if (input.v) this.awaken(t, st, mine ? mine[16] : 0);
       this.pushState(false);
     }
-    input.jump = input.abl = input.atk = input.sense = input.disguise = input.ab2 = false;
+    input.jump = input.abl = input.atk = input.q = input.f = input.g = input.v = input.ab2 = false;
     // everyone's rig
     for (const v of this.views.values()) this.updateView(v, dt, snap, t, flying);
     for (const bu of this.bursts || []) { bu.t -= dt; for (const m of bu.g.children) { m.position.addScaledVector(m.userData.v, dt); m.rotation.x += dt * 5; } bu.g.visible = Math.random() > 0.15; if (bu.t <= 0) { scene.remove(bu.g); bu.dead = true; } }
@@ -704,6 +783,8 @@ class Match {
     if (this.role !== 'exe') for (const v of this.views.values()) { const e = snap.pm.get(v.id); if (e && e[13] && e[11] === this.viewW) occupied.add(e[13] - 1); }
     world.updateLockers(occupied, dt);
     this.updateDecoys(snap, dt);
+    this.updateGhosts(snap, dt);
+    this.updateThrows(dt);
     if (this.role === 'exe' && (t < this.until.hunt || sf & F.HUNT) && t > this.printT) {
       this.printT = t + 0.22;
       for (const v of this.views.values()) { const e = snap.pm.get(v.id); if (v.role === 'surv' && e && e[11] === this.viewW && e[7] & F.REVEAL && !(e[7] & F.AIR)) world.addFootprint(e[1] + (Math.random() - 0.5) * 0.4, e[2], e[3] + (Math.random() - 0.5) * 0.4, e[4]); }
@@ -783,7 +864,9 @@ class Match {
     if (isMe && t < this.until.atk) atk = 1 - (this.until.atk - t) / 0.35;
     else if (atkOn && v.atkStart >= 0) atk = clamp((t - v.atkStart) / 0.35, 0, 1);
     if (!isMe && v.ablStart && t - v.ablStart < 0.35 && (v.char === 'rook' || v.char === 'mira')) atk = (t - v.ablStart) / 0.35;
+    const reach = v.reachStart && t - v.reachStart < 0.5 ? (t - v.reachStart) / 0.5 : isMe && t < this.until.reach ? 1 - (this.until.reach - t) / 0.45 : -1;
     v.rig.update(dt, {
+      spin: v.role === 'exe' && (isMe ? t < this.until.spin : !!(flags & F.SPIN)), awake: v.role === 'exe' && (!!(flags & F.AWAKE) || (isMe && t < this.until.awake)), reach,
       speed: v.speed, sprint: !!(flags & F.SPRINT), air: !!(flags & F.AIR) || (isMe && !this.body.ground),
       fly: isMe ? flying : !!(flags & F.FLY), down: st === ST.down, atk, stun: !!(flags & F.STUN) || (v.role === 'exe' && !!(flags & F.POP)),
       dash: isMe ? t < this.until.dash : !!(flags & F.DASH), lunge: isMe ? t < this.until.lunge : !!(flags & F.LUNGE),
@@ -802,6 +885,9 @@ class Match {
         m.visible = Math.random() > 0.25;
       });
     } else {
+      const invis = flags & F.INVIS || (isMe && t < this.until.invis);
+      if (invis && this.role === 'exe') { root.visible = false; return; }
+      v.rig.setOpacity(invis ? 0.3 : 1);
       v.reveal.visible = this.role === 'exe' && !!(flags & F.REVEAL);
       if (v.reveal.visible) v.reveal.material.opacity = 0.5 + Math.sin(t * 10) * 0.3;
     }
@@ -869,20 +955,28 @@ class Match {
       const e = snap.pm.get(v.id); if (!e) continue;
       const s = e[6];
       const cls = s === ST.down ? 'down' : s === ST.esc ? 'esc' : s === ST.out ? 'out' : '';
-      const status = s === ST.down ? `DOWN ${e[8]}s` : s === ST.esc ? 'ESCAPED' : s === ST.out ? 'TAKEN' : e[13] && this.role !== 'exe' ? 'HIDING' : `${'♥'.repeat(Math.max(0, e[5]))}`;
+      const status = s === ST.down ? `DOWN ${e[8]}s` : s === ST.esc ? 'ESCAPED' : s === ST.out ? 'TAKEN' : e[13] && this.role !== 'exe' ? 'HIDING' : `${'♥'.repeat(Math.max(0, Math.ceil(e[5] / SURV.heart)))}`;
       const wIcon = s === ST.alive || s === ST.down ? `<em class="${e[11] ? 'bad' : 'good'}">${e[11] ? '☠' : '☀'}</em>` : '';
       html += `<div class="${cls}${v.id === this.me ? ' me' : ''}"><i style="background:${CHARS[v.char].accent}"></i>${esc(v.name)}${v.bot ? ' <small style="color:var(--muted)">bot</small>' : ''}${e[7] & F.CARRY ? ' <small style="color:#ffa040">core</small>' : ''}<span>${wIcon}${status}</span></div>`;
     }
     setHTML($('team'), html);
     // hearts + stamina
     if (this.role === 'surv') {
-      setHTML($('hearts'), Array.from({ length: SURV.hp }, (_, i) => `<span class="${i < hp ? '' : 'gone'}">❤️</span>`).join(''));
+      setHTML($('hearts'), Array.from({ length: SURV.hp / SURV.heart }, (_, i) => `<span class="hrt"><b style="width:${Math.round(Math.max(0, Math.min(1, (hp - i * SURV.heart) / SURV.heart)) * 100)}%"></b></span>`).join(''));
       setText($('revInfo'), mine && mine[15] >= SURV.revives ? 'no revives left' : '1 revive left');
       $('revInfo').classList.toggle('bad', !!(mine && mine[15] >= SURV.revives));
       $('stam').querySelector('i').style.transform = `scaleX(${this.sta.stamina / SURV.stamina})`;
       $('stam').classList.toggle('tired', this.sta.exhausted);
     }
     for (const s of this.slots) {
+      if (s.locked) { s.el.classList.remove('ready'); continue; }
+      if (s.key === 'awaken') {
+        const m = mine ? mine[16] : 0, on = t < this.until.awake || (sf & F.AWAKE);
+        s.meter.style.width = `${on ? 100 : m}%`;
+        s.el.classList.toggle('ready', !this.awakeUsed && m >= 100);
+        s.el.classList.toggle('on', !!on);
+        continue;
+      }
       const left = this.cd[s.key] - t;
       const ready = left <= 0 && st === ST.alive;
       s.el.classList.toggle('ready', ready);
@@ -969,6 +1063,11 @@ class Match {
       if (this.role === 'surv' && e[6] === ST.down) marks.push({ x: e[1], y: e[2] + 1.5, z: e[3], color: '#ff4a5a', label: `${v.name} ↓` });
       if (this.role === 'exe' && e[7] & F.REVEAL) marks.push({ x: e[1], y: e[2] + 2.6, z: e[3], color: '#ff2a3a', label: '!' });
     }
+    for (const v of this.views.values()) {
+      if (v.role !== 'exe' || this.role === 'exe') continue;
+      const e = snap.pm.get(v.id);
+      if (e && e[11] === this.viewW && e[7] & F.PINGED) marks.push({ x: e[1], y: e[2] + 3.4, z: e[3], color: '#ff2a8a', label: 'GLITCH.EXE' });
+    }
     this.drawMarks(marks);
   }
 
@@ -985,6 +1084,41 @@ class Match {
       r.setOpacity(this.role === 'exe' ? 0.45 : Math.random() < 0.05 ? 0.5 : 1);
     }
     for (const [id, r] of this.decoyRigs) if (!seen.has(id)) { scene.remove(r.root); r.dispose(); this.decoyRigs.delete(id); }
+  }
+
+  /** Bolt's afterimages: a copy of Bolt running straight ahead. EXE sees a real Bolt; teammates see a faint one. */
+  updateGhosts(snap, dt) {
+    const seen = new Set();
+    for (const g of snap.gh || []) {
+      if (g[6] !== this.viewW) continue;
+      seen.add(g[0]);
+      let r = this.ghostRigs.get(g[0]);
+      if (!r) { const o = this.info.ents.find((x) => x.id === g[1]); r = new Rig({ role: 'surv', look: o ? o.look : undefined, char: o ? o.char : 'bolt' }); scene.add(r.root); this.ghostRigs.set(g[0], r); }
+      r.root.visible = true; r.root.position.set(g[2], g[3], g[4]); r.root.rotation.y = g[5];
+      r.update(dt, { speed: 10, sprint: true, atk: -1 });
+      r.setOpacity(this.role === 'exe' ? 1 : 0.4);
+    }
+    for (const [id, r] of this.ghostRigs) if (!seen.has(id)) { scene.remove(r.root); r.dispose(); this.ghostRigs.delete(id); }
+  }
+
+  /** Pip's wrench, spinning through the air. */
+  throwWrench(v, e) {
+    const from = v.rig.root.position;
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.6, 0.08), new THREE.MeshLambertMaterial({ color: 0xb8c0cc })));
+    const head = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.05, 6, 10, Math.PI * 1.5), new THREE.MeshLambertMaterial({ color: 0xb8c0cc })); head.position.y = 0.32; g.add(head);
+    g.position.set(from.x, from.y + 1.8, from.z);
+    scene.add(g);
+    this.throws.push({ g, a: new THREE.Vector3(from.x, from.y + 1.8, from.z), b: new THREE.Vector3(e.tx, e.ty, e.tz), t: 0 });
+  }
+  updateThrows(dt) {
+    for (const w of this.throws) {
+      w.t += dt / 0.35;
+      w.g.position.lerpVectors(w.a, w.b, Math.min(1, w.t)); w.g.position.y += Math.sin(Math.min(1, w.t) * Math.PI) * 1.2;
+      w.g.rotation.x += dt * 25;
+      if (w.t >= 1.3) { scene.remove(w.g); w.dead = true; }
+    }
+    this.throws = this.throws.filter((w) => !w.dead);
   }
 
   /** The Q/E quick-time minigame when EXE drags you out of a locker. */
@@ -1079,6 +1213,7 @@ class Match {
     if (document.pointerLockElement) document.exitPointerLock();
     const won = (this.role === 'exe' && e.win === 'exe') || (this.role === 'surv' && e.escaped.includes(this.me));
     const exeWin = e.win === 'exe';
+    const oldXp = $('resXp'); if (oldXp) oldXp.remove();
     $('resTitle').textContent = exeWin ? 'EXE WINS' : 'SURVIVORS WIN';
     $('resTitle').style.color = exeWin ? '#ff2a3a' : '#7ff0ff';
     $('resSub').textContent = `${e.tasks}/5 zone tasks done. ` + (this.spectator ? 'Next round starts soon.' : this.role === 'exe' ? (exeWin ? 'Nobody got out.' : `${e.escaped.length} got away.`) : e.escaped.includes(this.me) ? 'You made it out.' : 'You were taken.');
@@ -1091,6 +1226,20 @@ class Match {
     }
     $('resTable').innerHTML = rows;
     if (!this.spectator) {
+      // XP for the character or monster you played
+      const meStat = e.stats.find((x) => x.id === this.me) || {};
+      const L = this.role === 'exe' ? LEVEL.exe : LEVEL.surv;
+      const gained = this.role === 'exe'
+        ? L.round + (meStat.hits || 0) * L.hit + (meStat.downs || 0) * L.down + (e.win === 'exe' ? L.win : 0)
+        : L.round + (meStat.tasks || 0) * L.task + (meStat.revives || 0) * L.revive + (e.escaped.includes(this.me) ? L.escape : 0);
+      const before = lvOf(this.kind);
+      save.xp[this.kind] = (save.xp[this.kind] || 0) + gained;
+      const after = lvOf(this.kind);
+      const nm = this.role === 'exe' ? VARIANTS[this.kind].name : CHARS[this.kind].name;
+      let xpHtml = `<div class="xp"><b>+${gained} XP</b> · ${esc(nm)} level ${after.lv}${after.lv < LEVEL.max ? ` <span class="xpbar"><i style="width:${Math.round((after.into / after.need) * 100)}%"></i></span> ${after.into}/${after.need}` : ' (max)'}</div>`;
+      if (after.lv > before.lv) xpHtml += `<div class="xp up">LEVEL UP! ${esc(nm)} is level ${after.lv}</div>`;
+      if (after.lv >= LEVEL.max && before.lv < LEVEL.max) xpHtml += `<div class="xp up">${this.role === 'exe' ? `Awakening unlocked: ${esc(VARIANTS[this.kind].awake.name)} (press V when the meter is full)` : `New ability unlocked: ${esc(CHARS[this.kind].q.name)} (Q)`}</div>`;
+      $('resSub').insertAdjacentHTML('afterend', `<div id="resXp">${xpHtml}</div>`);
       save.stats.rounds++; if (won) save.stats.wins++;
       if (e.escaped.includes(this.me)) save.stats.escapes++;
       const me = e.stats.find((s) => s.id === this.me); if (me) { save.stats.shards += me.shards || 0; save.stats.downs += me.downs || 0; }
@@ -1107,6 +1256,8 @@ class Match {
   dispose() {
     for (const v of this.views.values()) { scene.remove(v.rig.root); v.rig.dispose(); }
     for (const d of this.decoyRigs.values()) { scene.remove(d.root); d.dispose(); }
+    for (const d of this.ghostRigs.values()) { scene.remove(d.root); d.dispose(); }
+    for (const w of this.throws) scene.remove(w.g);
     if (this.mini) this.mini.close();
     $('lockerView').classList.add('hidden');
     for (const d of this.disRigs.values()) scene.remove(d.rig.root);
@@ -1148,7 +1299,7 @@ function startSolo() {
   endMatch();
   let role = save.soloRole;
   if (role === 'random') role = Math.random() < 1 / 3 ? 'exe' : 'surv';
-  const session = new LocalSession({ seed: Math.floor(Math.random() * 1e9), players: [{ id: 1, name: myName(), look: save.look, char: save.char, variant: save.variant }], exeId: role === 'exe' ? 1 : null, me: 1 });
+  const session = new LocalSession({ seed: Math.floor(Math.random() * 1e9), players: [{ id: 1, name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock() }], exeId: role === 'exe' ? 1 : null, me: 1 });
   match = new Match(session, { solo: true });
   show(null);
   sound.start();
@@ -1180,7 +1331,7 @@ async function goOnline(mode) {
   if (net) net.close();
   net = new NetSession(serverUrl);
   try {
-    const w = await net.connect({ name: myName(), look: save.look, char: save.char, variant: save.variant, mode, code });
+    const w = await net.connect({ name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock(), mode, code });
     setStatus('');
     net.on.lobby = (m) => renderLobby(m);
     net.on.round = () => { endMatch(); match = new Match(net, { solo: false }); show(null); if (!touch) canvas.requestPointerLock?.()?.catch?.(() => {}); };
@@ -1234,7 +1385,7 @@ function openCustom(from) { customFrom = from; show('custom'); menuMode = 'custo
 function closeCustom() {
   if (preview) { scene.remove(preview.root); preview = null; }
   persist(); updateWho();
-  if (net) net.pick({ name: myName(), look: save.look, char: save.char, variant: save.variant });
+  if (net) net.pick({ name: myName(), look: save.look, char: save.char, variant: save.variant, unlock: myUnlock() });
   menuMode = 'title';
   show(customFrom);
 }
@@ -1249,8 +1400,9 @@ function chips(id, list, cur, onPick) {
 function renderCustom() {
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   for (const t of ['char', 'avatar', 'exe']) $('tab-' + t).classList.toggle('hidden', t !== tab);
-  $('charCards').innerHTML = CHAR_IDS.map((id) => { const c = CHARS[id]; return `<button class="card${save.char === id ? ' on' : ''}" data-id="${id}" style="--accent:${c.accent}"><b>${c.name}</b><i>${c.role}</i><p>${esc(c.desc)}</p><div class="ab">${c.abilityName} · ${c.cd}s</div></button>`; }).join('');
-  $('exeCards').innerHTML = VARIANT_IDS.map((id) => { const v = VARIANTS[id]; return `<button class="card${save.variant === id ? ' on' : ''}" data-id="${id}" style="--accent:#ff2a3a"><b>${esc(v.name)}</b><i>speed ${v.speed}</i><p>${esc(v.desc)}</p><div class="ab">E: ${v.abilityName} · ${v.cd}s</div><p style="margin-top:4px">${esc(v.desc2)}</p><div class="ab">R: ${v.ab2Name} · ${v.cd2}s</div></button>`; }).join('');
+  const lvLine = (k) => { const l = lvOf(k); return `<div class="lv">Level ${l.lv}${l.lv < LEVEL.max ? ` <span class="xpbar"><i style="width:${Math.round((l.into / l.need) * 100)}%"></i></span>` : ' · MAX'}</div>`; };
+  $('charCards').innerHTML = CHAR_IDS.map((id) => { const c = CHARS[id], q = unlocked(id); return `<button class="card${save.char === id ? ' on' : ''}" data-id="${id}" style="--accent:${c.accent}"><b>${c.name}</b><i>${c.role}</i>${lvLine(id)}<div class="ab">E ${c.abilityName}</div><div class="ab">R ${c.r.name}</div><p>${esc(c.r.desc)}</p><div class="ab${q ? '' : ' lockd'}">Q ${c.q.name}${q ? '' : ' 🔒 Lv 10'}</div><p>${esc(c.q.desc)}</p></button>`; }).join('');
+  $('exeCards').innerHTML = VARIANT_IDS.map((id) => { const v = VARIANTS[id], aw = unlocked(id); return `<button class="card${save.variant === id ? ' on' : ''}" data-id="${id}" style="--accent:#ff2a3a"><b>${esc(v.name)}</b><i>${v.role} · speed ${v.speed} · hits ${v.dmg}</i>${lvLine(id)}<p>${esc(v.desc)}</p><div class="ab">Click ${v.atkName}</div>${['abl', 'ab2', 'ab3', 'ab4'].map((k, i) => `<div class="ab">${'ERQF'[i]} ${v.moves[k].name}</div>`).join('')}<div class="ab${aw ? '' : ' lockd'}">V ${v.awake.name}${aw ? '' : ' 🔒 Lv 10'}</div><p>${esc(v.awake.desc)}</p></button>`; }).join('');
   const L = save.look;
   $('name').value = save.name;
   swatches('swSkin', SKINS, L.skin, (v) => { L.skin = v; });

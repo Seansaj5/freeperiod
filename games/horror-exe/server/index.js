@@ -39,7 +39,8 @@ function makeRoom(isPublic) {
 const cleanName = (n) => String(n || '').replace(/[^\w .\-]/g, '').trim().slice(0, 16) || 'Player';
 const send = (ws, m) => { if (ws.readyState === 1) ws.send(JSON.stringify(m)); };
 const broadcast = (room, m) => { const s = JSON.stringify(m); for (const p of room.players.values()) if (p.ws.readyState === 1) p.ws.send(s); };
-const pinfo = (p) => ({ id: p.id, name: p.name, look: p.look, char: p.char, variant: p.variant });
+const pinfo = (p) => ({ id: p.id, name: p.name, look: p.look, char: p.char, variant: p.variant, unlock: p.unlock });
+const cleanUnlock = (u) => ({ q: !!(u && u.q === true), awaken: !!(u && u.awaken === true) });
 const lobbyMsg = (room) => ({
   t: 'lobby', code: room.code, public: room.public, host: room.host, state: room.state,
   startIn: room.startAt ? Math.max(0, (room.startAt - Date.now()) / 1000) : null,
@@ -108,7 +109,7 @@ wss.on('connection', (ws) => {
         const open = [...rooms.values()].filter((r) => r.public && r.players.size < MAX);
         room = open.sort((a, b) => (a.state === 'lobby') - (b.state === 'lobby') || a.players.size - b.players.size).pop() || makeRoom(true);
       }
-      me = { id: nextId++, ws, name: cleanName(m.name), look: sanitizeLook(m.look), char: CHARS[m.char] ? m.char : 'bolt', variant: VARIANTS[m.variant] ? m.variant : 'exe', exeWeight: 1 };
+      me = { id: nextId++, ws, name: cleanName(m.name), look: sanitizeLook(m.look), char: CHARS[m.char] ? m.char : 'bolt', variant: VARIANTS[m.variant] ? m.variant : 'exe', unlock: cleanUnlock(m.unlock), exeWeight: 1 };
       room.players.set(me.id, me);
       if (!room.host || !room.players.has(room.host)) room.host = me.id;
       if (room.public && room.state === 'lobby') room.startAt = Math.max(room.startAt || Date.now() + QUICK_WAIT, Date.now() + 8000);
@@ -122,13 +123,14 @@ wss.on('connection', (ws) => {
         if (room.state === 'game' && room.round) room.round.input(me.id, m);
         break;
       case 'act':
-        if (room.state === 'game' && room.round && ['atk', 'abl', 'sense', 'disguise', 'ab2', 'hide', 'qte'].includes(m.k)) room.round.action(me.id, { k: m.k, ok: m.ok === true });
+        if (room.state === 'game' && room.round && ['atk', 'abl', 'ab2', 'ab3', 'ab4', 'awaken', 'disguise', 'hide', 'qte'].includes(m.k)) room.round.action(me.id, { k: m.k, ok: m.ok === true });
         break;
       case 'pick':
         if (m.name !== undefined) me.name = cleanName(m.name);
         if (m.look) me.look = sanitizeLook(m.look);
         if (CHARS[m.char]) me.char = m.char;
         if (VARIANTS[m.variant]) me.variant = m.variant;
+        if (m.unlock) me.unlock = cleanUnlock(m.unlock);
         broadcast(room, lobbyMsg(room));
         break;
       case 'start':

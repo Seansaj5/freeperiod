@@ -210,6 +210,22 @@
     #touch .tb { font-size: 8px; }
     #scare canvas { image-rendering: pixelated; }
     @media (pointer: coarse) { .keys { display: none; } }
+    .slot { width: 66px; height: 66px; }
+    .slot.locked { opacity: 0.45; }
+    .slot.on { box-shadow: 0 0 22px -2px #ffd23d; border-color: #ffd23d; }
+    .slot .meter { position: absolute; left: 6px; right: 6px; bottom: 5px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.15); overflow: hidden; }
+    .slot .meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ff8a1a, #ffd23d); }
+    .hearts { gap: 6px; }
+    .hrt { position: relative; width: 26px; height: 24px; display: inline-block; }
+    .hrt::before, .hrt b { position: absolute; inset: 0; content: ''; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath d='M12 21.5 1.8 11.3A6 6 0 0 1 12 3.2a6 6 0 0 1 10.2 8.1Z'/%3E%3C/svg%3E") center/contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath d='M12 21.5 1.8 11.3A6 6 0 0 1 12 3.2a6 6 0 0 1 10.2 8.1Z'/%3E%3C/svg%3E") center/contain no-repeat; }
+    .hrt::before { background: rgba(255, 255, 255, 0.18); }
+    .hrt b { background: linear-gradient(#ff5a6a, #c8102a); right: auto; -webkit-mask-size: 26px 24px; mask-size: 26px 24px; -webkit-mask-position: left center; mask-position: left center; }
+    .xp { text-align: center; font-weight: 700; margin: 2px 0 8px; }
+    .xp.up { color: #ffd23d; font-family: 'Bungee', sans-serif; letter-spacing: 0.04em; }
+    .xpbar { display: inline-block; width: 120px; height: 7px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; vertical-align: middle; }
+    .xpbar i { display: block; height: 100%; background: linear-gradient(90deg, #7ff0ff, #ffd23d); }
+    .card .lv { font-size: 12px; font-weight: 800; color: var(--muted); margin: 4px 0; }
+    .card .ab.lockd { opacity: 0.55; }
     .revinfo { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); text-align: center; margin-top: 2px; text-shadow: 0 1px 4px #000; }
     .revinfo.bad { color: #ff6a7a; }
     .lockerview { position: fixed; inset: 0; z-index: 4; pointer-events: none;
@@ -393,6 +409,8 @@
     <button class="tb" id="tSense" style="right:calc(5vw + 76px);bottom:calc(16vh + 76px)">SENSE</button>
     <button class="tb" id="tDis" style="right:calc(5vw + 152px);bottom:calc(9vh + 76px)">HIDE</button>
     <button class="tb" id="tAb2" style="right:calc(5vw + 228px);bottom:9vh">R</button>
+    <button class="tb" id="tG" style="right:calc(5vw + 228px);bottom:calc(9vh + 76px)">G</button>
+    <button class="tb" id="tV" style="right:calc(5vw + 152px);bottom:calc(16vh + 152px)">V</button>
     <div id="touchQE" class="hidden"><button class="tb big" id="tQ" style="left:12vw;bottom:14vh">Q</button><button class="tb big" id="tE" style="right:12vw;bottom:14vh">E</button></div>
   </div>
   <div id="scare"><canvas></canvas></div>
