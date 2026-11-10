@@ -26,7 +26,7 @@ window.GAMES = [
   {
     id: 'bing-ball',
     title: 'Bing Ball',
-    tagline: '3D multiplayer soccer with anime-style moves, Flow states and ranked.',
+    tagline: '3D multiplayer soccer with Flow states and ranked.',
     url: 'https://bing-ball.onrender.com',
     thumb: 'assets/bing-ball.jpg',
     hero: 'assets/bing-ball-hero.jpg',
