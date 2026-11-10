@@ -1,5 +1,6 @@
-// The chat app: rail, channel list, messages, composer, members, status banners. Used by the Messages page
-// (chat.html) and, with { compact: true }, by the play-page overlay (one panel at a time, no title or history changes).
+// The chat app: rail, channel list / DM list, messages, composer, members, status banners, profile cards, the profile
+// editor and the owner / mod tools. Used by the Messages page (chat.html) and, with { compact: true }, by the play-page
+// overlay (one panel at a time, no title or history changes).
 import { h, toast } from '../ui.js';
 import * as session from '../session.js';
 import { chatState, onChatState, ensureChatSession, me as chatMe, chatError as sessionError } from './client.js';
@@ -7,12 +8,17 @@ import * as data from './data.js';
 import { tabTitle, badge } from './unread.js';
 import { mentionsMe } from './format.js';
 import { newClientId } from './feedlogic.js';
+import { roleOfProfile, isStaffRole, timedOut } from './perms.js';
 import { mountRail } from './views/rail.js';
 import { mountChannels } from './views/channels.js';
 import { mountMessages } from './views/messages.js';
 import { mountComposer } from './views/composer.js';
 import { mountMembers } from './views/members.js';
-import { icon, bellLogo, nameOf, roleOf } from './views/common.js';
+import { icon, bellLogo, nameOf, avatar, closeMenu, timeoutText } from './views/common.js';
+import { messageTools, openMemberMenu, openChannelManager } from './views/mod.js';
+import { dmListNodes, dmTitle, dmOthers, groupIcon, openPeoplePicker, confirmLeave } from './views/dms.js';
+import { openProfileCard, refreshProfileCard, closeProfileCard } from './views/profile-card.js';
+import { openProfileEditor } from './views/profile-editor.js';
 
 const BASE_TITLE = 'Messages · Free Period';
 const LAST_KEY = 'fp.chat.last';
@@ -28,8 +34,17 @@ const idsOf = (x) => {
   if (typeof x === 'object') return Object.keys(x);
   return [];
 };
+const tkey = (t) => (t.dm ? 'd:' + t.dm : 'c:' + t.channel);
+// Name styles (fonts, gradients) and frames live in flair.css; the overlay page does not link it, so load it once here.
+function ensureFlairCss() {
+  if (typeof document === 'undefined') return;
+  const href = new URL('./flair.css', import.meta.url).href;
+  if ([...document.querySelectorAll('link[rel="stylesheet"]')].some((l) => l.href === href)) return;
+  document.head.append(h('link', { rel: 'stylesheet', href }));
+}
 
 export function mountChatApp(root, { compact = false } = {}) {
+  ensureFlairCss();
   root.classList.add('cx');
   if (compact) root.classList.add('compact');
   const offEl = h('div', { class: 'cx-off', hidden: true });
@@ -53,43 +68,99 @@ export function mountChatApp(root, { compact = false } = {}) {
   let mode = 'server';         // rail: 'server' | 'dms'
   let channels = [];
   let cur = null;              // open channel
+  let dms = [];                // listDMs()
+  let curDM = null;            // open DM id
   let members = [];
   const byId = new Map();
   let usernames = new Set();
   let online = new Set();
   let blocked = new Set();
-  const unread = new Map();    // 'c:<id>' -> { unread, mentions }
-  let subs = [];
+  const unread = new Map();    // 'c:<id>' | 'd:<uuid>' -> { unread, mentions }
+  const subs = new Map();      // 'c:<id>' | 'd:<uuid>' -> unsubscribe
+  let serverOff = null;        // subscribeServer() unsubscribe
   let presenceH = null;
   let typingH = null;
   let gen = 0;                 // bumps on every (re)start so late answers are dropped
   let started = '';            // '' | 'ready:<uid>' | 'guest'
+  let ready = false;           // channels (and DMs) loaded for this start
+  let pendingOpen = null;      // open() asked before the lists loaded
   let lastUid = null;          // account of the previous start (null before the first)
   let loading = false;
   let viewVersion = 0;
   let layout = compact ? 'narrow' : 'wide';
   let panel = 'chat';
   let membersOpen = store.get(MEMBERS_KEY) !== '0';
+  let muteTimer = 0;
 
   const myId = () => (chatMe() && chatMe().id) || '';
   const myProfile = () => byId.get(myId()) || (chatMe() ? { id: myId(), username: chatMe().username } : null);
-  const isStaff = () => { const r = roleOf(myProfile()); const hub = session.getUser(); return !!r || (!!hub && (hub.role === 'owner' || hub.role === 'admin')); };
+  // Roles come from the server-written profile (like the database); until it loads, the hub role is a fair guess.
+  const myRole = () => {
+    const p = byId.get(myId());
+    if (p) return roleOfProfile(p);
+    const hub = session.getUser();
+    return hub && hub.role === 'owner' ? 'owner' : hub && hub.role === 'admin' ? 'mod' : 'member';
+  };
+  const isStaff = () => isStaffRole(myRole());
+  const muted = () => { const p = byId.get(myId()); return !!p && timedOut(p); };
+  const banned = () => { const p = byId.get(myId()); return !!(p && p.banned); };
   const guest = () => st === 'guest';
+  const curDMObj = () => (curDM ? dms.find((d) => d.id === curDM) || null : null);
+  const live = (p) => (p && byId.get(p.id)) || p; // the freshest copy of a profile we have
+  const errText = (e) => { try { return data.chatError(e) || 'Something went wrong'; } catch { return 'Something went wrong'; } };
   const openLogin = () => import('../account-ui.js').then((m) => m.openAuthSheet('login')).catch(() => { location.href = './'; });
+
+  // ---------- shared contexts for the views ----------
+  const modCx = {
+    me: () => myProfile(),
+    profile: (id) => byId.get(id) || null,
+    patchProfile: (id, patch) => mergeProfile({ id, ...patch }),
+    channels: () => channels,
+    reloadChannels: () => reloadChannels(),
+  };
+  const cardCx = {
+    me: () => myProfile(),
+    profile: (id) => byId.get(id) || null,
+    online: () => online,
+    isBlocked: (id) => blocked.has(id),
+    isStaff: () => isStaff(),
+    message: async (p) => { try { await startDMWith(p); } catch (e) { throw { shown: errText(e) }; } },
+    block: async (p, on) => {
+      try { await data.block(p.id, on); } catch (e) { throw { shown: errText(e) }; }
+      setBlocked(p.id, on);
+      toast(on ? 'Blocked ' + nameOf(p) : 'Unblocked ' + nameOf(p));
+    },
+    editProfile: () => openEditor(),
+    memberMenu: (anchor, p) => openMemberMenu(anchor, live(p), modCx),
+  };
+  const editorCx = {
+    me: () => myProfile(),
+    blockedProfiles: () => [...blocked].map((id) => byId.get(id) || { id, username: 'someone' }),
+    unblock: async (id) => { await data.block(id, false); setBlocked(id, false); },
+    applyProfile: (row) => mergeProfile(row),
+  };
+  function openCard(p, anchor) {
+    if (!p || !p.id || st !== 'ready') return;
+    openProfileCard(live(p), anchor || root, cardCx);
+  }
+  function openEditor(opts) { if (st === 'ready') openProfileEditor(editorCx, opts); }
 
   // ---------- views ----------
   const rail = mountRail(railEl, { homeLink: !compact, onServer: () => setMode('server'), onDMs: () => setMode('dms') });
-  const side = mountChannels(sideEl, { onPick: (c) => openChannel(c, true) });
-  const memberList = mountMembers(membersEl, { onBack: () => goBack() });
+  const side = mountChannels(sideEl, { onPick: (c) => openChannel(c, true), onManage: () => openChannelManager(modCx), onMe: (anchor) => openCard(myProfile(), anchor), onSettings: () => openEditor() });
+  const memberList = mountMembers(membersEl, { onBack: () => goBack(), onPick: (p, anchor) => openCard(p, anchor), onMenu: (p, anchor) => (isStaff() ? openMemberMenu(anchor, live(p), modCx) : false) });
   const messages = mountMessages(feedEl, {
     me: () => (chatMe() ? { id: myId(), username: chatMe().username } : null),
     profile: (id) => byId.get(id) || null,
     usernames: () => usernames,
     isBlocked: (id) => blocked.has(id),
-    canReact: () => st === 'ready',
+    canReact: () => st === 'ready' && !muted() && !banned(),
+    canTools: () => st === 'ready',
     version: () => viewVersion,
     onReply: (m) => composer.setReply(m),
     onRead: (t) => markRead(t),
+    onProfile: (p, anchor) => openCard(p, anchor),
+    extraTools: (m, helpers) => (st === 'ready' ? messageTools(m, helpers, modCx) : []),
   });
   const composer = mountComposer(compEl, { onSend: send, onTyping: pingTyping, onLogin: openLogin });
 
@@ -105,7 +176,7 @@ export function mountChatApp(root, { compact = false } = {}) {
   }
   function drawPanels() {
     root.dataset.panel = layout === 'narrow' ? panel : '';
-    const showMembers = (st === 'ready' || st === 'waking') && (layout === 'narrow' ? panel === 'members' : membersOpen);
+    const showMembers = (st === 'ready' || st === 'waking') && (layout === 'narrow' ? panel === 'members' : membersOpen) && !(mode === 'dms' && !curDM);
     root.classList.toggle('members-open', showMembers);
     membersBtn.setAttribute('aria-pressed', showMembers ? 'true' : 'false');
   }
@@ -131,20 +202,39 @@ export function mountChatApp(root, { compact = false } = {}) {
   if (!compact) addEventListener('popstate', onPop);
 
   // ---------- header ----------
-  const backBtn = h('button', { type: 'button', class: 'cx-iconbtn cx-back', 'aria-label': 'Back to channels', onclick: () => goBack() }, icon('back'));
+  const backBtn = h('button', { type: 'button', class: 'cx-iconbtn cx-back', 'aria-label': 'Back', onclick: () => goBack() }, icon('back'));
+  const headPic = h('span', { class: 'cx-head-pic', hidden: true });
   const headEmoji = h('span', { class: 'cx-head-emoji', 'aria-hidden': 'true' });
   const headName = h('h1', { class: 'cx-head-name' });
   const headLock = h('span', { class: 'cx-head-lock', title: 'Only Sean and mods post here', hidden: true }, icon('lock'));
   const headTopic = h('p', { class: 'cx-head-topic' });
+  const addBtn = h('button', { type: 'button', class: 'cx-iconbtn cx-head-add', 'aria-label': 'Add people', title: 'Add people', hidden: true, onclick: () => addToGroup() }, icon('userPlus'));
   const membersBtn = h('button', { type: 'button', class: 'cx-iconbtn cx-members-btn', 'aria-label': 'Members', title: 'Members', 'aria-pressed': 'false',
     onclick: () => setMembers(!root.classList.contains('members-open')) }, icon('users'), h('span', { class: 'cx-members-n' }));
-  headEl.append(backBtn, h('div', { class: 'cx-head-title' }, headEmoji, headName, headLock), headTopic, h('span', { class: 'cx-head-gap' }), membersBtn);
+  headEl.append(backBtn, h('div', { class: 'cx-head-title' }, headPic, headEmoji, headName, headLock), headTopic, h('span', { class: 'cx-head-gap' }), addBtn, membersBtn);
+  headPic.addEventListener('click', () => { const dm = curDMObj(); const one = dm && !dm.is_group && dmOthers(dm, myId())[0]; if (one) openCard(one, headPic); });
   function drawHead() {
-    if (mode === 'dms') { headEmoji.textContent = ''; headName.textContent = 'Direct messages'; headLock.hidden = true; headTopic.textContent = ''; }
-    else if (cur) { headEmoji.textContent = cur.emoji || '#'; headName.textContent = cur.name; headLock.hidden = !cur.owner_only; headTopic.textContent = cur.topic || ''; }
-    else { headEmoji.textContent = ''; headName.textContent = st === 'waking' ? 'Connecting…' : st === 'off' ? '' : 'Free Period'; headLock.hidden = true; headTopic.textContent = ''; }
-    membersBtn.hidden = guest() || st !== 'ready';
-    membersBtn.lastChild.textContent = online.size ? String(online.size) : '';
+    headPic.hidden = true; addBtn.hidden = true; headLock.hidden = true;
+    backBtn.setAttribute('aria-label', mode === 'dms' ? 'Back to DMs' : 'Back to channels');
+    if (mode === 'dms') {
+      const dm = curDMObj();
+      headEmoji.textContent = '';
+      if (!dm) { headName.textContent = 'Direct messages'; headTopic.textContent = ''; }
+      else {
+        const others = dmOthers(dm, myId()).map(live);
+        headPic.hidden = false;
+        headPic.replaceChildren(dm.is_group ? groupIcon(dm, myId(), 30) : avatar(others[0] || {}, { size: 30, status: others[0] && online.has(others[0].id) ? 'online' : 'offline' }));
+        headPic.classList.toggle('is-btn', !dm.is_group);
+        headName.textContent = dmTitle(dm, myId());
+        const one = !dm.is_group && others[0];
+        headTopic.textContent = one ? '@' + one.username + (one.status_text ? ' · ' + (one.status_emoji ? one.status_emoji + ' ' : '') + one.status_text : '') : (dm.members || []).length + ' members';
+        addBtn.hidden = !dm.is_group || st !== 'ready';
+      }
+    } else if (cur) { headEmoji.textContent = cur.emoji || '#'; headName.textContent = cur.name; headLock.hidden = !cur.owner_only; headTopic.textContent = cur.topic || ''; }
+    else { headEmoji.textContent = ''; headName.textContent = st === 'waking' ? 'Connecting…' : st === 'off' ? '' : 'Free Period'; headTopic.textContent = ''; }
+    membersBtn.hidden = guest() || st !== 'ready' || (mode === 'dms' && !curDM);
+    const dm = mode === 'dms' ? curDMObj() : null;
+    membersBtn.lastChild.textContent = dm ? String((dm.members || []).length) : online.size ? String(online.size) : '';
   }
 
   // Size changes (window, overlay panel) pick the layout.
@@ -161,7 +251,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     root.classList.toggle('has-banner', !!kind);
     if (!kind) return;
     banner.className = 'cx-banner ' + kind;
-    const owner = (session.getUser() || {}).role === 'owner' || roleOf(myProfile()) === 'owner';
+    const owner = (session.getUser() || {}).role === 'owner' || myRole() === 'owner';
     const B = {
       waking: [h('i', { class: 'cx-spin' }), 'Waking up chat…', 'First sign-in on this device starts up the game server. This can take up to a minute.'],
       asleep: [icon('moon'), 'Chat is asleep', owner ? 'It naps after a week with nobody chatting. Open the Supabase dashboard, pick free-period-chat and press Restore.'
@@ -188,24 +278,41 @@ export function mountChatApp(root, { compact = false } = {}) {
 
   // ---------- rendering helpers ----------
   function totals() {
-    let u = 0, m = 0;
-    for (const [k, v] of unread) if (k.startsWith('c:')) { u += v.unread || 0; m += v.mentions || 0; }
-    return { unread: u, mentions: m };
+    let u = 0, m = 0, d = 0;
+    for (const [k, v] of unread) {
+      if (k.startsWith('c:')) { u += v.unread || 0; m += v.mentions || 0; }
+      else if (k.startsWith('d:') && !(mode === 'dms' && curDM === k.slice(2))) d += v.unread || 0;
+    }
+    return { unread: u, mentions: m, dms: d };
   }
   function drawSide() {
+    const dmNodes = mode === 'dms' ? dmListNodes({ dms, current: curDM, unread, myId: myId(), online, profile: (id) => byId.get(id), isBlocked: (id) => blocked.has(id),
+      onPick: (dm) => openDM(dm, true), onNew: () => newDM(), onNewGroup: () => newGroup() }) : null;
     side.render({ mode, channels, current: cur && cur.id, unread, guest: guest(), loading: loading || (st !== 'ready' && st !== 'guest'), status: st,
-      online: online.size, members: members.length, me: st === 'ready' ? myProfile() : null, meStatus: conn === 'live' ? 'online' : 'away' });
+      online: online.size, members: members.length, me: st === 'ready' ? myProfile() : null, meStatus: conn === 'live' ? 'online' : 'away',
+      canManage: st === 'ready' && myRole() === 'owner', dmNodes });
     rail.setActive(mode);
     const t = totals();
-    rail.setBadges({ server: mode === 'server' ? { dot: false, text: '' } : badge(t), dms: { dot: false, text: '' } });
-    if (!compact) document.title = tabTitle(BASE_TITLE, t.mentions);
+    rail.setBadges({ server: mode === 'server' ? { dot: false, text: '' } : badge(t), dms: badge({ unread: t.dms, mentions: t.dms }) });
+    if (!compact) document.title = tabTitle(BASE_TITLE, t.mentions + t.dms);
   }
   function drawMembers() {
-    if (st === 'waking') memberList.render({ loading: true });
-    else if (st === 'ready') memberList.render({ members, online, loading });
+    if (st === 'waking') { memberList.render({ loading: true }); return; }
+    if (st !== 'ready') return;
+    const dm = mode === 'dms' ? curDMObj() : null;
+    if (dm) {
+      const list = (dm.members || []).map(live);
+      const acts = dm.is_group ? [
+        h('button', { type: 'button', class: 'cx-btn ghost', onclick: () => addToGroup() }, icon('userPlus'), 'Add people'),
+        h('button', { type: 'button', class: 'cx-btn ghost danger', onclick: () => leaveGroup() }, icon('leave'), 'Leave group')] : null;
+      memberList.render({ members: list, online, title: dm.is_group ? 'Group' : 'In this DM', flat: true, footer: acts });
+      return;
+    }
+    memberList.render({ members, online, loading });
   }
   function drawTyping(users) {
-    const names = idsOf(users).filter((id) => id !== myId()).map((id) => nameOf(byId.get(id) || (Array.isArray(users) ? users.find((u) => u && (u.id === id || u.user_id === id)) : null)));
+    const pool = mode === 'dms' && curDMObj() ? curDMObj().members || [] : [];
+    const names = idsOf(users).filter((id) => id !== myId()).map((id) => nameOf(byId.get(id) || pool.find((p) => p.id === id) || (Array.isArray(users) ? users.find((u) => u && (u.id === id || u.user_id === id)) : null)));
     typingEl.replaceChildren();
     typingEl.classList.toggle('on', names.length > 0);
     if (!names.length) return;
@@ -215,11 +322,35 @@ export function mountChatApp(root, { compact = false } = {}) {
           : ['Several people are typing'];
     typingEl.append(h('span', { class: 'cx-dots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), h('span', {}, ...who, '…'));
   }
+  // Timed out / banned: a clear line instead of the text box (it counts down and reopens by itself).
+  function gateLine() {
+    const p = byId.get(myId());
+    if (!p) return null;
+    if (p.banned) return { mode: 'locked', lockKind: 'banned', lockText: 'You’re banned from chat. You can still read.' };
+    if (timedOut(p)) return { mode: 'locked', lockKind: 'muted', lockText: timeoutText(p.muted_until) + '. You can still read.' };
+    return null;
+  }
+  function armMuteTimer() {
+    clearInterval(muteTimer); muteTimer = 0;
+    if (st === 'ready' && muted()) muteTimer = setInterval(() => { setComposer(); if (!muted()) { clearInterval(muteTimer); muteTimer = 0; messages.repaint(); } }, 15000);
+  }
   function setComposer() {
+    if (mode === 'dms') {
+      const dm = curDMObj();
+      const key = dm ? 'd:' + dm.id : 'none';
+      if (st !== 'ready' || !dm) { composer.setTarget('none', { placeholder: st === 'ready' ? 'Pick a conversation' : 'Chat isn’t available right now', mode: 'wait' }); return; }
+      const g = gateLine();
+      if (g) { composer.setTarget(key, g); return; }
+      const one = !dm.is_group && dmOthers(dm, myId())[0];
+      if (one && blocked.has(one.id)) { composer.setTarget(key, { mode: 'locked', lockKind: 'blocked', lockText: 'You blocked ' + nameOf(live(one)) + '. Unblock them to send messages.' }); return; }
+      composer.setTarget(key, { placeholder: 'Message ' + (one ? '@' + one.username : dmTitle(dm, myId())), mode: 'open' });
+      return;
+    }
     const key = cur ? 'c:' + cur.id : 'none';
     if (guest()) composer.setTarget(key, { mode: 'guest' });
     else if (st !== 'ready') composer.setTarget(key, { placeholder: st === 'waking' ? 'Waking up chat…' : 'Chat isn’t available right now', mode: 'wait' });
-    else if (!cur || mode === 'dms') composer.setTarget('none', { placeholder: mode === 'dms' ? 'Pick a conversation' : 'Pick a channel', mode: 'wait' });
+    else if (!cur) composer.setTarget('none', { placeholder: 'Pick a channel', mode: 'wait' });
+    else if (gateLine()) composer.setTarget(key, gateLine());
     else if (cur.owner_only && !isStaff()) composer.setTarget(key, { mode: 'locked', lockText: 'Only Sean and mods post in #' + cur.name + '. You can still react.' });
     else composer.setTarget(key, { placeholder: 'Message #' + cur.name, mode: 'open' });
   }
@@ -227,8 +358,8 @@ export function mountChatApp(root, { compact = false } = {}) {
   // ---------- read state ----------
   const readAt = new Map();
   function markRead(target) {
-    if (!target || target.dm || document.hidden) return;
-    const key = 'c:' + target.channel;
+    if (!target || document.hidden) return;
+    const key = tkey(target);
     const had = unread.get(key);
     if (had && (had.unread || had.mentions)) { unread.delete(key); drawSide(); }
     if (st !== 'ready') return;
@@ -240,28 +371,39 @@ export function mountChatApp(root, { compact = false } = {}) {
 
   // ---------- channels ----------
   function openChannel(c, byUser = false) {
-    if (!c) return;
+    if (!c) return Promise.resolve();
     const changed = !cur || cur.id !== c.id || mode !== 'server';
     mode = 'server';
     cur = c;
     store.set(LAST_KEY, c.name);
-    drawHead(); drawSide(); setComposer();
+    drawHead(); drawSide(); setComposer(); drawMembers(); drawPanels();
+    let p = Promise.resolve();
     if (changed) {
       const u = unread.get('c:' + c.id);
-      messages.open({ channel: c.id }, c, { unread: u ? u.unread : 0 });
+      p = messages.open({ channel: c.id }, c, { unread: u ? u.unread : 0 });
       switchTyping({ channel: c.id });
     }
     if (layout === 'narrow' && byUser) setPanel('chat');
     if (byUser) composer.focus();
+    return p;
   }
   function setMode(m) {
     if (m === 'server') { if (mode !== 'server' || !cur) openChannel(cur || pickStart(), true); else if (layout === 'narrow') setPanel('nav'); return; }
+    if (mode === 'dms' && layout === 'narrow') { setPanel('nav'); return; }
+    const dm = curDMObj();
+    if (dm && layout !== 'narrow') { openDM(dm, false); return; }
     mode = 'dms';
-    drawSide(); drawHead(); setComposer();
+    curDM = null;
+    dmHome();
+    if (layout === 'narrow') setPanel('nav');
+  }
+  function dmHome() {
+    drawSide(); drawHead(); setComposer(); drawMembers(); drawPanels();
     switchTyping(null);
     messages.waiting(h('div', { class: 'cx-feed-empty' }, h('span', { class: 'cx-empty-ic big', 'aria-hidden': 'true' }, icon('chat')),
-      h('strong', { text: 'Your DMs live here' }), h('span', { text: 'Private chats with friends and groups of up to 10.' })));
-    if (layout === 'narrow') setPanel('nav');
+      h('strong', { text: 'Your DMs live here' }), h('span', { text: 'Private chats with one person, or groups of up to 10.' }),
+      st === 'ready' ? h('div', { class: 'cx-feed-acts' }, h('button', { type: 'button', class: 'cx-btn', onclick: () => newDM() }, icon('plus'), 'New message'),
+        h('button', { type: 'button', class: 'cx-btn ghost', onclick: () => newGroup() }, icon('users'), 'New group')) : null));
   }
   function pickStart() {
     const last = store.get(LAST_KEY);
@@ -280,11 +422,163 @@ export function mountChatApp(root, { compact = false } = {}) {
     lastPing = now;
     try { typingH.ping(); } catch { /* ignore */ }
   }
+  function subscribeTarget(target) {
+    const key = tkey(target);
+    if (subs.has(key)) return;
+    try {
+      const unsub = data.subscribe(target, {
+        insert: onInsert,
+        update: (m) => { messages.update(m); if (m && m.dm_id) touchDM(m); },
+        react: (ev) => messages.react(ev),
+        status: (s) => setConn(s),
+      });
+      if (typeof unsub === 'function') subs.set(key, unsub);
+    } catch { /* that conversation just won't be live */ }
+  }
+  function unsubscribe(key) { const u = subs.get(key); if (u) { try { u(); } catch { /* ignore */ } subs.delete(key); } }
+  async function reloadChannels() {
+    const g = gen;
+    let list = await data.listChannels();
+    if (g !== gen) return;
+    list = (Array.isArray(list) ? list : []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
+    setChannels(st === 'guest' ? list.filter((c) => c.owner_only) : list);
+  }
+  function setChannels(list) {
+    channels = list.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
+    const ids = new Set(channels.map((c) => 'c:' + c.id));
+    for (const k of [...subs.keys()]) if (k.startsWith('c:') && !ids.has(k)) unsubscribe(k);
+    for (const c of channels) subscribeTarget({ channel: c.id });
+    if (cur) {
+      const again = channels.find((c) => c.id === cur.id);
+      if (again) cur = again;
+      else if (mode === 'server') { cur = null; openChannel(pickStart()); return; }
+      else cur = null;
+    }
+    drawSide(); drawHead(); setComposer();
+  }
+
+  // ---------- DMs ----------
+  let dmLoad = null;
+  function loadDMs() {
+    if (st !== 'ready') return Promise.resolve();
+    if (dmLoad) return dmLoad;
+    const g = gen;
+    dmLoad = Promise.resolve().then(() => data.listDMs()).then((list) => {
+      if (g !== gen) return;
+      setDMs(list);
+    }, () => {}).finally(() => { dmLoad = null; });
+    return dmLoad;
+  }
+  function setDMs(list) {
+    const known = new Set(dms.map((d) => d.id));
+    dms = (Array.isArray(list) ? list : []).filter((d) => d && d.id);
+    // A DM that just appeared (someone started one, or added me to a group) may already hold messages that came before
+    // its live subscription: ask for the counts again.
+    if (ready && dms.some((d) => !known.has(d.id))) Promise.resolve().then(() => data.unreadCounts()).then(applyUnread).catch(() => {});
+    const ids = new Set(dms.map((d) => 'd:' + d.id));
+    for (const k of [...subs.keys()]) if (k.startsWith('d:') && !ids.has(k)) unsubscribe(k);
+    for (const d of dms) subscribeTarget({ dm: d.id });
+    if (curDM && !dms.some((d) => d.id === curDM)) { curDM = null; if (mode === 'dms') dmHome(); }
+    drawSide(); drawHead();
+    if (mode === 'dms') { drawMembers(); setComposer(); }
+  }
+  function touchDM(m) {
+    const dm = dms.find((d) => d.id === m.dm_id);
+    if (!dm) { loadDMs(); return; }
+    if (!dm.last || dm.last.id === m.id || Date.parse(m.created_at) >= Date.parse(dm.last.created_at || 0)) dm.last = m;
+  }
+  function dmInfo(dm) { return { dm: true, is_group: dm.is_group, title: dmTitle(dm, myId()), members: (dm.members || []).map(live) }; }
+  function openDM(dm, byUser = false) {
+    if (!dm) return Promise.resolve();
+    const changed = mode !== 'dms' || curDM !== dm.id;
+    mode = 'dms';
+    curDM = dm.id;
+    drawHead(); drawSide(); setComposer(); drawMembers(); drawPanels();
+    let p = Promise.resolve();
+    if (changed) {
+      const u = unread.get('d:' + dm.id);
+      p = messages.open({ dm: dm.id }, dmInfo(dm), { unread: u ? u.unread : 0 });
+      switchTyping({ dm: dm.id });
+    }
+    if (layout === 'narrow' && byUser) setPanel('chat');
+    if (byUser) composer.focus();
+    return p;
+  }
+  async function startDMWith(p) {
+    const id = await data.startDM(p.id);
+    await loadDMs();
+    let dm = dms.find((d) => d.id === id);
+    if (!dm) { dm = { id, is_group: false, name: null, members: [myProfile(), live(p)].filter(Boolean), last: null }; dms.push(dm); subscribeTarget({ dm: id }); }
+    await openDM(dm, true);
+  }
+  function newDM() {
+    openPeoplePicker('dm', { myId: myId(), isBlocked: (id) => blocked.has(id), onDone: async ([p]) => { if (p) await startDMWith(p); } });
+  }
+  function newGroup() {
+    openPeoplePicker('group', { myId: myId(), isBlocked: (id) => blocked.has(id), room: 9, onDone: async (people, name) => {
+      const id = await data.createGroup(people.map((p) => p.id), name);
+      await loadDMs();
+      const dm = dms.find((d) => d.id === id);
+      if (dm) await openDM(dm, true);
+      toast('Group made');
+    } });
+  }
+  function addToGroup() {
+    const dm = curDMObj();
+    if (!dm || !dm.is_group) return;
+    const have = new Set((dm.members || []).map((p) => p.id));
+    if (have.size >= 10) { toast('Groups hold up to 10 people', 'err'); return; }
+    openPeoplePicker('add', { myId: myId(), isBlocked: (id) => blocked.has(id), exclude: have, room: 10 - have.size, onDone: async (people) => {
+      for (const p of people) await data.addToGroup(dm.id, p.id);
+      await loadDMs();
+      toast(people.length === 1 ? nameOf(people[0]) + ' was added' : people.length + ' people were added');
+    } });
+  }
+  function leaveGroup() {
+    const dm = curDMObj();
+    if (!dm) return;
+    confirmLeave(dm, dmTitle(dm, myId()), async () => {
+      await data.leaveDM(dm.id);
+      unsubscribe('d:' + dm.id);
+      dms = dms.filter((d) => d.id !== dm.id);
+      curDM = null;
+      dmHome();
+      if (layout === 'narrow') setPanel('nav');
+      loadDMs();
+    });
+  }
+
+  // ---------- people ----------
+  function setBlocked(id, on) {
+    if (on) blocked.add(id); else blocked.delete(id);
+    viewVersion++;
+    messages.repaint();
+    drawSide(); setComposer();
+    refreshProfileCard(byId.get(id));
+  }
+  function mergeProfile(row) {
+    if (!row || !row.id) return;
+    const old = byId.get(row.id);
+    const next = { ...(old || {}), ...row };
+    byId.set(row.id, next);
+    const i = members.findIndex((p) => p.id === row.id);
+    if (i >= 0) members[i] = next; else members.push(next);
+    usernames = new Set(members.map((p) => p.username).filter(Boolean));
+    for (const d of dms) if (Array.isArray(d.members)) d.members = d.members.map((p) => (p && p.id === row.id ? next : p));
+    viewVersion++;
+    messages.repaint();
+    drawMembers(); drawSide(); drawHead();
+    if (row.id === myId()) { setComposer(); armMuteTimer(); drawBanner(); }
+    refreshProfileCard(next);
+  }
 
   // ---------- sending ----------
   function send({ body, files, replyTo, reply }) {
-    if (st !== 'ready' || !cur || mode !== 'server') return false;
-    const target = { channel: cur.id };
+    if (st !== 'ready') return false;
+    let target;
+    if (mode === 'dms' && curDM) target = { dm: curDM };
+    else if (mode === 'server' && cur) target = { channel: cur.id };
+    else return false;
     let tempId = null;
     const clientId = newClientId(); // the server row echoes it back; that is how the echo finds this pending copy
     let p;
@@ -294,7 +588,7 @@ export function mountChatApp(root, { compact = false } = {}) {
         messages.pending(pm, { target, body, files, reply, author: myProfile(), clientId });
       } });
     } catch (e) { p = Promise.reject(e); }
-    Promise.resolve(p).then((m) => { if (tempId != null) messages.sent(tempId, m); else if (m) messages.insert(m); }, (e) => {
+    Promise.resolve(p).then((m) => { if (tempId != null) messages.sent(tempId, m); else if (m) messages.insert(m); if (m && m.dm_id) { touchDM(m); drawSide(); } }, (e) => {
       if (tempId != null && !messages.hasTemp(tempId)) return; // discarded (or dropped with the account): nothing left to mark
       let text = '';
       try { text = data.chatError(e); } catch { /* ignore */ }
@@ -311,21 +605,26 @@ export function mountChatApp(root, { compact = false } = {}) {
   // ---------- live ----------
   function stopLive() {
     gen++;
-    for (const u of subs) { try { u(); } catch { /* ignore */ } }
-    subs = [];
+    ready = false;
+    for (const k of [...subs.keys()]) unsubscribe(k);
+    if (serverOff) { try { serverOff(); } catch { /* ignore */ } serverOff = null; }
     if (presenceH) { try { presenceH.stop(); } catch { /* ignore */ } presenceH = null; }
+    clearInterval(muteTimer); muteTimer = 0;
     switchTyping(null);
+    closeProfileCard(); closeMenu();
   }
   function onInsert(m) {
     if (!m) return;
     messages.insert(m);
-    if (m.author_id === myId() || blocked.has(m.author_id) || m.dm_id) return;
-    const key = 'c:' + m.channel_id;
-    const viewing = cur && mode === 'server' && cur.id === m.channel_id && !document.hidden && messages.atBottom();
-    if (viewing) { markRead({ channel: m.channel_id }); return; }
+    if (m.dm_id) { touchDM(m); }
+    const mine = m.author_id === myId();
+    if (mine || blocked.has(m.author_id)) { if (m.dm_id) drawSide(); return; }
+    const key = m.dm_id ? 'd:' + m.dm_id : 'c:' + m.channel_id;
+    const here = m.dm_id ? mode === 'dms' && curDM === m.dm_id : cur && mode === 'server' && cur.id === m.channel_id;
+    if (here && !document.hidden && messages.atBottom()) { markRead(m.dm_id ? { dm: m.dm_id } : { channel: m.channel_id }); drawSide(); return; }
     const u = unread.get(key) || { unread: 0, mentions: 0 };
     u.unread = Math.min(99, (u.unread || 0) + 1);
-    if (st === 'ready' && (m.mentions_everyone || mentionsMe(m.body, (chatMe() || {}).username))) u.mentions = Math.min(99, (u.mentions || 0) + 1);
+    if (st === 'ready' && !m.dm_id && (m.mentions_everyone || mentionsMe(m.body, (chatMe() || {}).username))) u.mentions = Math.min(99, (u.mentions || 0) + 1);
     unread.set(key, u);
     drawSide();
   }
@@ -337,7 +636,11 @@ export function mountChatApp(root, { compact = false } = {}) {
     drawBanner(); drawSide();
     if (was === 'reconnecting' && next === 'live' && started) {
       messages.resync();
-      if (st === 'ready') Promise.resolve().then(() => data.unreadCounts()).then(applyUnread).catch(() => {});
+      if (st === 'ready') {
+        Promise.resolve().then(() => data.unreadCounts()).then(applyUnread).catch(() => {});
+        loadDMs();
+        Promise.resolve().then(() => (typeof data.listMembers === 'function' ? data.listMembers() : null)).then((l) => { if (Array.isArray(l)) { setMembersList(l); messages.repaint(); drawMembers(); setComposer(); } }).catch(() => {});
+      }
     }
   }
   const onOnline = () => setConn('live');
@@ -350,7 +653,10 @@ export function mountChatApp(root, { compact = false } = {}) {
     unread.clear();
     const list = Array.isArray(rows) ? rows : rows && typeof rows === 'object' ? Object.entries(rows).map(([target, v]) => ({ target, ...v })) : [];
     for (const r of list) if (r && r.target) unread.set(r.target, { unread: r.unread || 0, mentions: r.mentions || 0 });
-    if (cur && mode === 'server' && messages.atBottom() && !document.hidden) unread.delete('c:' + cur.id);
+    if (!document.hidden && messages.atBottom()) {
+      if (cur && mode === 'server') unread.delete('c:' + cur.id);
+      if (curDM && mode === 'dms') unread.delete('d:' + curDM);
+    }
     drawSide();
   }
   function setMembersList(list) {
@@ -359,6 +665,31 @@ export function mountChatApp(root, { compact = false } = {}) {
     for (const p of members) byId.set(p.id, p);
     usernames = new Set(members.map((p) => p.username).filter(Boolean));
     viewVersion++;
+  }
+  // Realtime on profiles (names, flair, roles, time-outs, bans), channels (the owner's changes) and DM membership.
+  let dmReload = 0;
+  function liveServer() {
+    if (typeof data.subscribeServer !== 'function') return;
+    try {
+      serverOff = data.subscribeServer({
+        profile: (row) => mergeProfile(row),
+        channel: (ev) => {
+          if (!ev || !ev.row) return;
+          let list = channels.slice();
+          if (ev.type === 'delete') list = list.filter((c) => c.id !== ev.row.id);
+          else {
+            const i = list.findIndex((c) => c.id === ev.row.id);
+            if (i >= 0) list[i] = { ...list[i], ...ev.row }; else list.push(ev.row);
+          }
+          if (st === 'guest') list = list.filter((c) => c.owner_only);
+          setChannels(list);
+        },
+        dmMember: (ev) => {
+          if (!ev || st !== 'ready') return;
+          if (ev.user_id === myId() || dms.some((d) => d.id === ev.dm_id)) { clearTimeout(dmReload); dmReload = setTimeout(() => loadDMs(), 120); }
+        },
+      });
+    } catch { serverOff = null; }
   }
 
   async function start() {
@@ -373,7 +704,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     const dropped = messages.reset(uid); // unsent messages of this account stay (Retry / Discard); anyone else's are cancelled
     if (dropped) toast(dropped === 1 ? 'An unsent message was dropped because the account changed.' : dropped + ' unsent messages were dropped because the account changed.', 'err');
     unread.clear(); online = new Set(); blocked = new Set(); setMembersList([]);
-    channels = []; cur = null; mode = 'server';
+    channels = []; cur = null; dms = []; curDM = null; mode = 'server';
     loading = true;
     drawSide(); drawHead(); setComposer(); drawMembers();
     messages.waiting('skeleton');
@@ -384,46 +715,61 @@ export function mountChatApp(root, { compact = false } = {}) {
       list = (Array.isArray(list) ? list : []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
       channels = st === 'guest' ? list.filter((c) => c.owner_only) : list;
       if (st === 'ready') {
-        const [mem, blk, un] = await Promise.all([
+        const [mem, blk, un, dl] = await Promise.all([
           Promise.resolve().then(() => (typeof data.listMembers === 'function' ? data.listMembers() : data.findProfiles(''))).catch(() => []),
           Promise.resolve().then(() => data.listBlocks()).catch(() => []),
           Promise.resolve().then(() => data.unreadCounts()).catch(() => []),
+          Promise.resolve().then(() => data.listDMs()).catch(() => []),
         ]);
         if (g !== gen) return;
         setMembersList(mem);
         blocked = new Set(idsOf(blk));
         applyUnread(un);
+        dms = (Array.isArray(dl) ? dl : []).filter((d) => d && d.id);
       }
     } catch (e) {
       if (g !== gen) return;
       loading = false;
       started = '';
       drawSide();
-      let text = '';
-      try { text = data.chatError(e); } catch { /* ignore */ }
-      messages.waiting(h('div', { class: 'cx-feed-err' }, icon('alert'), h('strong', { text: 'Couldn’t load chat' }), h('span', { text: text || 'Check your connection and try again.' }),
+      messages.waiting(h('div', { class: 'cx-feed-err' }, icon('alert'), h('strong', { text: 'Couldn’t load chat' }), h('span', { text: errText(e) || 'Check your connection and try again.' }),
         h('button', { type: 'button', class: 'cx-btn ghost', onclick: () => start() }, icon('retry'), 'Try again')));
       return;
     }
     loading = false;
-    for (const c of channels) {
-      try {
-        const unsub = data.subscribe({ channel: c.id }, {
-          insert: onInsert,
-          update: (m) => messages.update(m),
-          react: (ev) => messages.react(ev),
-          status: (s) => setConn(s),
-        });
-        if (typeof unsub === 'function') subs.push(unsub);
-      } catch { /* that channel just won't be live */ }
-    }
+    for (const c of channels) subscribeTarget({ channel: c.id });
+    for (const d of dms) subscribeTarget({ dm: d.id });
+    liveServer();
     if (st === 'ready' && typeof data.presence === 'function') {
       try { presenceH = data.presence({ onSync: (x) => { online = new Set(idsOf(x)); drawMembers(); drawSide(); drawHead(); } }); } catch { presenceH = null; }
     }
+    armMuteTimer();
     drawMembers();
+    ready = true;
+    const want = pendingOpen;
+    pendingOpen = null;
+    if (want && (await doOpen(want))) return;
+    if (g !== gen) return;
     const first = pickStart();
     if (first) openChannel(first);
     else { drawSide(); messages.waiting(h('div', { class: 'cx-feed-empty' }, h('strong', { text: 'No channels yet' }))); }
+  }
+
+  // open({ channel } | { channelName } | { dm }, optionally with { message } to jump to). true when something opened.
+  async function doOpen(target) {
+    if (target.dm) {
+      if (st !== 'ready') return false;
+      let dm = dms.find((d) => d.id === target.dm);
+      if (!dm) { await loadDMs(); dm = dms.find((d) => d.id === target.dm); }
+      if (!dm) { toast('That conversation isn’t available'); return false; }
+      await openDM(dm, true);
+    } else {
+      const c = channels.find((x) => (target.channel != null && x.id === target.channel) || (target.channelName && x.name === target.channelName));
+      if (!c) return false;
+      await openChannel(c, true);
+    }
+    if (target.message != null) await messages.jumpTo(target.message);
+    return true;
   }
 
   function applyState(s) {
@@ -438,7 +784,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     if (s === 'ready' || s === 'guest') { start(); }
     else {
       if (started) { stopLive(); started = ''; }
-      cur = null; channels = []; loading = false;
+      cur = null; channels = []; dms = []; curDM = null; mode = 'server'; loading = false;
       drawSide(); drawHead(); setComposer(); drawMembers();
       messages.waiting(s === 'waking' ? 'skeleton' : h('div', { class: 'cx-feed-empty' },
         h('span', { class: 'cx-empty-ic big', 'aria-hidden': 'true' }, icon(s === 'asleep' ? 'moon' : 'alert')),
@@ -449,7 +795,11 @@ export function mountChatApp(root, { compact = false } = {}) {
   }
 
   const offState = onChatState((s) => applyState(s));
-  const onVis = () => { if (!document.hidden && cur && mode === 'server' && messages.atBottom()) markRead({ channel: cur.id }); };
+  const onVis = () => {
+    if (document.hidden || !messages.atBottom()) return;
+    if (cur && mode === 'server') markRead({ channel: cur.id });
+    else if (curDM && mode === 'dms') markRead({ dm: curDM });
+  };
   document.addEventListener('visibilitychange', onVis);
   // Drop pictures anywhere on the conversation to attach them.
   main.addEventListener('dragover', (e) => { if (st === 'ready' && e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); main.classList.add('drop'); } });
@@ -460,11 +810,12 @@ export function mountChatApp(root, { compact = false } = {}) {
   ensureChatSession().catch(() => {});
 
   return {
-    // Open a conversation: { channel: id } or { channelName: 'general' }.
+    // Open a conversation: { channel: id } | { channelName: 'general' } | { dm: id }, with an optional { message: id } to
+    // jump to. Asked before chat has loaded (the overlay's pop-ups, a link from the owner Inbox), it waits and opens then.
     open(target) {
       if (!target) return;
-      const c = channels.find((x) => x.id === target.channel || x.name === target.channelName);
-      if (c) openChannel(c, true);
+      if (!ready) { pendingOpen = target; return; }
+      doOpen(target);
     },
     destroy() {
       stopLive();
@@ -476,6 +827,7 @@ export function mountChatApp(root, { compact = false } = {}) {
       removeEventListener('offline', onOffline);
       if (!compact) removeEventListener('popstate', onPop);
       document.removeEventListener('visibilitychange', onVis);
+      clearTimeout(dmReload);
       root.replaceChildren();
     },
   };

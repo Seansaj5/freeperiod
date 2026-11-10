@@ -3,9 +3,9 @@
 // Message bodies go through format.js (tokens -> DOM); nothing here uses innerHTML.
 import { h, openSheet, toast } from '../../ui.js';
 import { parseMessage, renderTokens, mentionsMe } from '../format.js';
-import { loadMessages, react as sendReact, editMessage, deleteMessage, retrySend, discardSend, chatError as dataError } from '../data.js';
+import { loadMessages, react as sendReact, editMessage, deleteMessage, pin as pinMessage, retrySend, discardSend, chatError as dataError } from '../data.js';
 import { QUICK_REACTIONS, emojiName } from '../emoji-data.js';
-import { icon, avatar, nameEl, nameOf, roleMark, timeShort, fullStamp, dayKey, dayLabel, mediaSrc, finePointer } from './common.js';
+import { icon, avatar, nameEl, nameOf, roleMark, badgeMarks, hotOnHover, timeShort, fullStamp, dayKey, dayLabel, mediaSrc, finePointer } from './common.js';
 import { openEmojiPicker, closeEmojiPicker } from './emoji-picker.js';
 import { CAP, matchTemp, splitPending, capWindow } from '../feedlogic.js';
 
@@ -37,7 +37,8 @@ export function mountMessages(el, ctx) {
 
   const me = () => ctx.me() || {};
   const isMine = (m) => !!me().id && m.author_id === me().id;
-  const authorOf = (m) => m.author || ctx.profile(m.author_id) || { id: m.author_id, username: 'someone' };
+  // The live member list first (name, flair and role changes show on old messages too), then the row's own join.
+  const authorOf = (m) => ctx.profile(m.author_id) || m.author || { id: m.author_id, username: 'someone' };
   const sortKey = (a, b) => a._t - b._t || (Number(a.id) || 0) - (Number(b.id) || 0);
 
   // ---------- data ----------
@@ -169,6 +170,16 @@ export function mountMessages(el, ctx) {
           : [h('i', { class: 'cx-spin', 'aria-hidden': 'true' }), h('span', { text: 'Loading older messages…' })]);
     }
     const ch = s.channel || {};
+    if (s.target.dm) {
+      const others = (ch.members || []).filter((p) => p && p.id !== me().id);
+      const one = !ch.is_group && others[0];
+      return h('div', { class: 'cx-start dm' },
+        one ? avatar(one, { size: 80, frame: 'off' }) : h('span', { class: 'cx-start-emoji', 'aria-hidden': 'true' }, icon('users')),
+        h('h2', {}, one ? nameOf(one) : ch.title || 'Group chat'),
+        one ? h('p', { class: 'cx-start-user', text: '@' + (one.username || '') }) : null,
+        h('p', { text: one ? 'This is the start of your direct messages with ' + nameOf(one) + '. Only the two of you can read them.'
+          : 'Welcome to the group. Only the ' + ((ch.members || []).length || 'people') + ' people in it can read it.' }));
+    }
     const name = ch.name || 'chat';
     return h('div', { class: 'cx-start' },
       h('span', { class: 'cx-start-emoji', 'aria-hidden': 'true', text: ch.emoji || '#' }),
@@ -213,7 +224,7 @@ export function mountMessages(el, ctx) {
   }
   function rowEl(m, grouped) {
     const blocked = ctx.isBlocked(m.author_id) && !revealed.has(m.id);
-    const sig = m._v + '|' + grouped + '|' + blocked + '|' + (editing === m.id) + '|' + !!ctx.canReact() + '|' + ctx.version();
+    const sig = m._v + '|' + grouped + '|' + blocked + '|' + (editing === m.id) + '|' + !!ctx.canReact() + '|' + !!(ctx.canTools && ctx.canTools()) + '|' + ctx.version();
     const c = rows.get(m);
     if (c && c.sig === sig) return c.el;
     const el2 = buildRow(m, grouped, blocked);
@@ -242,14 +253,14 @@ export function mountMessages(el, ctx) {
     const row = h('div', { class: cls.join(' '), dataset: { mid: String(m.id ?? m.tempId) } });
     if (head && m.reply_to != null) row.append(replyRef(m));
     const gutter = h('div', { class: 'cx-gutter' });
-    if (head) gutter.append(h('button', { type: 'button', class: 'cx-av-btn', 'aria-label': nameOf(a), onclick: () => ctx.onProfile && ctx.onProfile(a) }, avatar(a, { size: 40 })));
+    if (head) gutter.append(h('button', { type: 'button', class: 'cx-av-btn', 'aria-label': nameOf(a), onclick: (e) => ctx.onProfile && ctx.onProfile(a, e.currentTarget) }, avatar(a, { size: 40, frame: 'hover' })));
     else gutter.append(h('time', { class: 'cx-gtime', datetime: new Date(m._t).toISOString(), title: fullStamp(m._t), text: timeShort(m._t) }));
     const main = h('div', { class: 'cx-msg-main' });
     if (head) {
       const nm = nameEl(a, 'button', 'cx-name');
       nm.type = 'button';
-      nm.addEventListener('click', () => ctx.onProfile && ctx.onProfile(a));
-      main.append(h('div', { class: 'cx-meta' }, nm, roleMark(a),
+      nm.addEventListener('click', () => ctx.onProfile && ctx.onProfile(a, nm));
+      main.append(h('div', { class: 'cx-meta' }, nm, roleMark(a), badgeMarks(a),
         h('time', { class: 'cx-time', datetime: new Date(m._t).toISOString(), title: fullStamp(m._t), text: timeShort(m._t) }), // the day divider above says which day
         m.pinned ? h('span', { class: 'cx-pinned', title: 'Pinned' }, icon('pin'), 'Pinned') : null));
     } else if (m.pinned) main.append(h('span', { class: 'cx-pinned solo', title: 'Pinned' }, icon('pin'), 'Pinned'));
@@ -263,8 +274,10 @@ export function mountMessages(el, ctx) {
         h('button', { type: 'button', class: 'cx-mini ghost', onclick: () => discard(m) }, 'Discard')));
     }
     row.append(gutter, main);
-    // The hover toolbar is built on first hover / focus / tap, not for every row up front.
-    if (!m.pending && !m.failed && !m.deleted && ctx.canReact() && editing !== m.id) {
+    if (head) hotOnHover(row);
+    // The hover toolbar is built on first hover / focus / tap, not for every row up front. Timed-out / banned members keep
+    // it for Report and deleting their own messages (canTools); the posting actions inside need canReact.
+    if (!m.pending && !m.failed && !m.deleted && (ctx.canTools ? ctx.canTools() : ctx.canReact()) && editing !== m.id) {
       const tools = () => { if (!row.querySelector(':scope > .cx-tools')) row.append(toolsEl(m, mine)); };
       row.addEventListener('mouseenter', tools);
       row.addEventListener('focusin', tools);
@@ -348,8 +361,8 @@ export function mountMessages(el, ctx) {
     const items = local.length ? local : m.attachments;
     const box = h('div', { class: 'cx-atts n' + Math.min(items.length, 4) });
     items.slice(0, 4).forEach((att, i) => {
-      const w = Number(att.width) || 0, ht = Number(att.height) || 0;
-      const gif = local.length ? att.gif : /gif/i.test(att.type || att.mime || '') || /\.gif$/i.test(att.path || '');
+      const w = Number(att.w) || 0, ht = Number(att.h) || 0; // attachment items: { bucket, path, kind: 'image'|'gif', w, h, bytes, expired? }
+      const gif = local.length ? att.gif : att.kind === 'gif' || /\.gif$/i.test(att.path || '');
       const cell = h('button', { type: 'button', class: 'cx-att loading', 'aria-label': gif ? 'Open GIF' : 'Open picture' });
       if (items.length === 1 && w && ht) cell.style.aspectRatio = w + ' / ' + ht;
       if (items.length === 1 && w && ht) cell.style.width = 'min(100%, ' + Math.round(Math.min(420, w, 340 * w / ht)) + 'px)';
@@ -412,6 +425,11 @@ export function mountMessages(el, ctx) {
 
   function toolsEl(m, mine) {
     const bar = h('div', { class: 'cx-tools', role: 'toolbar', 'aria-label': 'Message actions' });
+    if (!ctx.canReact()) {
+      if (mine) bar.append(h('button', { type: 'button', class: 'cx-tool danger', title: 'Delete', 'aria-label': 'Delete', onclick: () => confirmDelete(m) }, icon('trash')));
+      if (ctx.extraTools) for (const b of ctx.extraTools(m, { confirmDelete: (opts) => confirmDelete(m, opts), setPinned: (on) => setPinned(m, on), author: authorOf(m) }) || []) bar.append(b);
+      return bar;
+    }
     for (const e of QUICK_REACTIONS.slice(0, 3)) bar.append(h('button', { type: 'button', class: 'cx-tool emo', title: 'React ' + e, 'aria-label': 'React ' + (emojiName(e) || e), text: e, onclick: () => toggleReact(m, e, true) }));
     const more = h('button', { type: 'button', class: 'cx-tool', title: 'Add a reaction', 'aria-label': 'Add a reaction', 'aria-haspopup': 'dialog' }, icon('react'));
     more.addEventListener('click', () => openEmojiPicker(more, { label: 'React', onPick: (e) => toggleReact(m, e, true) }));
@@ -421,14 +439,16 @@ export function mountMessages(el, ctx) {
       if (m.body) bar.append(h('button', { type: 'button', class: 'cx-tool', title: 'Edit', 'aria-label': 'Edit', onclick: () => { editing = m.id; m._v++; repaintRow(m); } }, icon('edit')));
       bar.append(h('button', { type: 'button', class: 'cx-tool danger', title: 'Delete', 'aria-label': 'Delete', onclick: () => confirmDelete(m) }, icon('trash')));
     }
-    if (ctx.extraTools) for (const b of ctx.extraTools(m) || []) bar.append(b);
+    if (ctx.extraTools) for (const b of ctx.extraTools(m, { confirmDelete: (opts) => confirmDelete(m, opts), setPinned: (on) => setPinned(m, on), author: authorOf(m) }) || []) bar.append(b);
     return bar;
   }
-  function confirmDelete(m) {
+  // Own messages, and staff deleting someone else's (opts.staff: the note names the author).
+  function confirmDelete(m, opts = {}) {
     const sheet = openSheet({ title: 'Delete message?' });
     const go = h('button', { type: 'button', class: 'fp-btn cx-danger-btn' }, 'Delete');
     sheet.body.append(
-      h('p', { class: 'fp-note', text: 'Everyone will see “message deleted” instead. This can’t be undone.' }),
+      h('p', { class: 'fp-note', text: opts.staff ? 'You’re deleting ' + nameOf(authorOf(m)) + '’s message. Everyone will see “message deleted” instead. This can’t be undone.'
+        : 'Everyone will see “message deleted” instead. This can’t be undone.' }),
       h('blockquote', { class: 'cx-quote', text: (m.body || 'Picture').slice(0, 300) }),
       h('div', { class: 'cx-sheet-actions' }, h('button', { type: 'button', class: 'fp-mini', onclick: () => sheet.close() }, 'Cancel'), go));
     go.addEventListener('click', () => {
@@ -438,6 +458,13 @@ export function mountMessages(el, ctx) {
       Promise.resolve().then(() => deleteMessage(m.id)).catch((e) => { Object.assign(m, old); m._v++; repaintRow(m); toast(err(e), 'err'); });
     });
     go.focus();
+  }
+
+  // Staff pin / unpin, shown right away and put back if the server says no.
+  function setPinned(m, on) {
+    const was = m.pinned;
+    m.pinned = !!on; m._v++; repaintRow(m);
+    Promise.resolve().then(() => pinMessage(m.id, !!on)).then(() => toast(on ? 'Pinned' : 'Unpinned'), (e) => { m.pinned = was; m._v++; repaintRow(m); toast(err(e), 'err'); });
   }
 
   // Discard cancels the queued / retrying send as well as removing the row (one the server already took can't be undone: its row just arrives).
@@ -557,6 +584,15 @@ export function mountMessages(el, ctx) {
       if (s.hasMore && scroller.scrollHeight <= scroller.clientHeight + 40) loadOlder();
     },
     current: () => (store ? store.target : null),
+    async jumpTo(id, tries = 8) {
+      for (let i = 0; i <= tries; i++) {
+        if (store && store.ids.has(id)) { requestAnimationFrame(() => jumpTo(id)); return true; }
+        if (!store || !store.loaded || !store.hasMore) break;
+        await loadOlder();
+      }
+      toast('That message isn’t in this chat any more');
+      return false;
+    },
     atBottom: () => stick,
     waiting(kind) {
       store = null;
