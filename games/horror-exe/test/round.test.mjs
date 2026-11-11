@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Round } from '../shared/round.js';
-import { ROUND, SURV, EXE, ST, F, CHARS, TASKS, TASK, PORTAL, HIDE, VARIANTS, AWAKEN, levelOf, LEVEL } from '../shared/rules.js';
+import { ROUND, SURV, EXE, ST, F, CHARS, TASKS, TASK, TASK_MIN, PORTAL, HIDE, VARIANTS, AWAKEN, levelOf, LEVEL } from '../shared/rules.js';
 import { stepMove, body } from '../shared/move.js';
 import { terrainH, supportAt, SPRINGS, M, PORTALS, BOOSTS, OBJ, EXITS, MAP, LOCKERS } from '../shared/map.js';
 
@@ -142,27 +142,55 @@ test('zone tasks: shards, valves, panels, bells and the fire core; all five open
   playing(R);
   const me = R.ents.get(1);
   const stand = (o, w, s) => { place(R, 1, o.x, o.z, 0, w); me.y = o.y - 1.1; tick(R, s); };
-  for (const sh of R.shards) stand(sh, 0, SURV.shardTime + 0.3);
+  // people do tasks through the minigame window: open it, play it, finish it
+  const doTask = (t, i, o, w) => {
+    stand(o, w, 0.1);
+    assert.ok(R.action(1, { k: 'task', s: 'open', t, i }), `open ${t} ${i}`);
+    assert.ok(R.flagsOf(me) & F.TASK, 'others can see you working');
+    tick(R, TASK_MIN[t] + 0.1);
+    assert.ok(R.action(1, { k: 'task', s: 'done', t, i }), `finish ${t} ${i}`);
+  };
+  stand(R.shards[0], 0, SURV.shardTime + 1);
+  assert.equal(R.shards[0].taken, 0, 'standing next to a task does nothing for people');
+  assert.ok(R.action(1, { k: 'task', s: 'open', t: 'shards', i: 0 }));
+  assert.equal(R.action(1, { k: 'task', s: 'done', t: 'shards', i: 0 }), false, 'a minigame can not be finished instantly');
+  R.action(1, { k: 'task', s: 'cancel', t: 'shards', i: 0 });
+  assert.equal(R.flagsOf(me) & F.TASK, 0);
+  R.shards.forEach((sh, i) => doTask('shards', i, sh, 0));
   assert.ok(R.done.shards);
-  stand(R.valves[0], 0, 1);
-  assert.equal(R.valves[0].done, 0, 'valves take time');
-  for (const v of R.valves) stand(v, 0, TASK.valveTime + 0.3);
+  // far away, or in the wrong world: the window won't open
+  place(R, 1, R.valves[0].x + 20, R.valves[0].z, 0, 0);
+  assert.equal(R.action(1, { k: 'task', s: 'open', t: 'valves', i: 0 }), false, 'too far');
+  stand(R.panels[0], 0, 0.1);
+  assert.equal(R.action(1, { k: 'task', s: 'open', t: 'panels', i: 0 }), false, 'panels are in the corrupted world');
+  // walking away closes it
+  stand(R.valves[0], 0, 0.1);
+  assert.ok(R.action(1, { k: 'task', s: 'open', t: 'valves', i: 0 }));
+  place(R, 1, R.valves[0].x + 12, R.valves[0].z, 0, 0); tick(R, 0.2);
+  assert.equal(me.task, null, 'leaving drops the minigame');
+  R.valves.forEach((v, i) => doTask('valves', i, v, 0));
   assert.ok(R.done.valves);
-  stand(R.panels[0], 0, 0.2);
-  assert.equal(R.panels[0].done, 0, 'panels are in the corrupted world');
-  for (const p of R.panels) stand(p, 1, 0.2);
+  R.panels.forEach((p, i) => doTask('panels', i, p, 1));
   assert.ok(R.done.panels);
-  for (const b of R.bells) stand(b, 1, 0.2);
+  // getting hit mid-task closes the window
+  stand(R.bells[0], 1, 0.1);
+  assert.ok(R.action(1, { k: 'task', s: 'open', t: 'bells', i: 0 }));
+  R.hit(null, me, 10, true);
+  assert.equal(me.task, null, 'a hit interrupts the task');
+  assert.ok(R.events.some((e) => e.k === 'task-x' && e.id === 1 && e.why === 'hit'));
+  R.bells.forEach((b, i) => doTask('bells', i, b, 1));
   assert.ok(R.done.bells);
   // the core: pick it up, get hit (drop), pick it up again, deliver it
   place(R, 1, OBJ.core.x, OBJ.core.z, 0, 1); tick(R, 0.2);
+  assert.equal(me.carrying, false, 'the core is frozen in: chip it out first');
+  doTask('core', 0, { x: OBJ.core.x, z: OBJ.core.z, y: me.y + 1.1 }, 1);
   assert.ok(me.carrying);
   assert.ok(R.flagsOf(me) & F.CARRY);
   R.hit(null, me);
   assert.equal(me.carrying, false);
   assert.equal(R.core.state, 2);
   tick(R, 1);
-  place(R, 1, R.core.x, R.core.z, 0, 1); tick(R, 0.2);
+  doTask('core', 0, { x: R.core.x, z: R.core.z, y: me.y + 1.1 }, 1);
   assert.ok(me.carrying);
   assert.equal(R.exitsOpen, false);
   place(R, 1, OBJ.engine.x, OBJ.engine.z, 0, 1); tick(R, 0.2);

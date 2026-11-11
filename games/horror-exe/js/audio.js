@@ -221,6 +221,7 @@ export class Sound {
       case 'burn': this.burst(t, 0.5, 0.5 * v, 'bandpass', 1500, 0.7, m, 400); this.osc('sawtooth', 300, t, 0.005, 0.2 * v, 0.3, m, 120); break;
       case 'boost': this.burst(t, 0.35, 0.3 * v, 'bandpass', 500, 1, m, 5000); this.osc('square', 440, t, 0.003, 0.06 * v, 0.2, m, 1760); break;
       case 'bumper': this.osc('square', 1200, t, 0.002, 0.15 * v, 0.08); this.osc('sine', 600, t, 0.002, 0.3 * v, 0.2, m, 1200); break;
+      case 'tone0': case 'tone1': case 'tone2': case 'tone3': { const f = [392, 494, 587, 784][+name[4]]; this.osc('sine', f, t, 0.003, 0.3 * v, 0.8, this.echo); this.osc('triangle', f * 2, t, 0.003, 0.06 * v, 0.4); break; }
       case 'task': for (const [i, f] of [659, 784, 988, 1319].entries()) this.osc('triangle', f, t + i * 0.09, 0.005, 0.2 * v, 0.6); break;
       case 'locker': this.burst(t, 0.18, 0.4 * v, 'bandpass', 700, 3); this.osc('square', 140, t, 0.002, 0.12 * v, 0.12, m, 90); break;
       case 'rip':

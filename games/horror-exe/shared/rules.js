@@ -33,6 +33,10 @@ export const HIDE = { range: 1.9, max: 15, warn: 10, seenRange: 12, cooldown: 4 
 // the quick-time minigame when EXE drags you out of a locker
 export const QTE = { prompts: 6, ring0: 1.05, ring1: 0.62, timeout: 12, botWin: 0.55 };
 export const TASK = { valveTime: 5, valveRange: 2.2, panelRange: 1.7, bellRange: 2.3, coreRange: 2.0, engineRange: 3.5, carryMul: 0.8 };
+/** People do tasks through a minigame (bots still just stand there). The fewest seconds each minigame can take, checked by the server. */
+export const TASK_MIN = { shards: 1.4, valves: 1.8, panels: 1.8, bells: 2.2, core: 1.2 };
+/** How far you can be from a task and still start or finish its minigame. */
+export const TASK_REACH = { shards: 2.6, valves: 2.6, panels: 2.4, bells: 2.8, core: 2.6 };
 
 export const SURV = {
   hp: 300, heart: 100, revives: 1, // health: three hearts of 100; each survivor can be revived once (back with 1 heart)
@@ -151,7 +155,7 @@ export const F = {
   FADE: 256, REVEAL: 512, LUNGE: 1024, RECOVER: 2048, REVIVING: 4096, WATER: 8192,
   GOO: 16384, CARRY: 32768, POP: 65536, ICE: 131072,
   HIDDEN: 262144, QTE: 524288, HUNT: 1048576, SLOWED: 2097152,
-  SPIN: 4194304, AWAKE: 8388608, INVIS: 16777216, IRON: 33554432, INVERT: 67108864, TURBO: 134217728, PINGED: 268435456, SLOWX: 536870912,
+  SPIN: 4194304, AWAKE: 8388608, INVIS: 16777216, IRON: 33554432, INVERT: 67108864, TURBO: 134217728, PINGED: 268435456, SLOWX: 536870912, TASK: 1073741824,
 };
 export const ST = { alive: 0, down: 1, out: 2, esc: 3 };
 export const PHASES = ['intro', 'play', 'escape', 'over'];

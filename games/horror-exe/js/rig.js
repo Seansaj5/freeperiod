@@ -1,8 +1,9 @@
-// Blocky avatars (R6-style: head, torso, two arms, two legs) with custom clothes and faces,
-// each survivor's own accessories, and the three EXE monsters. Animation is procedural.
+// The three EXE monsters (and Glitch's blocky body), name tags and scare faces. Survivors' bodies are in avatar.js.
+// Animation is procedural.
 import * as THREE from 'three';
 import { CHARS } from '../shared/rules.js';
 import { damp } from '../shared/util.js';
+import { buildAvatar, updateAvatar } from './avatar.js';
 
 const U = 0.45; // one "stud"
 const geoCache = new Map();
@@ -236,17 +237,8 @@ export class Rig {
     return m;
   }
 
-  buildSurvivor(look, char) {
-    const L = look;
-    const skin = this.mat(L.skin), shirt = this.mat(L.shirt), pants = this.mat(L.pants), shoe = this.mat(shade(L.pants, 0.45));
-    const front = this.mat(0xffffff, { map: canvasTex(`shirt:${L.shirt}:${L.pattern}:${L.style}`, 128, 128, (g, w, h) => { drawShirt(g, w, h, L.shirt, L.pattern); if (L.style === 'hoodie') { g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(w * 0.2, h * 0.7, w * 0.6, h * 0.22); } }) });
-    const sleeve = L.style === 'tee' ? 0.38 : L.style === 'tank' ? 0 : 1;
-    this.skeleton({ torsoMats: [shirt, shirt, shirt, shirt, front, shirt], armTop: shirt, armBottom: skin, sleeve, legTop: pants, shoe, headMat: skin });
-    this.faceOn(L.face);
-    this.hat(L.hat, L.hatColor, char);
-    if (L.style === 'hoodie') { const hood = new THREE.Mesh(rbox(0.7, 0.28, 0.32, 0.1), shirt); hood.position.set(0, 2 * U + 0.06, -0.26); this.hips.add(hood); }
-    this.accessories(char);
-  }
+  /** Survivors (and EXE's disguise) use the jointed avatar in avatar.js. */
+  buildSurvivor(look, char) { buildAvatar(this, look, char); }
 
   hat(kind, color, char) {
     const m = this.mat(color), h = this.head;
@@ -260,69 +252,6 @@ export class Rig {
       case 'headphones': { const band = add(new THREE.TorusGeometry(0.33, 0.035, 8, 20, Math.PI), 0, 0.32, 0, this.mat(0x222228)); band.rotation.y = Math.PI / 2; for (const s of [-1, 1]) add(new THREE.CylinderGeometry(0.11, 0.11, 0.1, 14), s * 0.32, 0.3, 0).rotation.z = Math.PI / 2; break; }
       case 'crown': { const gold = this.mat(0xffcc33, { emissive: 0x332200 }); add(new THREE.CylinderGeometry(0.3, 0.3, 0.12, 20, 1, true), 0, 0.64, 0, gold); for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; add(new THREE.ConeGeometry(0.05, 0.14, 4), Math.sin(a) * 0.29, 0.76, Math.cos(a) * 0.29, gold); } break; }
       case 'tophat': add(new THREE.CylinderGeometry(0.4, 0.4, 0.03, 22), 0, 0.6, 0); add(new THREE.CylinderGeometry(0.24, 0.26, 0.4, 20), 0, 0.81, 0); add(new THREE.CylinderGeometry(0.265, 0.265, 0.07, 20), 0, 0.66, 0, this.mat(0xb3202a)); break;
-    }
-  }
-
-  accessories(char) {
-    const acc = CHARS[char].accent;
-    const accent = this.mat(acc), dark = this.mat(0x1d1d24), white = this.mat(0xf2f2f2);
-    if (char === 'bolt') {
-      // scarf with two tails that stream behind, lightning sneakers, wristbands
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.08, 8, 18), accent); ring.rotation.x = Math.PI / 2; ring.position.y = 2 * U + 0.02; this.hips.add(ring);
-      this.extra.tails = [0, 1].map((i) => { const g = new THREE.Group(); g.position.set(i ? -0.1 : 0.12, 2 * U, -0.22); const m = new THREE.Mesh(rbox(0.16, 0.06, 0.62, 0.02), accent); m.position.z = -0.3; g.add(m); this.hips.add(g); return g; });
-      for (const leg of [this.legL, this.legR]) {
-        const f = leg.userData.foot; f.material = white;
-        const stripe = new THREE.Mesh(rbox(0.47, 0.05, 0.2, 0.01), accent); stripe.position.set(0, 0.04, 0.08); f.add(stripe);
-        const sole = new THREE.Mesh(rbox(0.47, 0.05, 0.52, 0.01), this.mat(0xd22b2b)); sole.position.y = -0.07; f.add(sole);
-      }
-      for (const arm of [this.armL, this.armR]) { const b = new THREE.Mesh(rbox(U * 1.06, 0.12, U * 1.06, 0.03), white); b.position.y = 0.12; arm.userData.hand.add(b); }
-      const emblem = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.42), lam(0xffffff, { map: canvasTex('bolt-emblem', 64, 64, (g) => { g.fillStyle = acc; g.beginPath(); g.moveTo(38, 4); g.lineTo(14, 36); g.lineTo(30, 36); g.lineTo(22, 60); g.lineTo(50, 24); g.lineTo(34, 24); g.closePath(); g.fill(); }), transparent: true }));
-      emblem.position.set(0, U * 1.1, -U / 2 - 0.01); emblem.rotation.y = Math.PI; this.hips.add(emblem);
-    } else if (char === 'pip') {
-      // propeller backpack, goggles around the neck, tool belt with a wrench
-      const pack = new THREE.Mesh(rbox(0.56, 0.6, 0.24, 0.06), accent); pack.position.set(0, U * 1.1, -0.34); this.hips.add(pack);
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.7, 8), dark); pole.position.set(0, U * 1.1 + 0.62, -0.38); this.hips.add(pole);
-      const prop = new THREE.Group(); prop.position.set(0, U * 1.1 + 0.98, -0.38); this.hips.add(prop);
-      for (let i = 0; i < 2; i++) { const b = new THREE.Mesh(rbox(1.1, 0.03, 0.14, 0.01), white); b.rotation.y = i * Math.PI / 2; prop.add(b); }
-      prop.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), accent));
-      this.extra.prop = prop;
-      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.45, 10), new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.85 }));
-      flame.rotation.x = Math.PI; flame.position.set(0, U * 1.1 - 0.5, -0.34); flame.visible = false; this.hips.add(flame); this.extra.flame = flame;
-      const strap = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.035, 6, 18), dark); strap.rotation.x = Math.PI / 2; strap.position.y = 2 * U - 0.01; this.hips.add(strap);
-      for (const s of [-1, 1]) { const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.06, 14), this.mat(0x9fe6ff, { emissive: 0x113344 })); lens.rotation.x = Math.PI / 2; lens.position.set(s * 0.12, 2 * U - 0.06, 0.28); this.hips.add(lens); }
-      const belt = new THREE.Mesh(rbox(2 * U + 0.06, 0.12, U + 0.06, 0.03), this.mat(0x6b4426)); belt.position.y = 0.07; this.hips.add(belt);
-      const wrench = new THREE.Group(); wrench.position.set(0.36, 0.0, 0.18); wrench.rotation.z = 0.3;
-      const wh = new THREE.Mesh(rbox(0.07, 0.42, 0.05, 0.01), this.mat(0xb8c0cc)); wrench.add(wh);
-      const wt = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.03, 6, 10, Math.PI * 1.5), this.mat(0xb8c0cc)); wt.position.y = 0.24; wrench.add(wt);
-      this.hips.add(wrench);
-    } else if (char === 'rook') {
-      // giant knuckle gauntlets, a bandana, a shoulder plate
-      for (const arm of [this.armL, this.armR]) {
-        const g = new THREE.Mesh(rbox(0.6, 0.5, 0.6, 0.1), accent); g.position.y = -0.02; arm.userData.hand.add(g);
-        for (let i = 0; i < 3; i++) { const k = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.16, 6), white); k.rotation.x = Math.PI / 2; k.position.set(-0.17 + i * 0.17, -0.06, 0.32); arm.userData.hand.add(k); }
-        const cuff = new THREE.Mesh(rbox(0.52, 0.12, 0.52, 0.03), white); cuff.position.y = 0.26; arm.userData.hand.add(cuff);
-      }
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.32, 0.18, 20, 1, true), this.mat(acc, { side: THREE.DoubleSide })); band.position.y = 2 * U + 0.05; this.hips.add(band);
-      const knot = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.3, 4), accent); knot.position.set(0, 2 * U - 0.08, 0.3); knot.rotation.x = Math.PI; this.hips.add(knot);
-      const plate = new THREE.Mesh(rbox(0.6, 0.18, 0.6, 0.06), dark); plate.position.set(0, 0.12, 0); this.armL.add(plate);
-      for (let i = 0; i < 3; i++) { const sp = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 6), white); sp.position.set(-0.15 + i * 0.15, 0.3, 0); this.armL.add(sp); }
-    } else if (char === 'mira') {
-      // giant mallet (on her back, in her hands when she bonks), a bow, a heart badge
-      const mallet = new THREE.Group();
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.3, 8), this.mat(0xf5d76e)); handle.position.y = 0.65; mallet.add(handle);
-      const head = new THREE.Mesh(rbox(0.75, 0.5, 0.5, 0.12), accent); head.position.y = 1.4; head.rotation.z = Math.PI / 2; mallet.add(head);
-      for (const s of [-1, 1]) { const band = new THREE.Mesh(rbox(0.1, 0.53, 0.53, 0.04), this.mat(0xffe66b)); band.position.set(s * 0.25, 1.4, 0); mallet.add(band); }
-      this.extra.mallet = mallet;
-      this.extra.malletBack = () => { this.hips.add(mallet); mallet.position.set(0.1, 0.1, -0.35); mallet.rotation.set(0, 0, 0.45); mallet.scale.setScalar(0.85); };
-      this.extra.malletHand = () => { this.armR.userData.hand.add(mallet); mallet.position.set(0, -0.05, 0.1); mallet.rotation.set(Math.PI / 2, 0, 0); mallet.scale.setScalar(1); };
-      this.extra.malletBack();
-      const bow = new THREE.Group(); bow.position.set(0.24, 0.66, -0.05); bow.rotation.z = -0.4;
-      for (const s of [-1, 1]) { const w = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.24, 4), accent); w.rotation.z = (s * Math.PI) / 2; w.position.x = s * 0.12; bow.add(w); }
-      bow.add(new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), accent));
-      this.head.add(bow);
-      const hb = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.03, 6, 20, Math.PI), accent); hb.position.y = 0.52; hb.rotation.y = Math.PI / 2; this.head.add(hb);
-      const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.26), lam(0xffffff, { map: canvasTex('heart-badge', 64, 64, (g) => { g.fillStyle = '#ffe66b'; g.beginPath(); g.arc(32, 32, 30, 0, Math.PI * 2); g.fill(); g.fillStyle = acc; g.beginPath(); g.moveTo(32, 50); g.bezierCurveTo(6, 32, 18, 10, 32, 24); g.bezierCurveTo(46, 10, 58, 32, 32, 50); g.fill(); }), transparent: true }));
-      badge.position.set(0.2, U * 1.5, U / 2 + 0.012); this.hips.add(badge);
     }
   }
 
@@ -810,6 +739,7 @@ export class Rig {
   update(dt, s) {
     this.t += dt;
     if (s.awake !== undefined) this.setAwake(!!s.awake);
+    if (this.avatar) { updateAvatar(this, dt, s); return; }
     if (this.organic) { this.updateOrganic(dt, s); if (this.extra.eyeGlow) this.extra.eyeGlow.material.opacity = (0.8 + Math.sin(this.t * 6) * 0.2) * Math.max(0.25, this.opacity); return; }
     const k = 16;
     const R = (o, ax, v) => { o.rotation[ax] = damp(o.rotation[ax], v, k, dt); };
@@ -1110,3 +1040,6 @@ function drawGrinFace(g, cx, cy, R) {
   for (let i = 0; i < 4; i++) { const y = top + Math.random() * (bot - top), s = 3 + Math.random() * 8; g.drawImage(g.canvas, 0, y, g.canvas.width, s, (Math.random() - 0.5) * 18, y, g.canvas.width, s); }
   for (let i = 0; i < 18; i++) { g.fillStyle = i % 2 ? '#ff1a22' : '#2c2830'; const s = 2 + Math.random() * 5; g.fillRect(cx + (Math.random() - 0.5) * W * 3, cy + (Math.random() - 0.5) * R * 2.6, s, s); }
 }
+
+// shared with avatar.js
+export { rbox, canvasTex, drawShirt, shade };

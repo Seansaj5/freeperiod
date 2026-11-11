@@ -37,7 +37,9 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   (`kart/js/music.js`). Headless checks can set `__kart.test.fast` and `__kart.race.autoplay`.
 
 - **horror.exe** lives in `games/horror-exe/`: survivors vs EXE across five zones in two worlds (normal and corrupted,
-  swapped through rift portals), with zone tasks and a disguising EXE. The round rules,
+  swapped through rift portals), with zone tasks and a disguising EXE. People do tasks through minigame windows
+  (`js/tasks.js`: F near a task; the server checks reach and each game's shortest time, `TASK_MIN` in `shared/rules.js`);
+  bots still do them by standing next to them. Survivors are jointed avatars built in `js/avatar.js`. The round rules,
   map and bots are in `games/horror-exe/shared/` and run in the browser for solo games and on the server
   (`games/horror-exe/server/`, Render service `freeperiod-horror`) for online rooms.
   Test locally: `node games/horror-exe/server/index.js` (port 8790) and open `games/horror-exe/?server=ws://localhost:8790`.

@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { OBJ, ZONES, supportAt, terrainH } from '../shared/map.js';
+import { TASK_MIN } from '../shared/rules.js';
 const WebSocket = createRequire(new URL('../server/package.json', import.meta.url))('ws');
 
 const USERS = { 'tok-owner-123': { username: 'Saj', role: 'owner' }, 'tok-player-123': { username: 'Kid42', role: 'player' } };
@@ -93,6 +95,31 @@ test('server: accounts, owner names and admin tools', async (t) => {
   let saw = false;
   while (!saw && Date.now() < deadline) { await new Promise((r) => setTimeout(r, 100)); saw = own.msgs.some((m) => m.t === 'ev' && m.ev.some((e) => e.k === 'admin' && e.c === 'god' && e.on === true)); }
   assert.ok(saw, 'god mode event');
+  // a task minigame over the network: walk to a valve (teleport to Toxic Works, then short steps), open, play, finish
+  own.send({ t: 'admin', c: 'tp', zone: 2 });
+  await new Promise((r) => setTimeout(r, 300));
+  const v = OBJ.valves[0];
+  let px = ZONES[2].x + 4, pz = ZONES[2].z + 4;
+  while (Math.hypot(v.x + 0.5 - px, v.z - pz) > 0.1) {
+    const d = Math.hypot(v.x + 0.5 - px, v.z - pz), k = Math.min(1, 20 / d);
+    px += (v.x + 0.5 - px) * k; pz += (v.z - pz) * k;
+    own.send({ t: 'st', x: px, y: supportAt(px, pz, terrainH(px, pz) + 0.2, false, 0), z: pz, ry: 0, f: 0 });
+    await new Promise((r) => setTimeout(r, 80));
+  }
+  own.send({ t: 'st', x: px, y: v.y - 1.1, z: pz, ry: 0, f: 0 });
+  await new Promise((r) => setTimeout(r, 120));
+  own.msgs = [];
+  own.send({ t: 'act', k: 'task', s: 'open', tk: 'valves', i: 0 });
+  await new Promise((r) => setTimeout(r, 200));
+  own.send({ t: 'act', k: 'task', s: 'done', tk: 'valves', i: 0 }); // far too quick: ignored
+  await new Promise((r) => setTimeout(r, 300));
+  const valveEv = () => own.msgs.some((m) => m.t === 'ev' && m.ev.some((e) => e.k === 'task' && e.t === 'valves' && e.i === 0 && e.by === own.welcome.id));
+  assert.equal(valveEv(), false, 'an instant finish is rejected');
+  await new Promise((r) => setTimeout(r, TASK_MIN.valves * 1000));
+  own.send({ t: 'act', k: 'task', s: 'done', tk: 'valves', i: 0 });
+  const until = Date.now() + 2000;
+  while (!valveEv() && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+  assert.ok(valveEv(), 'the valve minigame counts online');
   own.send({ t: 'admin', c: 'end' });
   await own.next('adm');
   own.ws.close(); kid.ws.close();

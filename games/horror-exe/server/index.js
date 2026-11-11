@@ -211,6 +211,7 @@ wss.on('connection', (ws) => {
         break;
       case 'act':
         if (room.state === 'game' && room.round && ['atk', 'abl', 'ab2', 'ab3', 'ab4', 'awaken', 'disguise', 'hide', 'qte'].includes(m.k)) room.round.action(me.id, { k: m.k, ok: m.ok === true });
+        else if (room.state === 'game' && room.round && m.k === 'task' && ['open', 'done', 'cancel'].includes(m.s)) room.round.action(me.id, { k: 'task', s: m.s, t: String(m.tk || '').slice(0, 8), i: m.i | 0 }); // tk: t is the message type
         break;
       case 'pick':
         if (m.name !== undefined && !me.acct) me.name = guestName(m.name);
