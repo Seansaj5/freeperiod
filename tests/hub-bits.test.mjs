@@ -132,6 +132,12 @@ test('Deep Space dust: counts by screen, three layers far to near, seeded, wraps
     const [x, y] = dustAt(s2, t, sc, [-1, 1], 1440, 900);
     assert.ok(x >= -10 && x < 1450 && y >= -10 && y < 910, JSON.stringify([t, sc, x, y]));
   }
+  // a big soft glow wraps only once it is fully off screen (its radius as the edge)
+  const glow = { layer: 0, x: 5, y: 450, r: 200 };
+  assert.ok(dustAt(glow, 2, 0, [0, 0], 1440, 900, 200)[0] < 5 && dustAt(glow, 2, 0, [0, 0], 1440, 900, 200)[0] > -200);
+  assert.ok(dustAt(glow, 200, 0, [0, 0], 1440, 900, 200)[0] > 1440 - 200 + 5);      // gone off the left, back in from the right
+  const out = [0, 0];
+  assert.equal(dustAt(s0, 0, 0, [0, 0], 1440, 900, 10, out), out);                    // the draw loop reuses one array
   assert.equal(makeMotes(390, 844).length, 3);
   assert.equal(makeMotes(1440, 900).length, 6);
   assert.equal(makeMotes(1440, 900).filter((m) => m.gold).length, 1);

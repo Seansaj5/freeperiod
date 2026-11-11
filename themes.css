@@ -37,7 +37,7 @@
   --card: linear-gradient(180deg, rgba(10, 13, 23, 0.95), rgba(3, 4, 9, 0.97));
   --radius: 14px; --shadow: 0 0 0 1px rgba(143, 211, 255, 0.1), 0 0 26px -12px rgba(143, 211, 255, 0.5);
   --font-ui: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif; --font-display: 'Space Grotesk', system-ui, sans-serif;
-  --btn-bg: linear-gradient(180deg, color-mix(in srgb, var(--lime) 55%, #fff), var(--lime) 55%, color-mix(in srgb, var(--lime) 86%, #000)); --btn-text: #1a0f00;
+  --btn-bg: linear-gradient(180deg, color-mix(in srgb, var(--lime) 50%, #fff), var(--lime) 54%); --btn-text: #1a0f00;
 }
 :root[data-theme="minimal"], [data-theme="minimal"] {
   --bg: #0d0d0f; --bg-2: #0d0d0f; --panel: #121215; --panel-2: #18181c;
@@ -547,15 +547,15 @@
 :root[data-theme="space"] :is(.btn-play, .fp-btn:not(:disabled), .fn-join:not(.fn-play), .lb-cta, .tool.main, .fp-tab.on) {
   --lit: var(--lime);
   color: var(--btn-text); border-color: transparent; text-shadow: none;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--lit) 50%, #fff) 0%, var(--lit) 54%, color-mix(in srgb, var(--lit) 84%, #000) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 0 0 1px color-mix(in srgb, var(--lit) 50%, transparent),
+  background: linear-gradient(180deg, color-mix(in srgb, var(--lit) 50%, #fff) 0%, var(--lit) 54%);      /* never darker than the accent: dark text keeps its contrast on a red game color too */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 -2px 0 rgba(0, 0, 0, 0.16), 0 0 0 1px color-mix(in srgb, var(--lit) 50%, transparent),
     0 0 22px -6px color-mix(in srgb, var(--lit) 85%, transparent), 0 10px 30px -14px color-mix(in srgb, var(--lit) 90%, transparent);
 }
 :root[data-theme="space"] .lb-cta { --lit: var(--accent); }
 :root[data-theme="space"] :is(.btn-play, .fp-btn:not(:disabled), .fn-join:not(.fn-play), .lb-cta, .tool.main):hover {
   color: var(--btn-text);
   background: linear-gradient(180deg, color-mix(in srgb, var(--lit) 40%, #fff) 0%, color-mix(in srgb, var(--lit) 88%, #fff) 54%, var(--lit) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.24), 0 0 0 1px color-mix(in srgb, var(--lit) 70%, transparent),
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.24), inset 0 -2px 0 rgba(0, 0, 0, 0.14), 0 0 0 1px color-mix(in srgb, var(--lit) 70%, transparent),
     0 0 34px -4px color-mix(in srgb, var(--lit) 95%, transparent), 0 14px 36px -12px color-mix(in srgb, var(--lit) 95%, transparent);
 }
 :root[data-theme="space"] .btn-play { border-radius: 999px; font-size: 17px; letter-spacing: 0.1em; text-transform: uppercase; padding: 0 32px 0 26px; isolation: isolate; }
@@ -568,7 +568,6 @@
 :root[data-theme="space"] .fp-btn { border-radius: 999px; font-size: 15px; letter-spacing: 0.06em; }
 :root[data-theme="space"] .fp-btn:disabled { background: var(--sp-btn); box-shadow: inset 0 0 0 1px var(--sp-edge); }
 :root[data-theme="space"] .fn-join.fn-play { background: var(--sp-btn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent), 0 0 16px -6px color-mix(in srgb, var(--accent) 60%, transparent); }
-:root[data-theme="space"] .tool.main:hover { color: var(--btn-text); }
 :root[data-theme="space"] .thumb .go { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 22px -4px color-mix(in srgb, var(--accent) 85%, transparent); }
 /* the account chip: an amber outline that lights up */
 :root[data-theme="space"] .fp-chip:not(.on) { background: rgba(4, 6, 12, 0.85); border-color: rgb(var(--lime-rgb) / 0.6); box-shadow: 0 0 18px -6px rgb(var(--lime-rgb) / 0.65), inset 0 0 12px -8px rgb(var(--lime-rgb) / 0.8); }

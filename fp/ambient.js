@@ -423,12 +423,14 @@ export function makeDust(w, fh, seed = 23) {
 }
 
 /** Where a star is at t seconds with the page scrolled `scroll` px and the mouse at look = [-1..1, -1..1] from the middle:
- *  its layer's drift, scroll and mouse parallax, wrapped around a w x fh field (with DUST_EDGE to spare). Pure: tested. */
-export function dustAt(s, t, scroll, look, w, fh) {
-  const L = DUST_LAYERS[s.layer], e = DUST_EDGE, W = w + 2 * e, H = fh + 2 * e;
+ *  its layer's drift, scroll and mouse parallax, wrapped around a w x fh field with `e` px to spare past each edge (a
+ *  glow wraps only once it is fully off screen). Writes into `out` (the draw loop reuses one array). Pure: tested. */
+export function dustAt(s, t, scroll, look, w, fh, e = DUST_EDGE, out = [0, 0]) {
+  const L = DUST_LAYERS[s.layer], W = w + 2 * e, H = fh + 2 * e;
   const x = s.x + DUST_DIR[0] * L.drift * t - look[0] * L.look;
   const y = s.y + DUST_DIR[1] * L.drift * t - scroll * L.par - look[1] * L.look;
-  return [(((x + e) % W) + W) % W - e, (((y + e) % H) + H) % H - e];
+  out[0] = (((x + e) % W) + W) % W - e; out[1] = (((y + e) % H) + H) % H - e;
+  return out;
 }
 
 /** Soft glows of dust behind the stars: 3 on a phone, 6 on bigger screens; mostly ice blue, one gold. They ride the far
@@ -476,7 +478,7 @@ function startSpace(parent, { still = false } = {}) {
   const rnd = seeded(31);
   let W = 0, H = 0, FH = 0, dpr = 1, dust = [], motes = [], raf = 0, last = 0, acc = 0, stopped = false, clock = 0;
   let shot = nextShot(-3, rnd);       // the first one comes 3 to 13 s after the page opens
-  const look = [0, 0], aim = [0, 0];
+  const look = [0, 0], aim = [0, 0], at = [0, 0];
   const sprites = DUST_RGB.map((c) => dustSprite(c)), glint = starSprite(true, 48);
   const moteIce = sprite('#8fd3ff'), moteGold = sprite('#ffb84a');
 
@@ -515,13 +517,13 @@ function startSpace(parent, { still = false } = {}) {
     const t = still ? 0 : clock, scroll = still ? 0 : (globalThis.scrollY || 0);
     ctx.globalCompositeOperation = 'lighter';
     for (const m of motes) {
-      const [x, y] = dustAt(m, t, scroll, look, W, FH);
+      const [x, y] = dustAt(m, t, scroll, look, W, FH, m.r, at);
       if (y - m.r > H) continue;
       ctx.globalAlpha = m.a;
       ctx.drawImage(m.gold ? moteGold : moteIce, x - m.r, y - m.r, m.r * 2, m.r * 2);
     }
     for (const s of dust) {
-      const [x, y] = dustAt(s, t, scroll, look, W, FH);
+      const [x, y] = dustAt(s, t, scroll, look, W, FH, DUST_EDGE, at);
       if (y > H + DUST_EDGE) continue;
       const a = s.tw && !still ? s.a * (0.62 + 0.38 * Math.sin(clock * s.tw + s.ph)) : s.a;
       ctx.globalAlpha = a;
