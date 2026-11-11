@@ -471,7 +471,7 @@ export function subscribe(target, handlers = {}) {
   };
 }
 
-// ---------- realtime: profiles, channels, DM membership, emoji (+ dmMessage for DMs nobody subscribed to) ----------
+// ---------- realtime: profiles, channels, categories, voice kicks, DM membership, emoji (+ dmMessage for DMs nobody subscribed to) ----------
 const server = { ch: null, client: null, uid: null, subs: new Set(), n: 0, status: 'connecting' };
 function emitServer(kind, payload) { for (const hd of [...server.subs]) { try { if (hd[kind]) hd[kind](payload); } catch (e) { console.error(e); } } }
 function startServer(c) {
@@ -485,6 +485,11 @@ function startServer(c) {
       const type = String(p.eventType || '').toLowerCase();
       emitServer('channel', { type, row: type === 'delete' ? { id: p.old && p.old.id } : p.new });
     })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, (p) => {
+      const type = String(p.eventType || '').toLowerCase();
+      emitServer('category', { type, row: type === 'delete' ? { id: p.old && p.old.id } : p.new });
+    })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'voice_kicks' }, (p) => emitServer('voiceKick', p.new))
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_members' }, (p) => emitServer('dmMember', { type: 'insert', dm_id: p.new.dm_id, user_id: p.new.user_id }))
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dm_members' }, (p) => emitServer('dmMember', { type: 'delete', dm_id: p.old.dm_id, user_id: p.old.user_id }))
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emoji' }, (p) => emitServer('emoji', { type: 'insert', row: p.new }))
@@ -682,14 +687,14 @@ export async function resolveReport(id, resolved = true) {
   if (!rows || !rows.length) throw fail('not_allowed');
 }
 
-export async function createChannel({ name, emoji = '💬', topic = '', ownerOnly = false } = {}) {
+export async function createChannel({ name, emoji = '💬', topic = '', ownerOnly = false, categoryId = null, kind = 'text' } = {}) {
   const last = check(await sb().from('channels').select('position').order('position', { ascending: false }).limit(1));
   const position = last && last.length ? (last[0].position | 0) + 1 : 0;
-  return check(await sb().from('channels').insert({ name, emoji, topic, owner_only: !!ownerOnly, position }).select().single());
+  return check(await sb().from('channels').insert({ name, emoji, topic, owner_only: !!ownerOnly, position, category_id: categoryId, kind }).select().single());
 }
 export async function updateChannel(id, patch = {}) {
   const clean = {};
-  for (const k of ['name', 'emoji', 'topic', 'owner_only']) if (k in patch) clean[k] = k === 'owner_only' ? !!patch[k] : patch[k];
+  for (const k of ['name', 'emoji', 'topic', 'owner_only', 'category_id']) if (k in patch) clean[k] = k === 'owner_only' ? !!patch[k] : patch[k];
   const row = check(await sb().from('channels').update(clean).eq('id', id).select().maybeSingle());
   if (!row) throw fail('not_allowed');
   return row;
@@ -698,11 +703,41 @@ export async function deleteChannel(id) {
   const rows = check(await sb().from('channels').delete().eq('id', id).select('id'));
   if (!rows || !rows.length) throw fail('not_allowed');
 }
-export async function moveChannel(id, position) {
+export async function moveChannel(id, position, categoryId) {
   if (!Number.isInteger(position)) throw fail('not_allowed', 'position');
-  const row = check(await sb().from('channels').update({ position }).eq('id', id).select().maybeSingle());
+  const patch = categoryId === undefined ? { position } : { position, category_id: categoryId };
+  const row = check(await sb().from('channels').update(patch).eq('id', id).select().maybeSingle());
   if (!row) throw fail('not_allowed');
   return row;
+}
+
+// ---------- categories + voice kicks ----------
+export async function listCategories() {
+  return check(await sb().from('categories').select('*').order('position').order('id')) || [];
+}
+export async function createCategory({ name } = {}) {
+  const last = check(await sb().from('categories').select('position').order('position', { ascending: false }).limit(1));
+  const position = last && last.length ? (last[0].position | 0) + 1 : 0;
+  return check(await sb().from('categories').insert({ name, position }).select().single());
+}
+export async function updateCategory(id, { name } = {}) {
+  const row = check(await sb().from('categories').update({ name }).eq('id', id).select().maybeSingle());
+  if (!row) throw fail('not_allowed');
+  return row;
+}
+export async function deleteCategory(id) {
+  const rows = check(await sb().from('categories').delete().eq('id', id).select('id'));
+  if (!rows || !rows.length) throw fail('not_allowed');
+}
+export async function moveCategory(id, position) {
+  if (!Number.isInteger(position)) throw fail('not_allowed', 'position');
+  const row = check(await sb().from('categories').update({ position }).eq('id', id).select().maybeSingle());
+  if (!row) throw fail('not_allowed');
+  return row;
+}
+export async function voiceKick(userId, channelId) { check(await sb().rpc('voice_kick', { target: userId, channel: channelId })); }
+export async function listVoiceKicks() {
+  return check(await sb().from('voice_kicks').select('target, channel_id, until').gt('until', new Date().toISOString())) || [];
 }
 
 // ---------- profiles ----------
