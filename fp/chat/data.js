@@ -471,7 +471,8 @@ export function subscribe(target, handlers = {}) {
   };
 }
 
-// ---------- realtime: profiles, channels, categories, voice kicks, DM membership, emoji (+ dmMessage for DMs nobody subscribed to) ----------
+// ---------- realtime: profiles, channels, categories, voice kicks + sessions, DM membership, emoji (+ dmMessage for DMs nobody subscribed to) ----------
+// voiceSession: { type: 'insert' | 'update' | 'delete', row } (a delete carries only user_id).
 const server = { ch: null, client: null, uid: null, subs: new Set(), n: 0, status: 'connecting' };
 function emitServer(kind, payload) { for (const hd of [...server.subs]) { try { if (hd[kind]) hd[kind](payload); } catch (e) { console.error(e); } } }
 function startServer(c) {
@@ -490,6 +491,10 @@ function startServer(c) {
       emitServer('category', { type, row: type === 'delete' ? { id: p.old && p.old.id } : p.new });
     })
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'voice_kicks' }, (p) => emitServer('voiceKick', p.new))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'voice_sessions' }, (p) => {
+      const type = String(p.eventType || '').toLowerCase();
+      emitServer('voiceSession', { type, row: type === 'delete' ? { user_id: p.old && p.old.user_id } : p.new });
+    })
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_members' }, (p) => emitServer('dmMember', { type: 'insert', dm_id: p.new.dm_id, user_id: p.new.user_id }))
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dm_members' }, (p) => emitServer('dmMember', { type: 'delete', dm_id: p.old.dm_id, user_id: p.old.user_id }))
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emoji' }, (p) => emitServer('emoji', { type: 'insert', row: p.new }))
@@ -642,10 +647,12 @@ export function typing(target) {
 // in-game overlay closes; voice keeps going): chat:voice (presence, key = my user id) and chat:voice:<id> (broadcast
 // signaling). The last tracked payload is tracked again after every rejoin. onStatus: 'SUBSCRIBED', 'CHANNEL_ERROR',
 // 'TIMED_OUT', 'CLOSED' (a fresh channel follows in 2 s), or 'unauthorized' (refused: stopped for good).
-// onBroadcast(event, payload) for every broadcast event.
+// onBroadcast(event, payload) for every broadcast event. send() while the channel is (re)joining keeps the message
+// (the newest VOICE_SEND_MAX, oldest dropped) and sends it once SUBSCRIBED, before onStatus hears of it.
+const VOICE_SEND_MAX = 20;
 export function voiceChannel(topic, { presenceKey = '', onSync, onBroadcast, onStatus } = {}) {
   const c = sb();
-  const h = { ch: null, ready: false, dead: false, tracked: null };
+  const h = { ch: null, ready: false, dead: false, tracked: null, queue: [] };
   const status = (s) => { if (onStatus) { try { onStatus(s); } catch (e) { console.error(e); } } };
   const connect = () => (leaving.get(topic) || Promise.resolve()).then(() => {
     if (h.dead) return;
@@ -658,6 +665,7 @@ export function voiceChannel(topic, { presenceKey = '', onSync, onBroadcast, onS
       if (!mine()) return;
       if (s === 'SUBSCRIBED') {
         h.ready = true;
+        for (const m of h.queue.splice(0)) ch.send({ type: 'broadcast', event: m.event, payload: m.payload }).catch(() => {});
         const before = h.tracked;
         status(s); // first: the caller may track something newer here (then that one went out already)
         if (h.tracked && h.tracked === before) ch.track(h.tracked).catch(() => {});
@@ -677,6 +685,7 @@ export function voiceChannel(topic, { presenceKey = '', onSync, onBroadcast, onS
     if (h.dead) return;
     h.dead = true;
     h.ready = false;
+    h.queue.length = 0;
     if (!h.ch) return;
     const p = c.removeChannel(h.ch).catch(() => {}).then(() => { if (leaving.get(topic) === p) leaving.delete(topic); });
     leaving.set(topic, p);
@@ -685,7 +694,13 @@ export function voiceChannel(topic, { presenceKey = '', onSync, onBroadcast, onS
   return {
     track(payload) { h.tracked = payload; return h.ready && !h.dead ? h.ch.track(payload) : Promise.resolve('later'); },
     untrack() { h.tracked = null; return h.ready && !h.dead ? h.ch.untrack() : Promise.resolve('ok'); },
-    send(event, payload) { return h.ready && !h.dead ? h.ch.send({ type: 'broadcast', event, payload }) : Promise.resolve('not_joined'); },
+    send(event, payload) {
+      if (h.dead) return Promise.resolve('not_joined');
+      if (h.ready) return h.ch.send({ type: 'broadcast', event, payload });
+      h.queue.push({ event, payload });
+      if (h.queue.length > VOICE_SEND_MAX) h.queue.shift();
+      return Promise.resolve('queued');
+    },
     presenceState() { return (h.ch && !h.dead && h.ch.presenceState()) || {}; },
     stop,
   };
@@ -792,6 +807,14 @@ export async function moveCategory(id, position) {
 export async function voiceKick(userId, channelId) { check(await sb().rpc('voice_kick', { target: userId, channel: channelId })); }
 export async function listVoiceKicks() {
   return check(await sb().from('voice_kicks').select('target, channel_id, until').gt('until', new Date().toISOString())) || [];
+}
+// The voice session registry (0013 voice_sessions: the server's word on who is in which voice channel). voiceJoin
+// registers my session (resolves with the server's `at`; refused: banned / muted, not_allowed with detail 'kicked',
+// 'channel' or 'sess', slow_down); voiceLeave ends it if it is still that session.
+export async function voiceJoin(channelId, sess) { return check(await sb().rpc('voice_join', { channel: channelId, sess })); }
+export async function voiceLeave(sess) { check(await sb().rpc('voice_leave', { sess })); }
+export async function listVoiceSessions() {
+  return check(await sb().from('voice_sessions').select('user_id, sess, channel_id, at')) || [];
 }
 
 // ---------- profiles ----------

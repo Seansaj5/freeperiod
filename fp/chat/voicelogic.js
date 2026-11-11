@@ -1,6 +1,9 @@
 // Pure voice logic (no DOM, no network), shared by the voice engine (voice.js) and its unit tests.
-// Presence on chat:voice is keyed by user id; each tab in voice tracks one meta { ch, mute, deaf, sess, at }
-// (sess: a random id per join, at: when that join started, ISO).
+// Presence on chat:voice is keyed by user id; each tab in voice tracks one meta { ch, mute, deaf, sess, at }. Presence is
+// whatever a client sends (any key, any sess, any at), so the engine trusts it only through the registry: the
+// voice_sessions table (0013), one row per person { user_id, sess, channel_id, at } written by the server (voice_join)
+// with the server's time. A presence entry counts only when its key, sess and ch match that person's row, and people
+// are ordered by the row's `at`.
 export const VOICE_MAX = 8;        // people per voice channel (full mesh)
 export const ICE_WAIT_MS = 2000;   // longest wait for ICE gathering before an SDP is sent anyway
 export const SPEAK_HOLD_MS = 250;  // "speaking" stays on this long after the last loud frame
@@ -21,34 +24,57 @@ export const VOICE_ERRORS = Object.freeze({
 // The smaller user id makes the offer, so a pair never offers at the same time.
 export const isOfferer = (myId, peerId) => String(myId) < String(peerId);
 
-const ms = (t) => (typeof t === 'number' ? t : Date.parse(t));
+// ISO text (Postgres sends microseconds: trimmed to milliseconds, which every engine parses) or ms -> ms
+export const timeMs = (t) => (typeof t === 'number' ? t : Date.parse(typeof t === 'string' ? t.replace(/(\.\d{3})\d+/, '$1') : t));
+const ms = timeMs;
 const validCh = (ch) => Number.isSafeInteger(ch) && ch > 0;
-const validMeta = (m) => !!m && typeof m === 'object' && validCh(m.ch) && Number.isFinite(ms(m.at));
-// newer by at; the same at on two tabs: the bigger sess (so both tabs agree on which one is newer)
+// newer by at; the same at: the bigger sess (so every client agrees which one is newer)
 const newer = (a, b) => ms(a.at) > ms(b.at) || (ms(a.at) === ms(b.at) && String(a.sess) > String(b.sess));
 const byAtThenId = (a, b) => (ms(a.at) - ms(b.at)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-// supabase presenceState() ({ [user id]: [meta, ...] }) -> Map<channel id, [{ id, mute, deaf, sess, at }]>, first joined
-// first. Metas with no valid channel id (a positive integer) or no readable at are dropped; then each user counts once,
-// with their newest meta.
-export function rosterFromPresence(state) {
+// A voice_sessions row (database or Realtime) -> { id, sess, ch, at (ms) }, or null when it is not a readable session.
+export function sessionRow(r) {
+  if (!r || typeof r !== 'object' || typeof r.user_id !== 'string' || !r.user_id || typeof r.sess !== 'string' || !r.sess) return null;
+  const ch = Number(r.channel_id), at = ms(r.at);
+  return validCh(ch) && Number.isFinite(at) ? { id: r.user_id, sess: r.sess, ch, at } : null;
+}
+
+// One registry change ({ type: 'insert' | 'update' | 'delete', row }) applied to reg (Map<user id, sessionRow>). A row
+// older than the one already there is a late event of a replaced session: ignored. Returns true when reg changed.
+export function applySession(reg, ev) {
+  if (!(reg instanceof Map) || !ev || !ev.row) return false;
+  if (ev.type === 'delete') return typeof ev.row.user_id === 'string' && reg.delete(ev.row.user_id);
+  const s = sessionRow(ev.row);
+  if (!s) return false;
+  const prev = reg.get(s.id);
+  if (prev && (s.at < prev.at || (prev.at === s.at && prev.sess === s.sess && prev.ch === s.ch))) return false;
+  reg.set(s.id, s);
+  return true;
+}
+
+// supabase presenceState() ({ [key]: [meta, ...] }) + the registry -> Map<channel id, [{ id, mute, deaf, sess, at }]>,
+// first joined first (registry at, then id). Only verified entries: the key has a registry row and one of its metas
+// carries that row's sess and ch (a meta under someone else's key, an old sess or another channel counts for nothing).
+// sess and at come from the row; mute / deaf from the meta.
+export function rosterFromPresence(state, registry) {
   const out = new Map();
-  for (const [id, metas] of Object.entries(state && typeof state === 'object' ? state : {})) {
-    let best = null;
-    for (const m of Array.isArray(metas) ? metas : []) if (validMeta(m) && (!best || newer(m, best))) best = m;
-    if (!best) continue;
-    if (!out.has(best.ch)) out.set(best.ch, []);
-    out.get(best.ch).push({ id, mute: !!best.mute, deaf: !!best.deaf, sess: String(best.sess ?? ''), at: best.at });
+  if (!(registry instanceof Map) || !state || typeof state !== 'object') return out;
+  for (const [id, metas] of Object.entries(state)) {
+    const row = registry.get(id);
+    if (!row) continue;
+    const m = (Array.isArray(metas) ? metas : []).find((x) => !!x && typeof x === 'object' && x.sess === row.sess && x.ch === row.ch);
+    if (!m) continue;
+    if (!out.has(row.ch)) out.set(row.ch, []);
+    out.get(row.ch).push({ id, mute: !!m.mute, deaf: !!m.deaf, sess: row.sess, at: row.at });
   }
   for (const list of out.values()) list.sort(byAtThenId);
   return out;
 }
 
-// Is there a newer voice session of mine (another tab) in presence? Then this one hands over.
-export function supersededBy(myId, mySess, myAt, state) {
-  const metas = state && typeof state === 'object' && Array.isArray(state[myId]) ? state[myId] : [];
-  const mine = { sess: mySess, at: myAt };
-  return metas.some((m) => validMeta(m) && m.sess !== mySess && newer(m, mine));
+// Has a newer voice session of mine (another tab) replaced this one in the registry? Then this one hands over.
+export function supersededBy(myId, mySess, myAt, registry) {
+  const row = registry instanceof Map ? registry.get(myId) : null;
+  return !!row && row.sess !== mySess && newer(row, { sess: mySess, at: myAt });
 }
 
 // kicks: [{ target, channel_id, until }] (until: ISO or ms). Me already in the room (another tab) is not counted.
