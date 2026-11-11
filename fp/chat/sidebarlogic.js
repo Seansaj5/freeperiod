@@ -45,6 +45,16 @@ export function writeCollapsed(storage, set) {
 
 export const voiceLabel = (name) => String(name ?? '').split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
+// How the sidebar, the channel header and the composer show a channel, the way popular Discord servers name theirs:
+// "💬・general". Voice channels use their display name ("📖・Study Hall"). The '#' and '🔊' placeholders (and no emoji)
+// give the bare name: the row already draws a # or speaker glyph in front.
+export function channelLabel(c) {
+  if (!c) return '';
+  const name = c.kind === 'voice' ? voiceLabel(c.name) : String(c.name ?? '');
+  const emoji = String(c.emoji ?? '').trim();
+  return emoji && emoji !== '#' && emoji !== '🔊' ? emoji + '・' + name : name;
+}
+
 const TITLES = { owner: 'Owner', mods: 'Mods', bots: 'Bots', online: 'Online', offline: 'Offline' };
 export function memberSections(profiles = [], onlineIds = new Set()) {
   const groups = { owner: [], mods: [], bots: [], online: [], offline: [] };

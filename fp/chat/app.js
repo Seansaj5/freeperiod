@@ -11,7 +11,7 @@ import { mentionsMe } from './format.js';
 import { filterPeople, findByUsername } from './commands.js';
 import { newClientId } from './feedlogic.js';
 import { roleOfProfile, isStaffRole, timedOut } from './perms.js';
-import { readCollapsed, writeCollapsed, voiceLabel } from './sidebarlogic.js';
+import { readCollapsed, writeCollapsed, voiceLabel, channelLabel } from './sidebarlogic.js';
 import { voice } from './voice.js';
 import { VOICE_ERRORS } from './voicelogic.js';
 import { mountRail } from './views/rail.js';
@@ -308,7 +308,7 @@ export function mountChatApp(root, { compact = false } = {}) {
         headTopic.textContent = one ? '@' + one.username + (one.status_text ? ' · ' + (one.status_emoji ? one.status_emoji + ' ' : '') + one.status_text : '') : (dm.members || []).length + ' members';
         addBtn.hidden = !dm.is_group || st !== 'ready';
       }
-    } else if (cur) { headEmoji.textContent = cur.emoji || '#'; headName.textContent = cur.name; headLock.hidden = !cur.owner_only; headTopic.textContent = cur.topic || ''; }
+    } else if (cur) { headEmoji.textContent = cur.emoji || '#'; headName.textContent = channelLabel(cur); headLock.hidden = !cur.owner_only; headTopic.textContent = cur.topic || ''; }
     else { headEmoji.textContent = ''; headName.textContent = st === 'waking' ? 'Connecting…' : st === 'off' ? '' : 'Free Period'; headTopic.textContent = ''; }
     membersBtn.hidden = guest() || st !== 'ready' || mode === 'friends' || (mode === 'dms' && !curDM);
     pinsBtn.hidden = !((st === 'ready' || st === 'guest') && ((mode === 'server' && cur) || (mode === 'dms' && curDM)));
@@ -467,7 +467,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     else if (!cur) composer.setTarget('none', { placeholder: 'Pick a channel', mode: 'wait' });
     else if (gateLine()) composer.setTarget(key, gateLine());
     else if (cur.owner_only && !isStaff()) composer.setTarget(key, { mode: 'locked', lockText: 'Only Sean and mods post in #' + cur.name + '. You can still react.' });
-    else composer.setTarget(key, { placeholder: 'Message #' + cur.name, mode: 'open' });
+    else composer.setTarget(key, { placeholder: 'Message #' + channelLabel(cur), mode: 'open' });
   }
 
   // ---------- read state ----------

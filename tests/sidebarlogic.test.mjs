@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupSidebar, readCollapsed, writeCollapsed, voiceLabel, memberSections } from '../fp/chat/sidebarlogic.js';
+import { groupSidebar, readCollapsed, writeCollapsed, voiceLabel, memberSections, channelLabel } from '../fp/chat/sidebarlogic.js';
 
 const ch = (id, category_id, position, kind) => ({ id, category_id, position, kind, name: 'c' + id });
 const cat = (id, position) => ({ id, position, name: 'k' + id });
@@ -102,4 +102,16 @@ test('memberSections', () => {
   const only = memberSections([p('x', 'member')], new Set(['x']));
   assert.deepEqual(only.map((x) => x.key), ['online']);
   assert.deepEqual(memberSections([], new Set()), []);
+});
+
+test('channelLabel: popular-server style "emoji・name"; voice names get voiceLabel; no emoji or the # / 🔊 placeholders give the bare name', () => {
+  assert.equal(channelLabel({ name: 'general', emoji: '💬' }), '💬・general');
+  assert.equal(channelLabel({ name: 'homework-help', emoji: '📚', kind: 'text' }), '📚・homework-help');
+  assert.equal(channelLabel({ name: 'study-hall', emoji: '📖', kind: 'voice' }), '📖・Study Hall');
+  assert.equal(channelLabel({ name: 'lounge', emoji: '🔊', kind: 'voice' }), 'Lounge');
+  assert.equal(channelLabel({ name: 'rules', emoji: '#' }), 'rules');
+  assert.equal(channelLabel({ name: 'rules', emoji: '' }), 'rules');
+  assert.equal(channelLabel({ name: 'rules' }), 'rules');
+  assert.equal(channelLabel({ name: 'x', emoji: '  🎮 ' }), '🎮・x');
+  assert.equal(channelLabel(null), '');
 });

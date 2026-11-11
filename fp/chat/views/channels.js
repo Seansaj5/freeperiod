@@ -4,7 +4,7 @@
 // profile card, mic and headphones toggles, the profile editor).
 import { h } from '../../ui.js';
 import { badge } from '../unread.js';
-import { groupSidebar, voiceLabel } from '../sidebarlogic.js';
+import { groupSidebar, voiceLabel, channelLabel } from '../sidebarlogic.js';
 import { icon, avatar, nameEl, nameOf, roleMark, hotOnHover } from './common.js';
 import { mountVoiceBar } from './voicebar.js';
 
@@ -29,7 +29,7 @@ export function mountChannels(el, { onPick, onManage, onTools, onMe, onSettings,
       dataset: { ch: String(c.id), fk: 'ch:' + c.id }, title: c.topic || c.name, onclick: () => onPick && onPick(c) },
       h('span', { class: 'cx-ch-pip', 'aria-hidden': 'true' }),
       h('span', { class: 'cx-ch-emoji', 'aria-hidden': 'true', text: c.emoji || '#' }),
-      h('span', { class: 'cx-ch-name', text: c.name }),
+      h('span', { class: 'cx-ch-name', text: channelLabel(c) }),
       c.owner_only && !guest ? h('span', { class: 'cx-ch-lock', title: 'Only Sean and mods post here' }, icon('lock')) : null,
       b.text && !on ? h('span', { class: 'cx-ch-badge', 'aria-label': b.text + ' mentions', text: b.text }) : null);
     if (b.dot && !on) btn.setAttribute('aria-label', c.name + (b.text ? ', ' + b.text + ' mentions' : ', unread'));
@@ -53,7 +53,7 @@ export function mountChannels(el, { onPick, onManage, onTools, onMe, onSettings,
       onclick: () => onVoice && onVoice(c) },
       h('span', { class: 'cx-ch-pip', 'aria-hidden': 'true' }),
       h('span', { class: 'cx-ch-emoji', 'aria-hidden': 'true' }, icon('speaker')),
-      h('span', { class: 'cx-ch-name', text: label }));
+      h('span', { class: 'cx-ch-name', text: channelLabel(c) }));
     if (!users.length) return [btn];
     const box = h('div', { class: 'cx-vc-users', role: 'list', 'aria-label': 'In ' + label, dataset: { vch: String(c.id) } });
     for (const u of users) {
