@@ -19,10 +19,12 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" />
   <script src="fp/theme-boot.js"></script>
   <style>
-    html, body { height: 100%; overflow: hidden; }
-    .player { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+    html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+    .player { position: relative; display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+    /* the bar clears the notch / status bar (viewport-fit=cover; --sa-* are 0 on a desktop) */
     .bar {
-      flex: none; height: 54px; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+      flex: none; height: calc(54px + var(--sa-t)); display: flex; align-items: center; gap: 10px;
+      padding: var(--sa-t) max(12px, var(--sa-r)) 0 max(12px, var(--sa-l));
       background: rgba(10, 13, 22, 0.96); border-bottom: 1px solid var(--line);
     }
     .bar .logo svg { width: 30px; height: 30px; }
@@ -43,7 +45,41 @@
     .tool.main:hover { background: #d6ff6a; }
 
     .stage { position: relative; flex: 1; background: #000; }
-    .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #000; }
+    /* the game keeps out of the notch and the home bar (a black edge there instead) */
+    .stage iframe {
+      position: absolute; top: 0; left: var(--sa-l); width: calc(100% - var(--sa-l) - var(--sa-r)); height: calc(100% - var(--sa-b));
+      border: 0; display: block; background: #000;
+    }
+    /* "Full screen" where the browser has no Fullscreen API (iPhone Safari): the bar folds away and the game gets the whole
+       screen; the small button in the corner brings the bar back */
+    .unfull { display: none; }
+    body.immersive .bar { display: none; }
+    body.immersive .stage iframe { top: var(--sa-t); height: calc(100% - var(--sa-t) - var(--sa-b)); }
+    body.immersive .unfull {
+      display: grid; place-items: center; position: fixed; z-index: 40; top: max(6px, var(--sa-t)); right: max(6px, var(--sa-r));
+      width: 44px; height: 44px; padding: 0; border-radius: 50%; cursor: pointer; color: #fff; opacity: 0.75;
+      background: rgba(5, 8, 14, 0.6); border: 1px solid rgba(255, 255, 255, 0.22);
+    }
+    .unfull svg { width: 18px; height: 18px; }
+
+    /* "Rotate your phone": games that play sideways (games.js orientation: 'landscape'), on a phone held upright */
+    .rotate {
+      display: none; position: absolute; inset: calc(54px + var(--sa-t)) 0 0 0; z-index: 5; place-items: center;
+      padding: 24px max(24px, var(--sa-r)) calc(24px + var(--sa-b)) max(24px, var(--sa-l));
+      text-align: center; background: radial-gradient(80% 50% at 50% 30%, rgb(var(--lime-rgb) / 0.12), transparent 70%), var(--bg);
+    }
+    .rotate .box { display: grid; justify-items: center; gap: 14px; max-width: 320px; }
+    .rotate .phone { width: 44px; height: 76px; border: 3px solid var(--lime); border-radius: 11px; box-shadow: 0 0 22px -4px rgb(var(--lime-rgb) / 0.7); animation: rot-turn 2.6s ease-in-out infinite; }
+    .rotate .phone::after { content: ''; display: block; width: 14px; height: 3px; margin: 6px auto 0; border-radius: 2px; background: var(--lime); }
+    @keyframes rot-turn { 0%, 18% { transform: rotate(0); } 48%, 78% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
+    .rotate h2 { margin: 8px 0 0; font: 400 26px/1.1 'Bungee', 'Outfit', sans-serif; }
+    .rotate p { margin: 0; color: var(--soft); font-size: 16px; line-height: 1.45; }
+    .rotate .tool { margin-top: 6px; }
+    @media (orientation: portrait) and (max-width: 599px) and (pointer: coarse) {
+      body[data-orient="landscape"]:not(.rot-ok) .rotate { display: grid; }
+    }
+    body.immersive .rotate { top: 0; }
+    @media (prefers-reduced-motion: reduce) { .rotate .phone { animation: none; transform: rotate(-90deg); } }
 
     .loader {
       position: absolute; inset: 0; display: grid; place-items: center; text-align: center; overflow: hidden;
@@ -65,6 +101,15 @@
     @media (max-width: 640px) {
       .bar .wordmark, .sep, .tool .label { display: none; }
       .now small { display: none; }
+    }
+    .tool { white-space: nowrap; }
+    /* touch screens: 44 x 44 buttons; a phone held sideways keeps the bar to icons so the game gets the room */
+    @media (pointer: coarse) {
+      .tool { min-height: 44px; min-width: 44px; justify-content: center; }
+      .tools { gap: 4px; }
+    }
+    @media (pointer: coarse) and (max-height: 500px) {
+      .bar .wordmark, .sep, .tool .label, .now small { display: none; }
     }
   </style>
 </head>
@@ -97,6 +142,9 @@
     </div>
     <div class="stage" id="stage"></div>
   </div>
+  <button class="unfull" id="unfull" type="button" title="Show the bar" aria-label="Leave full screen">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
+  </button>
 
   <script src="games.js"></script>
   <script type="module" src="fp/play.js"></script>

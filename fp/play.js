@@ -6,6 +6,7 @@ import { touchRecent, addPlay, flush as flushMeta } from './meta.js';
 import { resolveGame } from './status.js';
 import { dailyCheckin } from './streak.js';
 import { startActivity, cleanRoom, withJoin, friendInRoom } from './chat/activity.js';
+import { hasFullscreenApi } from './viewport.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -54,6 +55,7 @@ async function run(rawGame) {
   const activity = startActivity(game.id);
   document.title = `${game.title} · Free Period`;
   $('title').textContent = game.title;
+  mountRotateHint(game);
   $('controls').textContent = game.controls || '';
   $('newtab').href = gameUrl;
 
@@ -169,12 +171,29 @@ async function run(rawGame) {
 
   $('reload').addEventListener('click', () => { if (ready) start(); });
 
+  // Fullscreen: the Fullscreen API where there is one (desktop, Android, iPad). iPhone Safari has none (and a home-screen
+  // app has no browser bar anyway), so there the bar folds away and the game gets the whole screen (body.immersive).
+  const canFull = hasFullscreenApi(document, stage);
   function fullscreen() {
+    if (!canFull) { setImmersive(!document.body.classList.contains('immersive')); return; }
     if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    else (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
+    else {
+      const go = (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
+      if (go && go.catch) go.catch(() => setImmersive(true)); // refused (an iframe without permission, a kiosk...): fold the bar instead
+    }
     frame && !chatOverlay.isOpen && frame.focus();
   }
+  function setImmersive(on) {
+    if (on && chatOverlay.isOpen) chatOverlay.close();
+    document.body.classList.toggle('immersive', on);
+    $('full').setAttribute('aria-pressed', String(on));
+    if (on) $('unfull').focus({ preventScroll: true });
+    else $('full').focus({ preventScroll: true });
+    if (frame && !on) setTimeout(() => frame && frame.focus(), 0);
+  }
+  if (!canFull) { $('full').title = 'Full screen: hide this bar'; $('full').setAttribute('aria-pressed', 'false'); }
   $('full').addEventListener('click', fullscreen);
+  $('unfull').addEventListener('click', () => setImmersive(false));
   document.querySelector('.bar').addEventListener('mouseup', () => setTimeout(() => frame && document.activeElement === document.body && !chatOverlay.isOpen && frame.focus(), 0));
 
   // Show the loader straight away; the save sync (max 4 s) runs behind it.
@@ -200,4 +219,31 @@ async function run(rawGame) {
   }
   ready = true;
   start();
+}
+
+// "Rotate your phone" over the stage for a game that plays sideways (games.js orientation: 'landscape'). play.html's CSS
+// shows it only on a touch phone held upright; turning the phone hides it, and "Play anyway" hides it for this visit.
+function mountRotateHint(game) {
+  if (game.orientation !== 'landscape') return;
+  document.body.dataset.orient = 'landscape';
+  const box = document.createElement('div');
+  box.className = 'rotate';
+  box.setAttribute('role', 'note');
+  const inner = document.createElement('div');
+  inner.className = 'box';
+  const phone = document.createElement('div');
+  phone.className = 'phone';
+  phone.setAttribute('aria-hidden', 'true');
+  const h2 = document.createElement('h2');
+  h2.textContent = 'Rotate your phone';
+  const p = document.createElement('p');
+  p.textContent = `${game.title} plays sideways. Turn your phone to landscape for the full view.`;
+  const anyway = document.createElement('button');
+  anyway.type = 'button';
+  anyway.className = 'tool';
+  anyway.textContent = 'Play anyway';
+  anyway.addEventListener('click', () => document.body.classList.add('rot-ok'));
+  inner.append(phone, h2, p, anyway);
+  box.append(inner);
+  document.querySelector('.player').append(box);
 }

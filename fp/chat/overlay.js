@@ -6,6 +6,7 @@
 // speaker dot while connected (voice.js is only imported once the app has loaded: a call can only start there).
 import { h } from '../ui.js';
 import { CHAT } from './config.js';
+import { trackKeyboard } from '../viewport.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 function chatIcon() {
@@ -47,6 +48,7 @@ export function mountChatOverlay(bar) {
 
   let mods = null;      // { client, data, unread, toast }
   let panel = null;
+  let scrim = null;     // phones: the dimmed game above the bottom sheet; a tap on it closes the chat
   let app = null;
   let isOpen = false;
   let epoch = 0;        // bumps on every open/close so late async work gives up
@@ -230,6 +232,7 @@ export function mountChatOverlay(bar) {
     if (!panel) return;
     const fs = document.fullscreenElement || document.webkitFullscreenElement;
     const home = fs && fs !== document.documentElement ? fs : (bar.closest('.player') || document.body);
+    if (scrim && scrim.parentNode !== home) home.append(scrim);
     if (panel.parentNode !== home) home.append(panel);
     panel.classList.toggle('fs', home !== bar.closest('.player'));
   }
@@ -247,6 +250,9 @@ export function mountChatOverlay(bar) {
       const my = ++epoch;
       if (!panel) {
         panel = h('div', { class: 'fpco-panel', id: 'chat-panel', role: 'dialog', 'aria-label': 'Chat', tabindex: '-1' });
+        scrim = h('div', { class: 'fpco-scrim', 'aria-hidden': 'true' });
+        scrim.addEventListener('click', () => api.close());
+        trackKeyboard(); // phones: the sheet rides on top of the on-screen keyboard (overlay.css)
         place();
       }
       place();
@@ -254,6 +260,7 @@ export function mountChatOverlay(bar) {
       if (M) drawBadge();
       // Pull keyboard focus out of the game frame right away.
       panel.classList.add('open');
+      scrim.classList.add('open');
       panel.focus({ preventScroll: true });
       mountApp(my);
     },
@@ -264,6 +271,7 @@ export function mountChatOverlay(bar) {
       pending = null;
       btn.setAttribute('aria-expanded', 'false');
       if (panel) panel.classList.remove('open');
+      if (scrim) scrim.classList.remove('open');
       // Back to the game: it gets the keyboard again.
       const frame = document.querySelector('.stage iframe');
       if (frame) frame.focus();

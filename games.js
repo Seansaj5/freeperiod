@@ -23,6 +23,8 @@
 //   joins     true if the game can go straight into a room from its URL (?join=<CODE>) and tells the hub which room it is
 //             in (postMessage { type: 'fp:room', room }): a friend's Join button on the home page then joins that room.
 //             Without it, Join just opens the game
+//   orientation  optional 'landscape': the game plays sideways, so a phone held upright gets a "Rotate your phone" card
+//             over it on the play page (with Play anyway). Leave it out for a game that works upright
 //   featured  the big banner at the top of the home page (only one)
 //   added     date it went up (NEW badge for two weeks)
 window.GAMES = [
@@ -37,6 +39,7 @@ window.GAMES = [
     tags: ['3D', 'Multiplayer', 'Sports'],
     controls: 'WASD move · click shoot · right-click pass · F dash · G Flow',
     accent: '#c6ff3d',
+    orientation: 'landscape',      // the pitch view and the HUD (score, minimap, six-move bar) need the width
     wakes: true,
     apiGame: true,
     status: { health: 'https://bing-ball.onrender.com/health', version: 'https://bing-ball.onrender.com/api/status' },
@@ -54,6 +57,7 @@ window.GAMES = [
     tags: ['3D', 'Multiplayer', 'Racing'],
     controls: 'W/S gas & brake · A/D steer · Shift nitro · C camera · Esc pause',
     accent: '#ffb020',
+    orientation: 'landscape',      // upright, the touch pedals overlap (steer / brake / nitro); Karts too
     beta: true,
     saveKey: 'closecall.v1',
     joins: true,
@@ -68,6 +72,7 @@ window.GAMES = [
     tags: ['3D', 'Multiplayer', 'Horror'],
     controls: 'WASD move · Shift sprint · Space jump · E R Q abilities · F hide · EXE: click + E R Q F moves, G disguise, V awaken · Esc pause',
     accent: '#ff2a3a',
+    orientation: 'landscape',      // first person: stick + five buttons laid out sideways; the title art crops upright
     saveKey: 'horrorexe.v1',
     joins: true,
     added: '2026-11-09',
@@ -81,6 +86,7 @@ window.GAMES = [
     tags: ['3D', 'Horror', 'Solo'],
     controls: 'A/D doors · Q/E lights · W vent · Space cameras · 1-9 camera · hold F wind / pour · hold G crank · L lure · M sound · C captions',
     accent: '#9dff3a',
+    orientation: 'landscape',      // the 16:9 office (the game itself also asks to turn the phone)
     saveKey: 'fnab.v1',
     added: '2026-11-10',
   },
