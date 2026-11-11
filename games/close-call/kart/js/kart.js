@@ -3,12 +3,16 @@
 // (they just get their input from ai.js).
 //
 // Drifting, the heart of it:
-//   press drift  -> a little hop (you can turn a bit in the air)
-//   land while holding drift and steering -> the kart swings its tail out and slides round in that direction.
-//     Steering INTO the drift tightens it and charges the sparks faster; steering against it widens it.
+//   press drift  -> a little hop (steering in the air works like on the ground)
+//   land while holding drift and steering -> the kart swings its tail out (nose into the bend) and slides round
+//     that way. How hard it turns is set against your normal steering, so it stays in your hands:
+//       steer INTO the drift  -> tighter than full normal steering, for hairpins (and the sparks charge faster)
+//       let go of the steering -> a gentler arc, about three quarters of full steering: right for most bends
+//       steer AGAINST it       -> nearly straight, to open the line out
+//     The turn eases between those (no snapping), so on a keyboard you tap the keys to hold your line.
 //     Sparks: blue (mini-turbo), orange (super), gold (ultra). On grass they don't charge.
 //   let go -> a speed kick and a boost as long as the sparks were good.
-// Brake while drifting to tighten even more (charges a little slower).
+// Brake while drifting to tighten a little more (charges a little slower).
 import * as THREE from 'three';
 import { statsOf } from './parts.js';
 
@@ -19,6 +23,9 @@ export const CLASSES = {
 };
 export const DRIFT_LV = [0.8, 1.75, 2.85]; // charge for blue, orange, gold sparks
 const BOOST_LV = [0, 0.7, 1.25, 1.95];
+// How hard a drift turns, as a share of full normal steering at that speed: steering against it / hands off / into it.
+// It tightens gradually while you hold into the bend (tighten, per second) and opens out quickly when you let go (loosen).
+export const DRIFT_ARC = { against: 0.28, hands: 0.78, into: 1.6, tighten: 3.5, loosen: 9, brake: 1.12 };
 const GRAV = 30;
 const BOOST = 1.32;
 
@@ -57,7 +64,7 @@ export class Kart {
     this.hint = t.w(k); this.total = total; this.lastS = t.w(k); this.lap = 1; this.lapMax = 1;
     this.finished = false; this.finishT = 0; this.place = 0;
     this.drift = 0; this.driftT = 0; this.driftK = 0; this.charge = 0; this.lvPrev = 0; this.driftAng = 0; this.driftAngV = 0;
-    this.hopT = 0; this.wantDrift = false; this.prevDrift = false;
+    this.hopT = 0; this.wantDrift = false; this.prevDrift = false; this.yawV = 0;
     this.boostT = 0; this.boostMax = 0; this.boostPow = BOOST; this.padT = 0; this.stallT = 0;
     this.spinT = 0; this.spinMax = 1; this.spinDir = 1; this.shieldT = 0; this.starT = 0; this.safeT = 0;
     this.coins = 0; this.item = null; this.itemN = 0; this.rollT = 0; this.trail = null;
@@ -73,6 +80,8 @@ export class Kart {
 
   get speedTop() { return this.top0 * this.mul * (1 + Math.min(10, this.coins) * 0.006); }
   get boosting() { return this.boostT > 0 || this.starT > 0; }
+  /** Full normal steering at the current speed, in rad/s (drifts turn a share of this, see DRIFT_ARC). */
+  fullTurn(sp = Math.abs(this.v)) { return this.turn * Math.min(1, sp / 6) * (1 - 0.28 * Math.min(1, sp / Math.max(1, this.top0))); }
   get driftLevel() { return this.charge >= DRIFT_LV[2] ? 3 : this.charge >= DRIFT_LV[1] ? 2 : this.charge >= DRIFT_LV[0] ? 1 : 0; }
 
   /** Speed boost for `t` seconds at `pow` x top speed (mini-turbo, dash pad, nitro, trick, start, slipstream, coin). */
@@ -162,36 +171,42 @@ export class Kart {
     // landing from the hop (or any air) while holding drift and steering starts the slide
     if (inp.drift && this.wantDrift && !this.drift && this.ground && this.v > 8 && Math.abs(steer) > 0.2 && !spin) {
       this.drift = Math.sign(steer); this.driftT = 0; this.driftK = 0; this.charge = 0; this.lvPrev = 0;
-      this.driftAngV = this.drift * 4.5; // the tail kicks out
+      this.driftAngV = -this.drift * 3.2; // the tail kicks out (the nose swings into the bend)
       this.events.push('drift');
     }
+    // no direction picked within a moment of landing: no drift this time (hop again), so holding the button down a
+    // straight and then touching the steering doesn't throw you into a surprise slide
+    if (this.wantDrift && this.ground && !this.drift) { this.wantT = (this.wantT || 0) + dt; if (this.wantT > 0.3) this.wantDrift = false; } else this.wantT = 0;
     if (this.drift && (this.v < 6 || spin)) this.endDrift(false);
     // ---- steering
     const sp = Math.abs(this.v), topN = Math.max(1, this.top0);
-    const turnK = Math.min(1, sp / 6) * (1 - 0.28 * Math.min(1, sp / topN));
+    const full = this.fullTurn(sp);
     let yawRate, angT = 0;
     if (this.drift) {
-      this.driftT += dt; this.driftK = Math.min(1, this.driftK + dt / 0.22);
-      const tight = 0.32 + 0.59 * (s + 1); // steering against it: a wide arc (0.32) .. into it: tight (1.5)
-      yawRate = -this.drift * this.turn * tight * Math.min(1, sp / 10) * (0.45 + 0.55 * this.driftK) * (brake ? 1.22 : 1);
+      this.driftT += dt; this.driftK = Math.min(1, this.driftK + dt / 0.25);
+      const A = DRIFT_ARC, arc = s >= 0 ? A.hands + (A.into - A.hands) * s : A.hands + (A.hands - A.against) * s;
+      const want = -this.drift * full * arc * (0.55 + 0.45 * this.driftK) * (brake ? A.brake : 1);
+      // eases to the new arc (slowly tighter, quickly wider), so a tap of a key is a small correction, not a whip
+      this.yawV = damp(this.yawV, want, Math.abs(want) > Math.abs(this.yawV) ? A.tighten : A.loosen, dt);
+      yawRate = this.yawV;
       if (this.ground && (!off || this.boosting)) this.charge += dt * (0.72 + 0.62 * Math.max(0, s)) * this.turboK * (brake ? 0.85 : 1);
       const lv = this.driftLevel;
       if (lv > this.lvPrev) { this.lvPrev = lv; this.events.push('lv' + lv); }
-      angT = this.drift * (0.46 + 0.2 * s); // 15-37 degrees: more when you steer into it
-    } else if (!this.ground && this.hopT > 0) {
-      yawRate = -steer * this.turn * 0.95 * Math.min(1, sp / 6); // a hop lets you turn a little in the air
+      angT = -this.drift * (0.3 + 0.12 * s); // the body points into the bend, 10-24 degrees (more when you steer in)
     } else {
-      yawRate = -steer * this.turn * turnK * Math.sign(this.v || 1) * (this.glide ? 0.75 : this.ground ? 1 : 0.5);
+      // on the ground and in a hop: normal steering (gliding a bit less, other air a lot less)
+      yawRate = -steer * full * Math.sign(this.v || 1) * (this.glide ? 0.75 : this.ground || this.hopT > 0 ? 1 : 0.7);
+      this.yawV = yawRate;
     }
-    if (spin) yawRate = 0;
+    if (spin) { yawRate = 0; this.yawV = 0; }
     this.yaw = wrapA(this.yaw + yawRate * dt);
     // the body's angle on a spring: swings out when the drift starts, settles, follows your steering
-    this.driftAngV += ((angT - this.driftAng) * 95 - this.driftAngV * 13) * dt;
+    this.driftAngV += ((angT - this.driftAng) * 90 - this.driftAngV * 15) * dt;
     this.driftAng += this.driftAngV * dt;
     this.steerVis = damp(this.steerVis, this.drift ? -this.drift * 0.6 + steer * 0.4 : steer, 12, dt);
-    // ---- move (a drift slides you a little to the outside, more when it's wide)
+    // ---- move (a drift slides you a little to the outside)
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), rx = -fz, rz = fx;
-    const slide = this.drift ? -this.drift * sp * (0.05 + 0.03 * (1 - s)) * this.driftK : 0;
+    const slide = this.drift ? -this.drift * sp * 0.035 * this.driftK : 0;
     this.pos.x += (fx * this.v + rx * slide + this.push.x) * dt;
     this.pos.z += (fz * this.v + rz * slide + this.push.y) * dt;
     this.push.multiplyScalar(Math.exp(-5 * dt));
@@ -292,7 +307,7 @@ export class Kart {
     // a little squash when landing
     if (this.landed > 0) this.landed = Math.max(0, this.landed - dt * 4);
     u.body.scale.set(1 + this.landed * 0.08, 1 - this.landed * 0.14, 1);
-    u.spin(dt, this.stallT > 0 ? 30 : this.v, this.steerVis);
+    u.spin(dt, this.stallT > 0 ? 30 : this.v, -this.steerVis); // the model's +x is the kart's left
     // glider opens with a little overshoot
     const g = u.glider, want = this.glide ? 1 : 0;
     g.userData.k = damp(g.userData.k || 0, want, this.glide ? 7 : 10, dt);

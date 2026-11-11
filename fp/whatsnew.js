@@ -8,6 +8,7 @@
 import * as store from './store.js';
 
 export const WHATS_NEW = Object.freeze([
+  { id: 'fnab-launch', date: '2026-11-10', game: 'five-nights-at-bings', title: "Five Nights at Bing's is out", text: 'Survive the night shift with Bing, Sal, Dylan, Gavin and the twins in the music box. Fully captioned.', href: 'play.html?g=five-nights-at-bings' },
   { id: 'fp-trophies', date: '2026-11-10', game: 'free-period', title: 'Trophies, profiles and themes', text: 'Earn 22 trophies, show off a player card, and pick your accent color from the account menu.', href: 'trophies.html' },
   { id: 'fp-leaderboards', date: '2026-11-10', game: 'free-period', title: 'Leaderboards', text: 'Every top player in one place, game by game.', href: 'leaderboards.html' },
   { id: 'bb-b71', date: '2026-11-10', game: 'bing-ball', title: 'Bing Ball 5.1.1 build 71', text: 'Daily streaks live on your account: check-ins, streak badges and flair you earn.', href: 'play.html?g=bing-ball' },
