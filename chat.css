@@ -1407,3 +1407,43 @@ button.cx-cat:hover, button.cx-cat:focus-visible { color: var(--cx-text); }
 .cx-app.server .cx-head { background: rgb(49 51 56 / 0.86); }
 /* muted text (times, the topic, day lines) one step lighter over the aurora: >= 4.5:1 where the light is brightest */
 .cx-app.server .cx-main { --cx-dim: #a5abb4; }
+
+/* Night Aero (themes.css): the same two layers in the sky's palette. ::before: aqua and deep blue light with a few small
+   glossy bubbles drifting along with it; ::after: the same vignette and scrim, a faint arc of light in place of the dots.
+   The server icon's dark base turns navy. DMs stay plain. */
+:root[data-theme="aero"] .cx-app.server .cx-main::before {
+  background:
+    radial-gradient(circle at calc(22% - 3px) calc(64% - 3px), rgba(255, 255, 255, 0.1) 0 1.2px, rgba(255, 255, 255, 0) 2.6px),
+    radial-gradient(circle at 22% 64%, rgba(150, 230, 255, 0.04) 0 7px, rgba(190, 245, 255, 0.1) 9px, rgba(190, 245, 255, 0) 10px),
+    radial-gradient(circle at calc(71% - 4px) calc(28% - 4px), rgba(255, 255, 255, 0.1) 0 1.5px, rgba(255, 255, 255, 0) 3px),
+    radial-gradient(circle at 71% 28%, rgba(150, 230, 255, 0.04) 0 10px, rgba(190, 245, 255, 0.1) 12.5px, rgba(190, 245, 255, 0) 13.5px),
+    radial-gradient(circle at calc(84% - 2px) calc(72% - 2px), rgba(255, 255, 255, 0.1) 0 1px, rgba(255, 255, 255, 0) 2.2px),
+    radial-gradient(circle at 84% 72%, rgba(150, 230, 255, 0.04) 0 5px, rgba(190, 245, 255, 0.1) 6.5px, rgba(190, 245, 255, 0) 7.5px),
+    radial-gradient(circle at calc(40% - 3px) calc(18% - 3px), rgba(255, 255, 255, 0.1) 0 1.2px, rgba(255, 255, 255, 0) 2.6px),
+    radial-gradient(circle at 40% 18%, rgba(150, 230, 255, 0.04) 0 7px, rgba(190, 245, 255, 0.1) 9px, rgba(190, 245, 255, 0) 10px),
+    radial-gradient(34% 30% at 24% 22%, rgb(var(--lime-rgb) / 0.13), transparent 72%),
+    radial-gradient(32% 38% at 82% 34%, rgb(var(--cyan-rgb) / 0.15), transparent 72%),
+    radial-gradient(40% 34% at 58% 80%, rgb(40 140 255 / 0.17), transparent 72%),
+    radial-gradient(26% 24% at 12% 74%, rgb(var(--lime-rgb) / 0.08), transparent 70%);
+}
+:root[data-theme="aero"] .cx-app.server .cx-main:not(.drop)::after {
+  background:
+    radial-gradient(120% 95% at 50% 45%, transparent 52%, rgba(10, 18, 34, 0.5) 100%),
+    linear-gradient(rgba(14, 20, 32, 0.24), rgba(14, 20, 32, 0.24)),
+    radial-gradient(140% 90% at 20% 120%, transparent 78%, rgba(150, 230, 255, 0.03) 79.5%, rgba(150, 230, 255, 0.07) 80%, rgba(150, 230, 255, 0.02) 81%, transparent 83%);
+}
+:root[data-theme="aero"] .cx-app.server .cx-srv::before {
+  background:
+    radial-gradient(circle at 78% 30%, rgba(150, 230, 255, 0.04) 0 6px, rgba(200, 248, 255, 0.22) 8px, rgba(200, 248, 255, 0) 9px),
+    radial-gradient(circle at 30% 70%, rgba(150, 230, 255, 0.04) 0 4px, rgba(200, 248, 255, 0.2) 5.5px, rgba(200, 248, 255, 0) 6.5px),
+    radial-gradient(40% 70% at 18% 40%, rgb(var(--lime-rgb) / 0.2), transparent 72%),
+    radial-gradient(42% 75% at 86% 30%, rgb(var(--cyan-rgb) / 0.18), transparent 72%),
+    radial-gradient(50% 70% at 55% 92%, rgb(40 140 255 / 0.2), transparent 72%);
+}
+:root[data-theme="aero"] .cx-app.server .cx-srv::after {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 45%),
+    linear-gradient(180deg, transparent 30%, rgba(14, 20, 32, 0.35));
+}
+:root[data-theme="aero"] .cx-rail-btn.server { background: radial-gradient(circle at 30% 25%, rgb(var(--lime-rgb) / 0.24), transparent 60%), radial-gradient(circle at 80% 85%, rgb(var(--cyan-rgb) / 0.22), transparent 60%), #10284e; }
+:root[data-theme="aero"] .cx-rail-btn.server:hover, :root[data-theme="aero"] .cx-rail-btn.server.on { background: radial-gradient(circle at 30% 25%, rgb(var(--lime-rgb) / 0.32), transparent 60%), radial-gradient(circle at 80% 85%, rgb(var(--cyan-rgb) / 0.3), transparent 60%), #10284e; }

@@ -162,6 +162,8 @@ function renderHero() {
   mountCarousel(slot, slides, {
     onShow: (i) => { const img = slides[i].el.querySelector('.hero-art'); if (img && !img.getAttribute('src') && img.dataset.src) img.src = img.dataset.src; },
   });
+  // one layer behind every slide, drawn by the theme (themes.css: Night Aero's bubbles and swoosh; none in Neon)
+  slot.prepend(h('div', { class: 'fp-hero-backdrop', 'aria-hidden': 'true' }));
   for (const g of list) onStatus(g, live.get(g.id));
 }
 

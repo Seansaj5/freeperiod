@@ -66,6 +66,42 @@ test('ambient orbs: count by screen size, drift wraps around the edges', async (
   assert.ok(o[0].x < 0 && o[0].y > 800, JSON.stringify(o));               // off the right/top edge: back in from the left/bottom
 });
 
+test('ambient mode: by theme, nothing with Effects off, a still frame for Night Aero with reduced motion', async () => {
+  const { ambientMode } = await import('../fp/ambient.js');
+  assert.equal(ambientMode({ theme: 'neon', fx: true, reduce: false }), 'orbs');
+  assert.equal(ambientMode({ theme: 'neon', fx: true, reduce: true }), null);
+  assert.equal(ambientMode({ theme: 'aero', fx: true, reduce: false }), 'aero');
+  assert.equal(ambientMode({ theme: 'aero', fx: true, reduce: true }), 'aero-still');
+  for (const theme of ['neon', 'aero', 'space', 'minimal']) {
+    for (const reduce of [false, true]) assert.equal(ambientMode({ theme, fx: false, reduce }), null, theme);
+  }
+});
+
+test('Night Aero sky: stars and bubbles scale with the screen, bubbles float up and wrap, the light follows the ribbon', async () => {
+  const { makeStars, makeBubbles, stepBubbles, bezier, AERO_RIBBON } = await import('../fp/ambient.js');
+  const fs = await import('node:fs');
+  assert.equal(makeStars(390, 844).length, 24);
+  assert.equal(makeStars(1440, 900).length, 81);
+  assert.equal(makeStars(3840, 2160).length, 90);
+  assert.deepEqual(makeStars(1440, 900), makeStars(1440, 900));          // seeded: a reload looks the same
+  assert.ok(makeStars(1440, 900).every((s) => s.x >= 0 && s.x <= 1 && s.y >= 0 && s.y <= 0.92));
+  assert.equal(makeBubbles(390, 844).length, 4);                         // fewer on a phone
+  assert.equal(makeBubbles(1440, 900).length, 9);
+  assert.equal(makeBubbles(3840, 2160).length, 10);
+  const b = [{ x: 0.5, y: 10, r: 20, vy: 10 }];
+  stepBubbles(b, 1, 900);
+  assert.equal(b[0].y, 0);                                               // up 10 px in a second
+  stepBubbles(b, 3, 900);                                                // off the top: back in under the bottom, somewhere else
+  assert.ok(b[0].y > 900 && b[0].x !== 0.5, JSON.stringify(b));
+  assert.deepEqual(bezier(AERO_RIBBON, 0), AERO_RIBBON[0]);
+  assert.deepEqual(bezier(AERO_RIBBON, 1), AERO_RIBBON[3]);
+  // the light runs along the lit edge that assets/aero-sky.svg draws (x1000)
+  const f = (n) => Math.round(n * 1000);
+  const d = `M${f(AERO_RIBBON[0][0])} ${f(AERO_RIBBON[0][1])}C${AERO_RIBBON.slice(1).map(([x, y]) => `${f(x)} ${f(y)}`).join(' ')}`;
+  const svg = fs.readFileSync(new URL('../assets/aero-sky.svg', import.meta.url), 'utf8');
+  assert.ok(svg.includes(`d="${d}" stroke="url(#lit)"`), d);
+});
+
 test('chat-profile pickProfile: exact username, any case', async () => {
   const { pickProfile } = await import('../fp/chat-profile.js');
   const rows = [{ username: 'amy2' }, { username: 'Amy' }, null];

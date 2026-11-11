@@ -18,15 +18,15 @@
   --btn-bg: var(--lime); --btn-text: #0a0f05;
 }
 :root[data-theme="aero"], [data-theme="aero"] {
-  --bg: #04122b; --bg-2: #0a2f5c; --panel: #0b2347; --panel-2: #11315f;
+  --bg: #04122b; --bg-2: #0a2f5c; --panel: #0c2c5e; --panel-2: #12386e;
   --line: rgba(140, 220, 255, 0.18); --line-2: rgba(160, 230, 255, 0.34);
-  --text: #eaf6ff; --soft: #bcd6ee; --muted: #86a8c8;
-  --lime: #4fd8ff; --lime-rgb: 79 216 255; --cyan: #7ea8ff; --cyan-rgb: 126 168 255;
+  --text: #eaf6ff; --soft: #c4dbf0; --muted: #a0bcd9;
+  --lime: #4fd8ff; --lime-rgb: 79 216 255; --cyan: #96c4ff; --cyan-rgb: 150 196 255;
   --lime-hi: color-mix(in srgb, var(--lime) 72%, #fff); --lime-lo: color-mix(in srgb, var(--lime) 80%, var(--cyan));
-  --card: linear-gradient(180deg, #11315f, #0b2347);
-  --radius: 22px; --shadow: 0 14px 36px -18px rgba(0, 30, 80, 0.85);
+  --card: linear-gradient(180deg, #12386e, #0c2c5e);
+  --radius: 22px; --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 14px 36px -18px rgba(0, 30, 80, 0.85);
   --font-ui: 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif; --font-display: 'Nunito', system-ui, sans-serif;
-  --btn-bg: linear-gradient(180deg, #9aedff, #2fb0ea); --btn-text: #04223f;
+  --btn-bg: linear-gradient(180deg, #b6f1ff 0%, #86e5ff 46%, #4fd8ff 50%, #4fd8ff 78%, #8fe6ff 100%); --btn-text: #031a33;
 }
 :root[data-theme="space"], [data-theme="space"] {
   --bg: #000000; --bg-2: #05060d; --panel: #07080f; --panel-2: #0d0f1a;
@@ -59,3 +59,371 @@
 :root[data-accent="pink"] { --lime: #ff6ad5; --lime-rgb: 255 106 213; --cyan: #3de0ff; --cyan-rgb: 61 224 255; }
 :root[data-accent="orange"] { --lime: #ffa23d; --lime-rgb: 255 162 61; --cyan: #ffd84a; --cyan-rgb: 255 216 74; }
 :root[data-accent="violet"] { --lime: #a98bff; --lime-rgb: 169 139 255; --cyan: #3de0ff; --cyan-rgb: 61 224 255; }
+
+/* =====================================================================================================================
+   Night Aero: a deep blue night sky with light ribbons and stars, aqua glass panels with a glossy top, shiny gel buttons,
+   Nunito. Everything below is scoped to :root[data-theme="aero"], so Neon never sees it.
+   - Glass is layered gradients (a curved gloss, a two-tone fill, a navy tint) inside a light rim drawn as a border-box
+     gradient. No backdrop-filter or blur on anything that scrolls: the tint is opaque enough to read over the sky.
+   - Gel: the accent as a glossy pill (whiter top half, a shine on top, a glow inside the bottom edge), dark navy text.
+   - The sky: a CSS gradient, a static star field (.paper), the ribbons (assets/aero-sky.svg in .g1) and two soft lights
+     (.g2, .g3). fp/ambient.js adds twinkling stars, floating bubbles and a light that runs along the main ribbon.
+   - Nothing moves with Effects off (data-fx="off") or reduced motion (style.css stops every animation).
+   ===================================================================================================================== */
+:root[data-theme="aero"] {
+  --ae-gloss: radial-gradient(150% 64px at 50% -10px, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03) 86%, rgba(255, 255, 255, 0) 87%);
+  --ae-gloss-sm: radial-gradient(150% 46% at 50% -4%, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.025) 86%, rgba(255, 255, 255, 0) 87%);
+  --ae-fill: linear-gradient(180deg, rgba(130, 210, 255, 0.07), rgba(90, 170, 240, 0.03) 46%, rgba(20, 70, 150, 0) 54%, rgba(60, 150, 230, 0.05));
+  --ae-tint: linear-gradient(180deg, rgba(12, 46, 98, 0.9), rgba(8, 33, 77, 0.93));
+  --ae-rim: linear-gradient(135deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.08) 28%, rgba(255, 255, 255, 0.03) 55%, rgba(120, 210, 255, 0.22) 82%, rgba(255, 255, 255, 0.32));
+  --ae-glass: var(--ae-gloss) padding-box, var(--ae-fill) padding-box, var(--ae-tint) padding-box, var(--ae-rim) border-box;
+  --ae-lift: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 18px 40px -22px rgba(0, 6, 24, 0.95);
+  /* glass buttons: a light two-tone sheen on a navy base, so they read the same on a panel or on the bright sky */
+  --ae-btn: linear-gradient(180deg, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.05) 48%, rgba(255, 255, 255, 0.015) 52%, rgba(255, 255, 255, 0.06) 100%), linear-gradient(rgba(7, 30, 68, 0.8), rgba(7, 30, 68, 0.8));
+  --ae-btn-hi: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.09) 48%, rgba(255, 255, 255, 0.04) 52%, rgba(255, 255, 255, 0.1) 100%), linear-gradient(rgba(9, 38, 82, 0.84), rgba(9, 38, 82, 0.84));
+  --ae-btn-edge: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 0 0 1px rgba(160, 215, 255, 0.06), 0 3px 10px -6px rgba(0, 6, 24, 0.8);
+  --ae-well: linear-gradient(180deg, rgba(0, 10, 30, 0.5), rgba(6, 24, 56, 0.38));
+  --ae-well-edge: inset 0 1px 3px rgba(0, 4, 16, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05);
+  --ae-navy: #0b2b5c;      /* the glass's own color: rings around avatars and dots sit in it */
+  --card: var(--ae-gloss-sm) padding-box, var(--ae-fill) padding-box, var(--ae-tint) padding-box, var(--ae-rim) border-box;
+  color-scheme: dark;
+}
+:root[data-theme="aero"] ::selection { background: rgb(var(--lime-rgb) / 0.35); color: #fff; }
+:root[data-theme="aero"] :focus-visible { outline-color: #8fe6ff; }
+
+/* ---------- type: Nunito everywhere the hub used Outfit (UI) or Bungee (display, now Nunito 800) ---------- */
+:root[data-theme="aero"] body { font-family: var(--font-ui); }
+:root[data-theme="aero"] :is(.wordmark, .badge, .hero h1, .hero .hero-title, .btn-play, .section-head h2, .card.lab h3, .foot-brand b,
+  .fp-me-av.plain, .fp-me-subhead b, .fp-btn, .fp-suggest-title, .fp-sheet-head h2, .fp-sec h3, .st-count b, .ls-label, .hp-head h2,
+  .wn-new, .tt-ring b, .tr-toast-text small, .page-head h1, .tro-stat b, .tro-group h2, .pf-av, .pf-name, .pf-sec h2, .pf-stat b,
+  .pf-rank > small, .pf-rank > b, .pf-missing h1, .tro-sum-line, .lb-hero h1, .lb-medal, .lb-av, .lb-pod-val b, .lb-step, .lb-pos,
+  .lb-val b, .lb-empty h3, .lb-cta, .tp-medal, .tp-val, .cx-top-title, .loader h1, .missing h1) {
+  font-family: var(--font-display); font-weight: 800;
+}
+:root[data-theme="aero"] :is(kbd, .search input, .nav-a, .fp-nav .cx-hb, .fp-nav .cx-hb-count, .live, .eyebrow, .fn-room, .fn-join, .card h3,
+  .lab-tag, .tier, .fp-chip, .fp-badge, .fp-me-name, .fp-me-item, .fp-me-count, .fp-me-preset, .fp-me-input, .fp-suggest textarea,
+  .fp-form input, .fp-streak, .st-link, .hp-badge, .hp-more, .tro-group h2 .count, .tro-tier, .pf-role, .pf-sec h2 small, .lb-chip,
+  .lb-seg-btn, .lb-hidden-btn, .lb-you, .tp-val small) {
+  font-family: var(--font-ui);
+}
+:root[data-theme="aero"] .section-head h2 { font-size: 24px; letter-spacing: 0; }
+:root[data-theme="aero"] :is(.hp-head h2, .pf-sec h2, .tro-group h2) { letter-spacing: 0; font-size: 20px; }
+
+/* ---------- the sky ---------- */
+:root[data-theme="aero"] .sky {
+  background:
+    radial-gradient(70% 55% at 86% -8%, rgba(110, 200, 255, 0.24), rgba(60, 140, 255, 0.07) 45%, transparent 72%),
+    radial-gradient(80% 50% at 0% 105%, rgba(40, 200, 220, 0.13), transparent 70%),
+    linear-gradient(180deg, #020a1d 0%, #04122b 26%, #072551 60%, #0a2f5c 84%, #0c3767 100%);
+}
+:root[data-theme="aero"] .sky .g1 {
+  inset: 0; width: auto; height: auto; border-radius: 0; transform: none; animation: none; will-change: auto;
+  background: url('assets/aero-sky.svg') 0 0 / 100% 100% no-repeat;
+}
+@media (max-width: 600px) { :root[data-theme="aero"] .sky .g1 { opacity: 0.72; } }      /* a narrow screen squeezes the strands together: dim them */
+:root[data-theme="aero"] .sky .g2 { background: radial-gradient(closest-side, rgba(150, 225, 255, 0.2), rgba(70, 160, 255, 0.07) 55%, transparent); }
+:root[data-theme="aero"] .sky .g3 { background: radial-gradient(closest-side, rgba(40, 210, 230, 0.12), rgba(60, 140, 255, 0.04) 60%, transparent); }
+:root[data-theme="aero"] .sky .paper {      /* a still star field: six tiles of different sizes, so no pattern shows */
+  background:
+    radial-gradient(circle at 23px 41px, rgba(255, 255, 255, 0.85) 0 0.8px, transparent 1.5px) 0 0 / 197px 173px,
+    radial-gradient(circle at 131px 97px, rgba(200, 235, 255, 0.7) 0 0.7px, transparent 1.4px) 0 0 / 241px 211px,
+    radial-gradient(circle at 61px 13px, rgba(255, 255, 255, 0.55) 0 0.6px, transparent 1.2px) 0 0 / 151px 139px,
+    radial-gradient(circle at 177px 151px, rgba(190, 230, 255, 0.75) 0 1px, transparent 1.8px) 0 0 / 311px 263px,
+    radial-gradient(circle at 87px 201px, rgba(255, 255, 255, 0.5) 0 0.6px, transparent 1.2px) 0 0 / 229px 233px,
+    radial-gradient(circle at 199px 37px, rgba(220, 240, 255, 0.6) 0 0.8px, transparent 1.5px) 0 0 / 283px 307px;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.7) 45%, rgba(0, 0, 0, 0.15) 80%, transparent);
+  mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.7) 45%, rgba(0, 0, 0, 0.15) 80%, transparent);
+}
+:root[data-theme="aero"] .sky .sweep { display: none; }
+/* words straight on the sky get a soft dark halo, so a ribbon or a star passing behind them never costs contrast */
+:root[data-theme="aero"] :is(.page-head h1, .page-head p, .lb-hero p, .foot, .section-head h2, .tro-group h2, .pf-missing h1, .pf-missing p, .empty, .tp-wake, .lb-wake.quiet) {
+  text-shadow: 0 0 2px rgba(2, 10, 30, 0.85), 0 1px 3px rgba(2, 10, 30, 0.8), 0 0 16px rgba(2, 10, 30, 0.6);
+}
+:root[data-theme="aero"][data-fx="off"] .sky i { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="aero"] .sky .ambient { display: block; opacity: 1; }      /* the still frame (fp/ambient.js) */
+}
+
+/* ---------- header, nav, clock, search, header buttons ---------- */
+:root[data-theme="aero"] .top {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.015) 50%, rgba(255, 255, 255, 0) 51%),
+    linear-gradient(180deg, rgba(12, 44, 94, 0.8), rgba(6, 26, 62, 0.66));
+  border-bottom-color: rgba(140, 220, 255, 0.14); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+:root[data-theme="aero"] .top.scrolled {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.015) 50%, rgba(255, 255, 255, 0) 51%),
+    linear-gradient(180deg, rgba(10, 40, 88, 0.95), rgba(6, 26, 62, 0.92));
+  border-bottom-color: rgba(140, 220, 255, 0.26);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 0 rgb(var(--lime-rgb) / 0.12), 0 14px 34px -22px rgba(0, 4, 16, 0.95);
+}
+:root[data-theme="aero"] .wordmark {
+  letter-spacing: 0.03em;
+  background: linear-gradient(180deg, #ffffff 35%, #cdeeff 62%, #94d6ff); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 10px rgba(80, 190, 255, 0.35));
+}
+:root[data-theme="aero"] .wordmark b {
+  text-shadow: none;
+  background: linear-gradient(180deg, #e6fbff 12%, var(--lime) 58%, color-mix(in srgb, var(--lime) 70%, #1a6fd0)); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+:root[data-theme="aero"] .logo svg circle { fill: #a6f0ff; }
+:root[data-theme="aero"] :is(.nav-a, .fp-nav .cx-hb) { font-weight: 800; }
+:root[data-theme="aero"] :is(.nav-a, .fp-nav .cx-hb):hover { background: var(--ae-btn); box-shadow: var(--ae-btn-edge); }
+:root[data-theme="aero"] .nav-a[aria-current="page"] {
+  background: linear-gradient(180deg, rgb(var(--lime-rgb) / 0.26), rgb(var(--lime-rgb) / 0.1) 50%, rgb(var(--lime-rgb) / 0.05) 51%, rgb(var(--lime-rgb) / 0.13));
+  border-color: rgb(var(--lime-rgb) / 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 18px -6px rgb(var(--lime-rgb) / 0.65);
+}
+:root[data-theme="aero"] :is(.clock, .fp-theme-btn, .fp-sfx-btn, .lb-home, .cx-top-link, .count, .chip, .fp-pick, .fp-mini, .fp-x, .fp-me-back) {
+  background: var(--ae-btn); border-color: rgba(160, 220, 255, 0.2); box-shadow: var(--ae-btn-edge);
+}
+:root[data-theme="aero"] :is(.fp-theme-btn, .fp-sfx-btn, .lb-home, .cx-top-link, .chip, .fp-pick, .fp-mini, .fp-x, .fp-me-back):hover {
+  background: var(--ae-btn-hi); border-color: rgba(170, 230, 255, 0.36);
+}
+:root[data-theme="aero"] .clock em::before { background: var(--lime); box-shadow: 0 0 8px var(--lime); }
+:root[data-theme="aero"] :is(.search input, .fp-suggest textarea, .fp-form input, .fp-me-input) {
+  background: var(--ae-well); border-color: rgba(140, 210, 255, 0.24); box-shadow: var(--ae-well-edge);
+}
+:root[data-theme="aero"] :is(.search input, .fp-suggest textarea, .fp-form input, .fp-me-input):focus {
+  background: linear-gradient(180deg, rgba(0, 12, 34, 0.78), rgba(6, 26, 60, 0.7)); border-color: rgb(var(--lime-rgb) / 0.65);
+  box-shadow: var(--ae-well-edge), 0 0 0 4px rgb(var(--lime-rgb) / 0.14);
+}
+
+/* ---------- gel: the main buttons and every "selected" pill ---------- */
+:root[data-theme="aero"] :is(.btn-play, .fp-btn:not(:disabled), .fn-join:not(.fn-play), .lb-cta, .tool.main, .fp-chip:not(.on), .chip.on, .fp-tab.on, .lb-chip.on, .thumb .go) {
+  --gel: var(--lime);
+  isolation: isolate; color: var(--btn-text); border-color: transparent;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--gel) 32%, #fff) 0%, color-mix(in srgb, var(--gel) 70%, #fff) 46%,
+    var(--gel) 50%, var(--gel) 78%, color-mix(in srgb, var(--gel) 72%, #fff) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.22), inset 0 -7px 12px -7px rgba(255, 255, 255, 0.6),
+    0 0 0 1px rgba(2, 24, 58, 0.55), 0 10px 24px -10px color-mix(in srgb, var(--gel) 80%, transparent);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+:root[data-theme="aero"] :is(.lb-cta, .lb-chip.on, .thumb .go) { --gel: var(--accent); }
+:root[data-theme="aero"] :is(.btn-play, .fp-btn:not(:disabled), .fn-join:not(.fn-play), .lb-cta, .tool.main, .fp-chip:not(.on), .chip.on, .fp-tab.on, .lb-chip.on) { position: relative; }
+:root[data-theme="aero"] :is(.btn-play, .fp-btn:not(:disabled), .fn-join:not(.fn-play), .lb-cta, .tool.main, .fp-chip:not(.on), .chip.on, .fp-tab.on, .lb-chip.on)::before {
+  content: ''; position: absolute; left: 6%; right: 6%; top: 1px; height: 47%; z-index: -1; pointer-events: none;
+  border-radius: 999px 999px 50% 50% / 40px 40px 14px 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.1));
+}
+:root[data-theme="aero"] :is(.btn-play, .fp-btn:not(:disabled), .fn-join:not(.fn-play), .lb-cta, .tool.main, .fp-chip:not(.on)):hover {
+  color: var(--btn-text); transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 0 0 1px rgba(255, 255, 255, 0.3), inset 0 -8px 14px -7px rgba(255, 255, 255, 0.75),
+    0 0 0 1px rgba(2, 24, 58, 0.55), 0 14px 32px -10px color-mix(in srgb, var(--gel) 95%, transparent), 0 0 22px -6px color-mix(in srgb, var(--gel) 70%, transparent);
+}
+:root[data-theme="aero"] :is(.btn-play, .fp-btn, .fn-join, .lb-cta, .tool.main, .fp-chip:not(.on)):active { transform: translateY(0); }
+:root[data-theme="aero"] .btn-play { overflow: hidden; border-radius: 999px; font-size: 20px; padding: 0 32px 0 26px; }
+:root[data-theme="aero"] .btn-play::after {      /* a light that sweeps across Play now and then */
+  content: ''; position: absolute; top: -20%; bottom: -20%; left: 0; width: 28%; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.45) 45%, rgba(255, 255, 255, 0.6) 50%, transparent);
+  transform: translateX(-145%) skewX(-18deg); animation: ae-sweep 6.5s ease-in-out 2s infinite;
+}
+@keyframes ae-sweep { 0%, 72% { transform: translateX(-145%) skewX(-18deg); } 92%, 100% { transform: translateX(430%) skewX(-18deg); } }
+:root[data-theme="aero"][data-fx="off"] .btn-play::after { animation: none; opacity: 0; }
+:root[data-theme="aero"] .fp-btn { border-radius: 999px; font-size: 16px; letter-spacing: 0.01em; }
+:root[data-theme="aero"] .fp-btn:disabled { background: var(--ae-btn); box-shadow: var(--ae-btn-edge); }
+:root[data-theme="aero"] .fp-chip:not(.on) { font-weight: 800; }
+:root[data-theme="aero"] .fn-join.fn-play { background: var(--ae-btn); box-shadow: var(--ae-btn-edge), inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+:root[data-theme="aero"] .thumb .go::before {
+  content: ''; position: absolute; left: 14%; right: 14%; top: 2px; height: 44%; border-radius: 50%; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.08));
+}
+:root[data-theme="aero"] .thumb .go .ic { position: relative; }
+/* small gel tags */
+:root[data-theme="aero"] :is(.badge.new, .hp-badge, .wn-new, .ls-label, .fp-badge.owner, .pf-role.owner, .fp-me-count) {
+  color: var(--btn-text);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--lime) 35%, #fff) 0%, color-mix(in srgb, var(--lime) 72%, #fff) 48%, var(--lime) 52%, color-mix(in srgb, var(--lime) 80%, #fff) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 0 0 1px rgba(2, 24, 58, 0.45), 0 4px 14px -4px rgb(var(--lime-rgb) / 0.7);
+}
+:root[data-theme="aero"] .ls-pulse { background: var(--btn-text); }
+:root[data-theme="aero"] :is(.fp-badge:not(.owner), .pf-role:not(.owner), .lb-you) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cyan) 45%, #fff), var(--cyan) 52%, color-mix(in srgb, var(--cyan) 85%, #fff));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* ---------- glass: panels and cards ---------- */
+:root[data-theme="aero"] :is(.hp, .lb-panel, .pf-sec, .pf-card:not(.themed)) { background: var(--ae-glass); border-color: transparent; box-shadow: var(--ae-lift); }
+:root[data-theme="aero"] .hp::before { background: linear-gradient(90deg, transparent, rgba(220, 248, 255, 0.55), rgb(var(--lime-rgb) / 0.6), transparent); }
+:root[data-theme="aero"] .fp-suggest {
+  background: linear-gradient(100deg, rgb(var(--lime-rgb) / 0.1), rgb(var(--lime-rgb) / 0) 30%, rgb(var(--cyan-rgb) / 0) 70%, rgb(var(--cyan-rgb) / 0.1)) padding-box, var(--ae-glass);
+  border-color: transparent; box-shadow: var(--ae-lift);
+}
+:root[data-theme="aero"] .tro-summary {
+  background: radial-gradient(60% 120% at 0% 0%, rgba(255, 216, 77, 0.12), transparent 60%) padding-box, var(--ae-glass);
+  box-shadow: var(--ae-lift), 0 40px 90px -60px rgba(255, 216, 77, 0.45);
+}
+:root[data-theme="aero"] :is(.card, .tile, .tro-card, .tp-card, .lb-tab, .fn-tile, .st-card) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 22px 44px -30px rgba(0, 6, 24, 0.95); }
+:root[data-theme="aero"] .card:not(.lab):is(:hover, :focus-within) {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent), 0 34px 70px -34px color-mix(in srgb, var(--accent) 60%, transparent),
+    0 0 50px -20px color-mix(in srgb, var(--accent) 40%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+:root[data-theme="aero"] .thumb { background: radial-gradient(80% 90% at 70% 30%, color-mix(in srgb, var(--accent) 18%, transparent), transparent), #0c2c5e; }
+:root[data-theme="aero"] .thumb::after { background: linear-gradient(180deg, rgba(3, 16, 40, 0.42) 0%, transparent 28%, transparent 52%, rgba(3, 16, 40, 0.82) 100%); }
+:root[data-theme="aero"] .thumb::before {      /* the poster sits under a curved sheet of glass */
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 44%; z-index: 1; pointer-events: none;
+  border-radius: 0 0 50% 50% / 0 0 22% 22%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03) 85%, rgba(255, 255, 255, 0));
+}
+:root[data-theme="aero"] .card.lab { background: linear-gradient(180deg, rgba(10, 40, 86, 0.62), rgba(6, 26, 60, 0.62)); }
+:root[data-theme="aero"] .lab-flask { background: radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.14), transparent 55%), rgba(8, 34, 74, 0.9); }
+/* rows and wells inside the glass */
+:root[data-theme="aero"] :is(.tt-next, .pf-rank, .pf-game, .tro-stat, .fp-sec, .fp-item, .lb-hidden-list li) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07); }
+:root[data-theme="aero"] :is(.fp-stat, .pf-stat, .tt-case, .fp-xp, .st-bar) { background: var(--ae-well); box-shadow: var(--ae-well-edge); }
+:root[data-theme="aero"] .lb-row { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+:root[data-theme="aero"] .lb-row.pinned { background: linear-gradient(90deg, rgba(14, 66, 120, 0.97), rgba(8, 40, 88, 0.97)); }
+:root[data-theme="aero"] .lb-seg { background: var(--ae-well); box-shadow: var(--ae-well-edge); }
+:root[data-theme="aero"] .lb-seg-btn.on { background: var(--ae-btn-hi); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 0 0 1px rgba(160, 220, 255, 0.18); }
+:root[data-theme="aero"] :is(.lb-tab-art.fp, .tp-art.fp) { background: radial-gradient(circle at 50% 40%, rgb(var(--lime-rgb) / 0.2), transparent 70%), #0a2550; }
+:root[data-theme="aero"] .lb-av { box-shadow: 0 0 0 2px rgba(6, 28, 64, 0.95), 0 0 14px -4px var(--hue); }
+:root[data-theme="aero"] .lb-av.big { box-shadow: 0 0 0 3px rgba(var(--medal), 0.85), 0 0 0 7px rgba(6, 28, 64, 0.95), 0 10px 30px -8px var(--hue); }
+:root[data-theme="aero"] :is(.lb-pod.open .lb-name, .tp-row.open .tp-name, .wn-meta) { color: var(--muted); }
+/* a game's own color as text: lifted toward white, so a dark red or green still reads on the blue glass */
+:root[data-theme="aero"] :is(.tp-title span, .lb-play:not(:hover)) { color: color-mix(in srgb, var(--accent) 50%, #fff); }
+:root[data-theme="aero"] .fn-what b { color: color-mix(in srgb, var(--accent) 55%, #fff); }
+:root[data-theme="aero"] .wn-game { color: color-mix(in srgb, var(--wn) 50%, #fff); }
+:root[data-theme="aero"] :is(.chip:not(.on), .fp-pick:not(.on), .fp-mini:not(.danger), .lb-chip:not(.on), .lb-seg-btn, .lb-home, .cx-top-link, .count) { color: var(--soft); }
+:root[data-theme="aero"] :is(.lab-tag, .lab-cta:not(:hover)) { color: color-mix(in srgb, var(--cyan) 60%, #fff); }
+:root[data-theme="aero"] .lb-step { color: rgba(var(--medal), 0.62); }
+:root[data-theme="aero"] .fp-pick.on { border-color: rgb(var(--lime-rgb) / 0.6); background: linear-gradient(180deg, rgb(var(--lime-rgb) / 0.2), rgb(var(--lime-rgb) / 0.07)), linear-gradient(rgba(7, 30, 68, 0.8), rgba(7, 30, 68, 0.8)); }
+:root[data-theme="aero"] :is(.tp-all, .hp-link):not(:hover) { background: linear-gradient(180deg, rgb(var(--lime-rgb) / 0.14), rgb(var(--lime-rgb) / 0.05)), linear-gradient(rgba(7, 30, 68, 0.84), rgba(7, 30, 68, 0.84)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16); }
+/* the live pill, favorite star, tags, carousel controls: small glass */
+:root[data-theme="aero"] .live { color: #e6f4ff; background: linear-gradient(180deg, rgba(20, 60, 116, 0.88), rgba(4, 22, 52, 0.9)); border-color: rgba(160, 220, 255, 0.24); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16); }
+:root[data-theme="aero"] .fav { color: #e6f4ff; background: linear-gradient(180deg, rgba(30, 76, 136, 0.82), rgba(6, 26, 60, 0.85)); border-color: rgba(170, 225, 255, 0.28); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22); }
+:root[data-theme="aero"] .fav.on { color: var(--lime); border-color: rgb(var(--lime-rgb) / 0.6); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 16px -2px rgb(var(--lime-rgb) / 0.6); }
+:root[data-theme="aero"] .tag { color: #d6e9fb; background: var(--ae-btn); border-color: rgba(160, 220, 255, 0.14); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12); }
+:root[data-theme="aero"] .car-ctrl { background: linear-gradient(180deg, rgba(24, 70, 130, 0.82), rgba(6, 28, 64, 0.86)); border-color: rgba(160, 220, 255, 0.24); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 14px 34px -18px #000; }
+:root[data-theme="aero"] .car-dot i { background: rgba(200, 235, 255, 0.24); }
+:root[data-theme="aero"] .fn-room { background: rgba(4, 22, 52, 0.85); }
+:root[data-theme="aero"] .fn-art .fn-av { box-shadow: 0 0 0 3px var(--ae-navy), 0 6px 16px -6px #000; }
+/* bullets: glossy orbs in place of Neon's diamonds */
+:root[data-theme="aero"] :is(.section-head h2, .fp-sec h3)::before {
+  width: 14px; height: 14px; border-radius: 50%; transform: none;
+  background: radial-gradient(circle at 34% 28%, #fff 0 10%, rgba(255, 255, 255, 0) 34%), radial-gradient(circle at 50% 115%, #b8fff4 0%, var(--lime) 45%, #1a6fc8 100%);
+  box-shadow: 0 0 12px rgb(var(--lime-rgb) / 0.55), inset 0 -1px 2px rgba(0, 30, 80, 0.4);
+}
+:root[data-theme="aero"] .eyebrow::before { border-radius: 50%; transform: none; background: radial-gradient(circle at 35% 30%, #fff 0 18%, var(--lime) 55%); }
+:root[data-theme="aero"] .eyebrow {      /* solid glass: it can sit on a bright poster */
+  background: linear-gradient(180deg, rgba(26, 78, 140, 0.9), rgba(6, 30, 70, 0.9)); border-color: rgb(var(--lime-rgb) / 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 4px 14px -6px rgba(0, 6, 24, 0.8);
+}
+
+/* ---------- the live strip ---------- */
+:root[data-theme="aero"] .live-strip {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 50%),
+    linear-gradient(90deg, rgba(10, 44, 92, 0.9), rgba(6, 28, 64, 0.88) 22%, rgba(6, 28, 64, 0.88) 78%, rgba(12, 42, 92, 0.9));
+  border-bottom-color: rgba(140, 220, 255, 0.14);
+}
+
+/* ---------- home banner: glass over the theme's backdrop (one .fp-hero-backdrop under every slide, from fp/home.js) ---------- */
+.fp-hero-backdrop { display: none; }
+:root[data-theme="aero"] .hero-slot { position: relative; }
+:root[data-theme="aero"] .fp-hero-backdrop {
+  display: block; position: absolute; inset: 0; overflow: hidden; border-radius: 30px; pointer-events: none;
+  background:
+    radial-gradient(60% 85% at 88% -5%, rgba(120, 210, 255, 0.3), transparent 70%),
+    radial-gradient(55% 70% at 8% 108%, rgba(40, 200, 230, 0.2), transparent 70%),
+    linear-gradient(165deg, #061f48 0%, #0a2f5c 55%, #0e3b70 100%);
+}
+:root[data-theme="aero"] .fp-hero-backdrop::before {      /* the swoosh (assets/aero-hero.svg): ribbons rising from the left over the top */
+  content: ''; position: absolute; left: -3%; right: -3%; top: -2%; bottom: -2%;
+  background: url('assets/aero-hero.svg') 0 0 / 100% 100% no-repeat;
+  animation: ae-swoosh 22s ease-in-out infinite alternate;
+}
+:root[data-theme="aero"] .fp-hero-backdrop::after {      /* bubbles: one tile drawn twice, floating up forever */
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 200%;
+  background:
+    radial-gradient(circle at calc(30% - 7px) calc(26% - 8px), rgba(255, 255, 255, 0.85) 0 2.5px, rgba(255, 255, 255, 0) 6px),
+    radial-gradient(circle at 30% 26%, rgba(120, 200, 255, 0.05) 0 18px, rgba(150, 230, 255, 0.16) 22px, rgba(215, 250, 255, 0.55) 24.5px, rgba(215, 250, 255, 0) 26px),
+    radial-gradient(circle at calc(46% - 4px) calc(70% - 5px), rgba(255, 255, 255, 0.8) 0 1.6px, rgba(255, 255, 255, 0) 4px),
+    radial-gradient(circle at 46% 70%, rgba(120, 200, 255, 0.05) 0 10px, rgba(150, 230, 255, 0.16) 12.5px, rgba(215, 250, 255, 0.5) 14px, rgba(215, 250, 255, 0) 15px),
+    radial-gradient(circle at calc(62% - 9px) calc(14% - 10px), rgba(255, 255, 255, 0.8) 0 3px, rgba(255, 255, 255, 0) 7px),
+    radial-gradient(circle at 62% 14%, rgba(120, 200, 255, 0.05) 0 25px, rgba(150, 230, 255, 0.15) 30px, rgba(215, 250, 255, 0.5) 33px, rgba(215, 250, 255, 0) 34.5px),
+    radial-gradient(circle at calc(80% - 3px) calc(48% - 4px), rgba(255, 255, 255, 0.8) 0 1.4px, rgba(255, 255, 255, 0) 3.5px),
+    radial-gradient(circle at 80% 48%, rgba(150, 230, 255, 0.14) 0 7px, rgba(215, 250, 255, 0.5) 9px, rgba(215, 250, 255, 0) 10px),
+    radial-gradient(circle at calc(14% - 5px) calc(84% - 6px), rgba(255, 255, 255, 0.75) 0 2px, rgba(255, 255, 255, 0) 5px),
+    radial-gradient(circle at 14% 84%, rgba(120, 200, 255, 0.05) 0 13px, rgba(150, 230, 255, 0.15) 16px, rgba(215, 250, 255, 0.45) 18px, rgba(215, 250, 255, 0) 19.5px),
+    radial-gradient(circle at calc(92% - 5px) calc(86% - 6px), rgba(255, 255, 255, 0.75) 0 2px, rgba(255, 255, 255, 0) 5px),
+    radial-gradient(circle at 92% 86%, rgba(120, 200, 255, 0.05) 0 15px, rgba(150, 230, 255, 0.15) 18px, rgba(215, 250, 255, 0.45) 20px, rgba(215, 250, 255, 0) 21.5px);
+  background-size: 100% 50%; background-repeat: repeat-y;
+  animation: ae-rise 46s linear infinite;
+}
+@keyframes ae-swoosh { from { transform: translate3d(-1.5%, 1%, 0); } to { transform: translate3d(1.5%, -1%, 0); } }
+@keyframes ae-rise { from { transform: translateY(0); } to { transform: translateY(-50%); } }
+:root[data-theme="aero"][data-fx="off"] .fp-hero-backdrop::before, :root[data-theme="aero"][data-fx="off"] .fp-hero-backdrop::after { animation: none; }
+:root[data-theme="aero"] .hero {
+  background: transparent; border-color: rgba(150, 220, 255, 0.24);
+  box-shadow: 0 50px 110px -70px rgba(40, 170, 255, 0.55), 0 30px 80px -40px rgba(0, 6, 24, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+:root[data-theme="aero"] .hero::before {
+  background:
+    linear-gradient(90deg, rgba(3, 16, 40, 0.62) 0%, rgba(3, 16, 40, 0.34) 36%, rgba(3, 16, 40, 0) 70%),
+    linear-gradient(0deg, rgba(3, 16, 40, 0.78) 0%, rgba(3, 16, 40, 0.42) 42%, rgba(3, 16, 40, 0) 72%);
+}
+:root[data-theme="aero"] .hero::after {      /* the glass: a curved gloss over the top, a lit top edge, a little accent light */
+  background:
+    radial-gradient(110% 150px at 50% -70px, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.025) 84%, rgba(255, 255, 255, 0) 87%),
+    radial-gradient(55% 75% at 0% 100%, rgb(var(--lime-rgb) / 0.12), transparent 70%),
+    linear-gradient(90deg, transparent, rgba(220, 248, 255, 0.75), var(--lime), transparent) top / 100% 1px no-repeat;
+}
+:root[data-theme="aero"] .hero .hero-title, :root[data-theme="aero"] .hero h1 {
+  letter-spacing: -0.02em; line-height: 0.95; font-size: clamp(56px, 8vw, 112px);
+  background: linear-gradient(180deg, #ffffff 30%, #d9f3ff 60%, color-mix(in srgb, var(--accent) 26%, #8fdcff) 100%); -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 0 26px rgba(70, 180, 255, 0.32)) drop-shadow(0 4px 0 rgba(0, 16, 44, 0.45));
+}
+:root[data-theme="aero"] .hint::before { background: var(--amber); }
+@media (max-width: 820px) {
+  :root[data-theme="aero"] .fp-hero-backdrop { border-radius: 24px; }
+  :root[data-theme="aero"] .hero::before { background: linear-gradient(0deg, rgba(3, 16, 40, 0.9) 44%, rgba(3, 16, 40, 0.5) 60%, rgba(3, 16, 40, 0) 78%); }
+  :root[data-theme="aero"] .hero .hero-title, :root[data-theme="aero"] .hero h1 { font-size: clamp(46px, 13vw, 66px); }
+}
+
+/* ---------- home panels, trophies, profile ---------- */
+:root[data-theme="aero"] .hp-ic { color: var(--btn-text); background: linear-gradient(180deg, color-mix(in srgb, var(--lime) 40%, #fff), var(--lime) 52%, var(--cyan)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 10px 24px -10px rgb(var(--lime-rgb) / 0.7); }
+:root[data-theme="aero"] .wn-dot { background: var(--ae-navy); }
+:root[data-theme="aero"] .wn-list::before { background: linear-gradient(180deg, rgb(var(--lime-rgb) / 0.45), rgba(160, 220, 255, 0.08)); }
+:root[data-theme="aero"] .tt-ring::before, :root[data-theme="aero"] .tr-lock { background: #0a2a5a; }
+:root[data-theme="aero"] .tr-medal { --m1: #2d4f80; --m2: #0f2a54; --mi: #9cbde0; }
+:root[data-theme="aero"] :is(.page-head p, .lb-hero p, .foot, .pf-missing p, .empty) { color: #dcecfb; }
+:root[data-theme="aero"] .page-head h1 b { color: var(--lime); text-shadow: 0 0 24px rgb(var(--lime-rgb) / 0.45); }
+:root[data-theme="aero"] .pf-banner { background: url('assets/aero-hero.svg') 0 0 / 100% 100% no-repeat, radial-gradient(70% 120% at 85% 0%, rgba(150, 230, 255, 0.45), transparent 70%), linear-gradient(120deg, #1d8fd0, #0e4fa0 60%, #0a3a80); }
+:root[data-theme="aero"] .pf-banner::after { background: linear-gradient(180deg, transparent 40%, rgba(3, 16, 40, 0.5)); }
+:root[data-theme="aero"] :is(.pf-av, .pf-av .cx-av, .pf-av-chat > .cx-av) { box-shadow: 0 0 0 6px #0f346a, 0 14px 30px -10px #000; }
+:root[data-theme="aero"] :is(.pf-badges, .fp-me-badges) { background: rgba(4, 22, 52, 0.85); border-color: rgba(160, 220, 255, 0.16); }
+:root[data-theme="aero"] .fp-chip.on { background: var(--ae-btn); border-color: rgba(160, 220, 255, 0.24); box-shadow: var(--ae-btn-edge); }
+:root[data-theme="aero"] :is(.fp-chip.on:hover, .fp-chip.on[aria-expanded="true"]) { background: var(--ae-btn-hi); }
+:root[data-theme="aero"] .fp-chip .fp-chip-av .cx-av-dot { box-shadow: 0 0 0 2.5px #0f346a; }
+
+/* ---------- floating: account card, sheets, toasts ---------- */
+:root[data-theme="aero"] .fp-me { background: var(--ae-gloss) padding-box, linear-gradient(180deg, #12407c, #0a2856) padding-box, var(--ae-rim) border-box; border-color: transparent; }
+:root[data-theme="aero"] .fp-me-top .fp-me-av { box-shadow: 0 0 0 5px #113b75; }
+:root[data-theme="aero"] .fp-backdrop { background: rgba(1, 8, 22, 0.6); }
+:root[data-theme="aero"] .fp-sheet {
+  background: var(--ae-gloss) padding-box, linear-gradient(180deg, rgba(18, 60, 118, 0.94), rgba(8, 32, 74, 0.96)) padding-box, var(--ae-rim) border-box;
+  border-color: transparent;
+  box-shadow: 0 50px 120px -40px rgba(0, 4, 16, 0.95), 0 0 80px -40px rgb(var(--lime-rgb) / 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+:root[data-theme="aero"] .fp-tabs { background: var(--ae-well); box-shadow: var(--ae-well-edge); }
+:root[data-theme="aero"] .fp-toast { background: linear-gradient(180deg, rgba(20, 64, 124, 0.95), rgba(8, 34, 78, 0.96)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 20px 50px -20px rgba(0, 4, 16, 0.9); }
+:root[data-theme="aero"] .tr-toast { background: linear-gradient(120deg, rgba(70, 58, 12, 0.96), rgba(10, 38, 82, 0.97) 55%); }
+:root[data-theme="aero"] .tr-toast.tier-silver { background: linear-gradient(120deg, rgba(52, 66, 90, 0.96), rgba(10, 38, 82, 0.97) 55%); }
+:root[data-theme="aero"] .tr-toast.tier-bronze { background: linear-gradient(120deg, rgba(76, 38, 14, 0.96), rgba(10, 38, 82, 0.97) 55%); }
+
+/* ---------- play page (play.html's own styles) + its chat button ---------- */
+:root[data-theme="aero"] .bar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 50%, rgba(255, 255, 255, 0) 51%), linear-gradient(180deg, #0f3a78, #072656);
+  border-bottom-color: rgba(140, 220, 255, 0.22); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+:root[data-theme="aero"] .tool:not(.main) { color: #dcefff; background: var(--ae-btn); border-color: rgba(160, 220, 255, 0.22); box-shadow: var(--ae-btn-edge); }
+:root[data-theme="aero"] .tool:not(.main):hover { background: var(--ae-btn-hi); border-color: rgba(170, 230, 255, 0.36); }
+:root[data-theme="aero"] .tool.main:hover { background: linear-gradient(180deg, color-mix(in srgb, var(--gel) 22%, #fff) 0%, color-mix(in srgb, var(--gel) 62%, #fff) 46%, var(--gel) 50%, var(--gel) 78%, color-mix(in srgb, var(--gel) 66%, #fff) 100%); }
+:root[data-theme="aero"] .loader { background: radial-gradient(70% 55% at 86% -8%, rgba(110, 200, 255, 0.22), transparent 72%), linear-gradient(180deg, #04122b 0%, #072551 60%, #0a2f5c 100%); }
+:root[data-theme="aero"] .loader .bg { opacity: 0.55; }
+:root[data-theme="aero"] .loader p { color: var(--soft); }
+:root[data-theme="aero"] .missing { background: linear-gradient(180deg, #04122b, #0a2f5c); }
+:root[data-theme="aero"] .fpco-btn[aria-expanded="true"] { background: var(--ae-btn-hi); border-color: rgb(var(--lime-rgb) / 0.5); }
+:root[data-theme="aero"] :is(.fpco-count, .fpco-voice) { box-shadow: 0 0 0 2px #0b3068; }
+
+/* ---------- Messages page: its header follows the theme (the chat app keeps Discord's grays) ---------- */
+:root[data-theme="aero"] .cx-top-title { color: var(--lime); text-shadow: 0 0 16px rgb(var(--lime-rgb) / 0.45); letter-spacing: 0.02em; font-size: 17px; }
+:root[data-theme="aero"] .cx-top { background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 60%); }
