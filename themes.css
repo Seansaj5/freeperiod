@@ -97,7 +97,7 @@
   .fp-me-av.plain, .fp-me-subhead b, .fp-btn, .fp-suggest-title, .fp-sheet-head h2, .fp-sec h3, .st-count b, .ls-label, .hp-head h2,
   .wn-new, .tt-ring b, .tr-toast-text small, .page-head h1, .tro-stat b, .tro-group h2, .pf-av, .pf-name, .pf-sec h2, .pf-stat b,
   .pf-rank > small, .pf-rank > b, .pf-missing h1, .tro-sum-line, .lb-hero h1, .lb-medal, .lb-av, .lb-pod-val b, .lb-step, .lb-pos,
-  .lb-val b, .lb-empty h3, .lb-cta, .tp-medal, .tp-val, .cx-top-title, .loader h1, .missing h1) {
+  .lb-val b, .lb-empty h3, .lb-cta, .tp-medal, .tp-val, .cx-top-title, .loader h1, .missing h1, .rotate h2) {
   font-family: var(--font-display); font-weight: 800;
 }
 :root[data-theme="aero"] :is(kbd, .search input, .nav-a, .fp-nav .cx-hb, .fp-nav .cx-hb-count, .live, .eyebrow, .fn-room, .fn-join, .card h3,

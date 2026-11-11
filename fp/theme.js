@@ -57,7 +57,7 @@ export function readyThemes() { return THEMES.filter((t) => t.ready); }
 export const DEFAULT_THEME = 'neon';
 // The browser bar color per theme (<meta name="theme-color">: the top of each theme's header). Keep in step with
 // themes.css and the copy in fp/theme-boot.js (tests/theme checks it).
-export const THEME_COLORS = Object.freeze({ neon: '#05070c', aero: '#0b2a5c', space: '#000000', minimal: '#0d0d0f' });
+export const THEME_COLORS = Object.freeze({ neon: '#05070c', aero: '#16335e', space: '#000000', minimal: '#0d0d0f' });
 // Each theme's own accent: what the "Theme" swatch shows (keep in step with themes.css).
 const THEME_ACCENT = { neon: ['#c6ff3d', '#3de0ff'], aero: ['#4fd8ff', '#96c4ff'], space: ['#ffb84a', '#8fd3ff'], minimal: ['#e8e8ea', '#a0a0a8'] };
 export function themeAccent(id = getTheme()) { const [color, second] = THEME_ACCENT[id] || THEME_ACCENT[cleanTheme(id)]; return { id: 'theme', label: 'Theme', color, second }; }

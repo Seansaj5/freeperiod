@@ -200,7 +200,7 @@
 }
 .lb-row.me .lb-pos { color: var(--cyan); }
 .lb-row.pinned {
-  position: sticky; bottom: 14px; z-index: 2; background: linear-gradient(90deg, rgba(14, 44, 56, 0.97), rgba(10, 24, 34, 0.97));
+  position: sticky; bottom: calc(14px + var(--sa-b)); z-index: 2; background: linear-gradient(90deg, rgba(14, 44, 56, 0.97), rgba(10, 24, 34, 0.97));
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: 0 16px 40px -14px rgba(0, 0, 0, 0.95), 0 0 0 1px rgb(var(--cyan-rgb) / 0.5), 0 0 30px -8px rgb(var(--cyan-rgb) / 0.6);
 }
 .lb-gap { display: flex; justify-content: center; gap: 6px; padding: 6px 0; }
@@ -415,7 +415,7 @@
   .lb-row.sk { grid-template-columns: 28px 28px minmax(0, 1fr); }
   .lb-val b { font-size: 15px; }
   .lb-val small { display: none; }
-  .lb-row.pinned { bottom: 10px; }
+  .lb-row.pinned { bottom: calc(10px + var(--sa-b)); }
   .lb-foot { flex-direction: column; align-items: stretch; }
   .lb-play { justify-content: center; }
   .lb-empty { padding: 32px 4px 20px; }
@@ -424,6 +424,12 @@
   .tp-all .tp-long { display: none; }
   .tp-all .tp-short { display: inline; }
   .tops .section-head { flex-wrap: nowrap; }
+}
+
+/* ---------- touch screens: 44 x 44 tap targets ---------- */
+@media (pointer: coarse) {
+  .lb-chip, .lb-seg-btn, .lb-play, .tp-all, .lb-home { min-height: 44px; }
+  .lb-foot-link { display: inline-block; padding: 13px 0; margin: -13px 0; }
 }
 
 /* ---------- reduced motion: style.css already stops every animation and transition; nothing moves here either ---------- */

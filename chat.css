@@ -3,8 +3,10 @@
    No backdrop-filter on anything that scrolls. */
 
 /* ---------- page ---------- */
-body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
-.cx-top { position: relative; z-index: 2; flex: none; display: flex; align-items: center; gap: 14px; height: 64px; padding: 0 22px; }
+/* --fp-vvh: the part of the screen the on-screen keyboard leaves (fp/viewport.js sets it while a keyboard is up) */
+body.chat-page { height: 100vh; height: var(--fp-vvh, 100dvh); overflow: hidden; display: flex; flex-direction: column; }
+:root.fp-kb-up body.chat-page { position: fixed; left: 0; right: 0; top: var(--fp-vvtop, 0px); }      /* pinned to what you can see */
+.cx-top { position: relative; z-index: 2; flex: none; display: flex; align-items: center; gap: 14px; height: calc(64px + var(--sa-t, 0px)); padding: var(--sa-t, 0px) max(22px, var(--sa-r, 0px)) 0 max(22px, var(--sa-l, 0px)); }
 .cx-top .logo svg { width: 34px; height: 34px; }
 .cx-top .wordmark { font-size: 20px; }
 .cx-top-sep { width: 1px; height: 24px; background: var(--line-2); flex: none; }
@@ -16,7 +18,7 @@ body.chat-page { height: 100vh; height: 100dvh; overflow: hidden; display: flex;
 }
 .cx-top-link:hover { color: var(--text); border-color: var(--line-2); background: rgba(255, 255, 255, 0.06); }
 .cx-top-link svg { width: 18px; height: 18px; }
-.cx-host { flex: 1; min-height: 0; display: flex; padding: 0 16px 16px; }
+.cx-host { flex: 1; min-height: 0; display: flex; padding: 0 max(16px, var(--sa-r, 0px)) calc(16px + var(--sa-b, 0px)) max(16px, var(--sa-l, 0px)); }
 
 /* ---------- app shell: Discord gray + Free Period lime ----------
    Discord's panels (rail #1e1f22, sidebar #2b2d31, chat #313338, bottom panel #232428), its text grays, Outfit
@@ -601,7 +603,7 @@ button.cx-cat:hover, button.cx-cat:focus-visible { color: var(--cx-text); }
 }
 
 @keyframes cx-pop { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
-.cx-picker.sheet { left: 0; right: 0; bottom: 0; height: min(68vh, 470px); border-radius: 16px 16px 0 0; border-bottom: 0; padding-bottom: env(safe-area-inset-bottom); animation: cx-sheet 0.22s var(--ease); }
+.cx-picker.sheet { left: 0; right: 0; bottom: 0; height: min(68vh, 470px); height: min(68dvh, 470px); border-radius: 16px 16px 0 0; border-bottom: 0; padding-bottom: env(safe-area-inset-bottom); animation: cx-sheet 0.22s var(--ease); }
 @keyframes cx-sheet { from { transform: translateY(40px); opacity: 0; } }
 .cx-pk-scrim { position: fixed; inset: 0; z-index: 79; background: rgba(2, 4, 9, 0.6); animation: fp-fade 0.2s ease; }
 .cx-pk-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px; }
@@ -715,12 +717,12 @@ button.cx-cat:hover, button.cx-cat:focus-visible { color: var(--cx-text); }
 .cx[data-layout="narrow"] .cx-body.jumbo { font-size: 36px; }
 
 @media (max-width: 700px) {
-  .cx-top { height: 56px; padding: 0 12px; gap: 10px; }
+  .cx-top { height: calc(56px + var(--sa-t, 0px)); padding: var(--sa-t, 0px) max(12px, var(--sa-r, 0px)) 0 max(12px, var(--sa-l, 0px)); gap: 10px; }
   .cx-top .wordmark { display: none; }
   .cx-top .logo svg { width: 32px; height: 32px; }
   .cx-top-link { padding: 0 9px; }
   .cx-top-link span { display: none; }
-  .cx-host { padding: 0; }
+  .cx-host { padding: 0 var(--sa-r, 0px) 0 var(--sa-l, 0px); }
   .cx { border-radius: 0; border-width: 1px 0 0; }
   .cx-lightbox { padding: 64px 10px 24px; }
   .cx-lb-nav { top: auto; bottom: 18px; transform: none; }
@@ -1399,6 +1401,19 @@ button.cx-cat:hover, button.cx-cat:focus-visible { color: var(--cx-text); }
   0% { transform: translate3d(-6%, 0, 0) scale(1); }
   50% { transform: translate3d(5%, -6%, 0) scale(1.12); }
   100% { transform: translate3d(-2%, 5%, 0) scale(1.05); }
+}
+/* ---------- touch screens (phones, iPad): 44 px tap targets in the page header and the channel list, 16 px text boxes
+   (iOS zooms in on smaller ones). The message tools stay small: on touch they live in the long-press menu. ---------- */
+@media (pointer: coarse) {
+  .cx-top .logo, .cx-top-link { min-height: 44px; }
+  .cx-top-link { min-width: 44px; justify-content: center; }
+  .cx-iconbtn:not(.sm) { min-width: 44px; min-height: 44px; }
+  .cx-iconbtn.sm.cx-cat-add { width: 44px; height: 44px; }
+  .cx-btn { min-height: 44px; }
+  .cx-ch { height: 44px; }
+  button.cx-cat { height: 44px; }
+  .cx-cat-head { margin-top: 6px; }
+  .cx-field, .cx-field-ta, .cx-pk-search, .cx-cmp-ta, .cx-edit-ta { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .cx-app.server .cx-main::before, .cx-app.server .cx-srv::before { animation: none; will-change: auto; }

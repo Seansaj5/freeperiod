@@ -10,7 +10,7 @@ try {
   var fpTheme = localStorage.getItem('fp.theme');
   var fpFx = localStorage.getItem('fp.fx');
   var fpT = /^(aero)$/.test(fpTheme || '') ? fpTheme : 'neon';
-  var fpTC = { neon: '#05070c', aero: '#0b2a5c', space: '#000000', minimal: '#0d0d0f' };
+  var fpTC = { neon: '#05070c', aero: '#16335e', space: '#000000', minimal: '#0d0d0f' };
   document.documentElement.setAttribute('data-theme', fpT);
   document.documentElement.setAttribute('data-fx', fpFx === 'on' || (fpFx !== 'off' && fpT !== 'minimal') ? 'on' : 'off');
   var fpMeta = document.querySelector('meta[name="theme-color"]');

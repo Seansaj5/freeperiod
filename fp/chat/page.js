@@ -3,7 +3,9 @@
 import * as session from '../session.js';
 import { mountAccount } from '../account-ui.js';
 import { mountChatApp } from './app.js';
+import { trackKeyboard } from '../viewport.js';
 
+trackKeyboard(); // phones: the page shrinks to what the on-screen keyboard leaves, so the message box stays in view
 mountAccount(document.getElementById('account'));
 const app = mountChatApp(document.getElementById('chat'), { compact: false });
 session.resume();
