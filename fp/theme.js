@@ -44,16 +44,23 @@ export function setAccent(id) {
 }
 
 // ---------- whole-site theme ----------
+// ready: false = not finished yet: hidden from the picker, never applied (a stored one falls back to neon), and left out of
+// theme-boot.js's pattern. Flip it to true when the theme ships.
 export const THEMES = Object.freeze([
-  Object.freeze({ id: 'neon', name: 'Neon' }),
-  Object.freeze({ id: 'aero', name: 'Night Aero' }),
-  Object.freeze({ id: 'space', name: 'Deep Space' }),
-  Object.freeze({ id: 'minimal', name: 'Minimal' }),
+  Object.freeze({ id: 'neon', name: 'Neon', ready: true }),
+  Object.freeze({ id: 'aero', name: 'Night Aero', ready: true }),
+  Object.freeze({ id: 'space', name: 'Deep Space', ready: false }),
+  Object.freeze({ id: 'minimal', name: 'Minimal', ready: false }),
 ]);
+/** The themes people can pick (the picker shows these; the rest are still being built). */
+export function readyThemes() { return THEMES.filter((t) => t.ready); }
 export const DEFAULT_THEME = 'neon';
+// The browser bar color per theme (<meta name="theme-color">: the top of each theme's header). Keep in step with
+// themes.css and the copy in fp/theme-boot.js (tests/theme checks it).
+export const THEME_COLORS = Object.freeze({ neon: '#05070c', aero: '#0b2a5c', space: '#000000', minimal: '#0d0d0f' });
 // Each theme's own accent: what the "Theme" swatch shows (keep in step with themes.css).
 const THEME_ACCENT = { neon: ['#c6ff3d', '#3de0ff'], aero: ['#4fd8ff', '#96c4ff'], space: ['#ffb84a', '#8fd3ff'], minimal: ['#e8e8ea', '#a0a0a8'] };
-export function themeAccent(id = getTheme()) { const [color, second] = THEME_ACCENT[cleanTheme(id)]; return { id: 'theme', label: 'Theme', color, second }; }
+export function themeAccent(id = getTheme()) { const [color, second] = THEME_ACCENT[id] || THEME_ACCENT[cleanTheme(id)]; return { id: 'theme', label: 'Theme', color, second }; }
 const THEME_KEY = 'fp.theme', FX_KEY = 'fp.fx', SFX_KEY = 'fp.sfx';
 // Blocked storage: a write that fails is remembered for this page only.
 const session = {};
@@ -64,8 +71,8 @@ function put(key, value, isDefault) {
 }
 function read(key) { const v = store.get(key); return v != null ? v : session[key]; }
 
-/** A known theme id, or neon. */
-export function cleanTheme(id) { return THEMES.some((t) => t.id === id) ? id : DEFAULT_THEME; }
+/** A known, ready theme id, or neon. */
+export function cleanTheme(id) { return THEMES.some((t) => t.id === id && t.ready) ? id : DEFAULT_THEME; }
 export function getTheme() { return cleanTheme(read(THEME_KEY)); }
 /** Effects: an explicit fp.fx wins; otherwise on, except in Minimal. Changing the theme never writes fp.fx. */
 export function getEffects() {
@@ -79,12 +86,17 @@ export function getSounds() { return read(SFX_KEY) !== 'off'; }
 const themeListeners = new Set();
 export function onTheme(fn) { themeListeners.add(fn); return () => themeListeners.delete(fn); }
 
-/** Puts data-theme and data-fx on <html> (neon is a real attribute value, not the absence of one). */
+/** Puts data-theme and data-fx on <html> (neon is a real attribute value, not the absence of one), and the theme's color
+ *  on <meta name="theme-color"> (the phone's browser bar). */
 export function applyTheme(id = getTheme()) {
   const t = cleanTheme(id), root = globalThis.document && document.documentElement;
   if (!root) return t;
   root.setAttribute('data-theme', t);
   root.setAttribute('data-fx', getEffects() ? 'on' : 'off');
+  try {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta && meta.getAttribute('content') !== THEME_COLORS[t]) meta.setAttribute('content', THEME_COLORS[t]);
+  } catch { /* no meta: nothing to tint */ }
   return t;
 }
 export function setTheme(id) {

@@ -1,7 +1,7 @@
-// The Themes sheet: four live mini previews (each drawn with its own theme's tokens), the accent row, and the Sounds and
+// The Themes sheet: a live mini preview per ready theme (each drawn with its own theme's tokens), the accent row, and the Sounds and
 // Effects switches. Opened by the palette button in the shared header (fp/shell.js) and by the account card's accent row.
 import { h, openSheet } from './ui.js';
-import { THEMES, ACCENTS, getTheme, setTheme, themeAccent, getAccent, setAccent, getEffects, setEffects, getSounds, setSounds, onPrefs } from './theme.js';
+import { readyThemes, ACCENTS, getTheme, setTheme, themeAccent, getAccent, setAccent, getEffects, setEffects, getSounds, setSounds, onPrefs } from './theme.js';
 
 let open = null;
 
@@ -13,7 +13,7 @@ function preview(t) {
 
 export function openThemeSheet() {
   if (open) { open.focus(); return open; }
-  const grid = h('div', { class: 'fp-theme-grid', role: 'group', 'aria-label': 'Theme' }, THEMES.map((t) =>
+  const grid = h('div', { class: 'fp-theme-grid', role: 'group', 'aria-label': 'Theme' }, readyThemes().map((t) =>
     h('button', { type: 'button', class: 'fp-theme-pick', 'data-theme-pick': t.id, 'aria-pressed': 'false', onclick: () => setTheme(t.id) },
       preview(t), h('span', { class: 'fp-theme-name', text: t.name }))));
   const swatches = h('div', { class: 'fp-swatches', role: 'radiogroup', 'aria-label': 'Accent color' }, [themeAccent(), ...ACCENTS].map((a) =>

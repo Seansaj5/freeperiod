@@ -10,17 +10,41 @@ globalThis.localStorage = fakeStorage();
 const T = await import('../fp/theme.js');
 const reset = () => { globalThis.localStorage = fakeStorage(); };
 
+const isReady = (id) => T.THEMES.some((t) => t.id === id && t.ready);
+
 test('THEMES order and names', () => {
   assert.deepEqual(T.THEMES.map((t) => t.id), ['neon', 'aero', 'space', 'minimal']);
   assert.deepEqual(T.THEMES.map((t) => t.name), ['Neon', 'Night Aero', 'Deep Space', 'Minimal']);
   assert.equal(T.DEFAULT_THEME, 'neon');
   assert.ok(Object.isFrozen(T.THEMES));
+  for (const t of T.THEMES) assert.equal(typeof t.ready, 'boolean', t.id);
+  assert.ok(isReady('neon') && isReady('aero'), 'neon and Night Aero ship');
 });
 
 test('cleanTheme falls back to neon', () => {
-  assert.equal(T.cleanTheme('space'), 'space');
+  assert.equal(T.cleanTheme('aero'), 'aero');
+  assert.equal(T.cleanTheme('space'), isReady('space') ? 'space' : 'neon');
   assert.equal(T.cleanTheme('nope'), 'neon');
   assert.equal(T.cleanTheme(undefined), 'neon');
+});
+
+test('unready themes are hidden from the picker list and cleanTheme maps them to neon', () => {
+  reset();
+  const ready = T.readyThemes().map((t) => t.id);
+  assert.deepEqual(ready, T.THEMES.filter((t) => t.ready).map((t) => t.id));
+  assert.equal(ready[0], 'neon');
+  for (const t of T.THEMES.filter((x) => !x.ready)) {
+    assert.ok(!ready.includes(t.id), t.id + ' not offered');
+    assert.equal(T.cleanTheme(t.id), 'neon', t.id);
+    localStorage.setItem('fp.theme', t.id);           // stored before it was hidden (or by hand)
+    assert.equal(T.getTheme(), 'neon', t.id);
+    assert.equal(T.setTheme(t.id), 'neon', t.id);
+    assert.equal(localStorage.getItem('fp.theme'), null);
+  }
+  // the sheet builds its grid from readyThemes(), not THEMES
+  const sheet = readFileSync(new URL('../fp/theme-sheet.js', import.meta.url), 'utf8');
+  assert.match(sheet, /readyThemes\(\)\.map\(/);
+  assert.doesNotMatch(sheet, /\bTHEMES\.map\(/);
 });
 
 test('get/set round trip and onTheme fires', () => {
@@ -53,17 +77,17 @@ test('blocked storage: getTheme() is neon, setTheme does not throw and applies f
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('blocked'); } });
   try {
     assert.equal(T.getTheme(), 'neon');
-    assert.doesNotThrow(() => T.setTheme('space'));
-    assert.equal(T.getTheme(), 'space');   // session fallback
+    assert.doesNotThrow(() => T.setTheme('aero'));
+    assert.equal(T.getTheme(), 'aero');   // session fallback
     T.setTheme('neon');
   } finally {
     Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: fakeStorage() });
   }
 });
 
-test('getEffects default: on for neon/aero/space, off for minimal; explicit fp.fx wins', () => {
+test('getEffects default: on for neon/aero/space, off for minimal (once it ships); explicit fp.fx wins', () => {
   reset();
-  for (const [t, want] of [['neon', true], ['aero', true], ['space', true], ['minimal', false]]) {
+  for (const [t, want] of [['neon', true], ['aero', true], ['space', true], ['minimal', !isReady('minimal')]]) {
     T.setTheme(t);
     assert.equal(T.getEffects(), want, t);
   }
@@ -85,13 +109,45 @@ test('getSounds default on', () => {
   assert.equal(T.getSounds(), true);
 });
 
-test('theme-boot.js regex accepts exactly the THEMES ids', () => {
+test('theme-boot.js regex accepts exactly the ready THEMES ids (neon is the fallback)', () => {
   const boot = readFileSync(new URL('../fp/theme-boot.js', import.meta.url), 'utf8');
   const m = boot.match(/\/\^\(([a-z|]*)\)\$\/\.test\(fpTheme/);
   assert.ok(m, 'theme regex present');
   const re = new RegExp('^(' + m[1] + ')$');
-  for (const t of T.THEMES) assert.equal(re.test(t.id), t.id !== 'neon', t.id);
+  for (const t of T.THEMES) assert.equal(re.test(t.id), t.ready && t.id !== 'neon', t.id);
   assert.equal(re.test('bogus'), false);
+});
+
+test('theme-boot.js theme colors match THEME_COLORS', () => {
+  const boot = readFileSync(new URL('../fp/theme-boot.js', import.meta.url), 'utf8');
+  const m = boot.match(/var fpTC = (\{[^}]*\});/);
+  assert.ok(m, 'color map present');
+  const map = Function('return ' + m[1])();
+  assert.deepEqual(map, { ...T.THEME_COLORS });
+  for (const t of T.THEMES) assert.match(T.THEME_COLORS[t.id], /^#[0-9a-f]{6}$/, t.id);
+});
+
+test('applyTheme updates meta[name=theme-color]', () => {
+  reset();
+  const attrs = {};
+  const meta = { attrs: { name: 'theme-color', content: '#05070c' }, getAttribute(k) { return this.attrs[k]; }, setAttribute(k, v) { this.attrs[k] = String(v); } };
+  globalThis.document = {
+    documentElement: { setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; } },
+    querySelector: (sel) => (sel === 'meta[name="theme-color"]' ? meta : null),
+  };
+  try {
+    T.applyTheme('aero');
+    assert.equal(attrs['data-theme'], 'aero');
+    assert.equal(meta.attrs.content, T.THEME_COLORS.aero);
+    T.setTheme('neon');
+    assert.equal(meta.attrs.content, T.THEME_COLORS.neon);
+    T.applyTheme('space');                                  // not ready: neon, and neon's color
+    assert.equal(meta.attrs.content, T.THEME_COLORS[T.cleanTheme('space')]);
+    globalThis.document.querySelector = () => null;         // a page without the meta: no throw
+    assert.doesNotThrow(() => T.applyTheme('aero'));
+  } finally {
+    delete globalThis.document;
+  }
 });
 
 test('accent: nothing stored = Theme; an explicit lime is stored and survives a theme switch', () => {
