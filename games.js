@@ -72,4 +72,16 @@ window.GAMES = [
     joins: true,
     added: '2026-11-09',
   },
+  {
+    id: 'five-nights-at-bings',
+    title: "Five Nights at Bing's",
+    tagline: "Night guard at Bing's Arcade & Grill. Watch the cameras, shut the doors, keep Sal's bottle full and never let the music box stop.",
+    url: 'games/five-nights-at-bings/',
+    thumb: 'assets/five-nights-at-bings.jpg',
+    tags: ['Horror', 'Solo', 'Strategy'],
+    controls: 'A/D doors · Q/E lights · W vent · Space cameras · 1-9 switch camera · hold F wind / pour · M sound · C captions',
+    accent: '#9dff3a',
+    saveKey: 'fnab.v1',
+    added: '2026-11-10',
+  },
 ];
