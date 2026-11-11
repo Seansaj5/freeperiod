@@ -354,8 +354,12 @@ export function render(view, s, t) {
     for (const who of ['bing', 'dylan', 'gavin']) {
       const w = s.where[who]; if (!w) continue;
       const m = bots[who];
-      if (w === 'doorL' || w === 'doorR') { const sd = w === 'doorL' ? -1 : 1; stand(m, sd * 5.2, 0, 0.2, -sd * Math.PI / 2, 'door', t, { glow: who === 'bing', jaw: 0.12 }); }
-      else { const r = ROOM[w], p = r.spots[who]; if (!p) continue; stand(m, p[0] + r.ox, p[1], p[2], p[3], r.pose || 'idle', t, { glow: w !== 'stage' }); }
+      if (w === 'doorL' || w === 'doorR') { const sd = w === 'doorL' ? -1 : 1; stand(m, sd * 5.15, 0, 0.2, -sd * Math.PI / 2, 'door', t, { glow: who === 'bing', black: who === 'bing' || s['light' + w.slice(4)], jaw: 0.2 }); m.rotation.z += sd * 0.07; }
+      else {
+        const r = ROOM[w], p = r.spots[who]; if (!p) continue;
+        if (s.close[who] && view.type === 'cam' && view.id === w) { const dx = r.look[0] - r.cam[0], dz = r.look[2] - r.cam[2], l = Math.hypot(dx, dz), ux = dx / l, uz = dz / l; stand(m, r.cam[0] + r.ox + ux * 1.45, Math.max(0, r.cam[1] - m.userData.eyeY - 0.4), r.cam[2] + uz * 1.45, Math.atan2(-ux, -uz), 'lurk', t, { glow: true, black: true, jaw: 0.3 + 0.12 * Math.sin(t * 3) }); }
+        else stand(m, p[0] + r.ox, p[1], p[2], p[3], r.pose || 'idle', t, { glow: w !== 'stage' });
+      }
     }
     const sal = bots.sal, su = sal.userData;
     if (s.sal.at === 'bar') { const p = ROOM.bar.spots.sal; stand(sal, p[0] + 300, 0, p[2], Math.sin(t * 1.3) * 0.08, 'bar', t, { glow: s.sal.thirst < 25, wob: Math.sin(t * 1.7) * 0.08 }); sal.rotation.z = Math.sin(t * 1.1) * 0.05; su.liquid.scale.y = Math.max(0.03, s.sal.thirst / 100); su.liquid.position.y = -0.055 + 0.1 * su.liquid.scale.y; }
@@ -377,12 +381,12 @@ export function render(view, s, t) {
     stand(m, 800 + (tw ? (Math.random() - 0.5) * 0.04 : 0), 0, 0, 0.2, 'stage', t, { glow: true, jaw: tw ? 0.45 : undefined, shake: tw ? 0.3 : 0 });
     light(room, t, 800); U.warp.value = 0.1; U.glitch.value = tw ? 0.4 : 0; U.cam.value = tw ? 1 : 0;
   } else if (view.type === 'cam') {
-    light(room, t, room.ox, 1.8); amb.intensity = room.amb * 1.6; U.cam.value = 1; U.warp.value = WARP_CAM; U.glitch.value = view.glitch ? 1 : 0;
+    const near = s && Object.keys(s.close).some(k => s.close[k] && s.where[k] === view.id); light(room, t, room.ox, near ? 0.5 : 1.8); amb.intensity = room.amb * (near ? 0.8 : 1.6); U.cam.value = 1; U.warp.value = WARP_CAM; U.glitch.value = view.glitch ? 1 : 0;
   } else if (view.type === 'office') {
     const o = s.out, f = s.intruder ? (Math.sin(t * 31) > 0.2 ? 0.1 : 1) : 0.94 + 0.06 * Math.sin(t * 47);
     if (o) {
       P.lampGlow.color.setScalar(0.01); P.lampBeam.opacity = 0; P.dust.visible = false;
-      const e = s.eyes && Math.sin(t * 9) > -0.5; if (s.eyes) stand(bots.bing, -5.2, 0, 0.2, Math.PI / 2, 'door', t, { glow: e, jaw: 0.15 });
+      const e = s.eyes && Math.sin(t * 9) > -0.5; if (s.eyes) stand(bots.bing, -5.15, 0, 0.2, Math.PI / 2, 'door', t, { glow: e, black: e, jaw: 0.2 });
       light({ amb: 0.004, key: null, fills: [e ? [-4.4, 1.9, 0.5, 0xfff27a, 0.6, 3] : null, [0, 2, 2, 0x334455, 0.3, 6]] }, t, 0);
     } else {
       P.lampGlow.color.setRGB(3 * f, 2.8 * f, 2.3 * f); P.lampBeam.opacity = 0.02 * f;
@@ -392,9 +396,9 @@ export function render(view, s, t) {
   } else { // jumpscare, in the office
     const k = Math.min(1, view.t / 0.16), e = 1 - Math.pow(1 - k, 3), dist = 2.8 - (view.who === 'benton' ? 1.5 : 1.75) * e, dx = -Math.sin(view.yaw), dz = -Math.cos(view.yaw);
     const sh = () => (Math.random() - 0.5) * 0.07, x = dx * dist + sh(), z = 2.6 + dz * dist, ry = Math.atan2(-dx, -dz), jaw = 0.3 + 0.55 * Math.abs(Math.sin(view.t * 38));
-    if (view.who === 'benton') { const d = P.scareDoll; d.visible = true; d.position.set(x, 1.5 - 1.66 + sh(), z); d.rotation.set(0, ry, sh() * 3); d.userData.pupil.emissiveIntensity = 8; d.userData.mouth.scale.set(1, 1 + jaw * 6, 1); d.userData.key.rotation.z = view.t * 30; }
+    if (view.who === 'benton') { const d = P.scareDoll; d.visible = true; d.position.set(x, 1.5 - 1.66 + sh(), z); d.rotation.set(0, ry, sh() * 3); d.userData.pupil.emissiveIntensity = 8; d.userData.mouth.scale.set(1, 1 + jaw * 2.4, 1); d.userData.key.rotation.z = view.t * 30; }
     else if (view.who === 'tokens') { P.scareTok.visible = true; P.scareTok.position.set(x, 1.45 + sh() + (1 - e) * 1.3, z); P.scareTok.rotation.set(0.1, ry, sh() * 2); P.scareTok.scale.setScalar(1.25); P.scareTok.userData.arms.forEach((a, i) => { a.rotation.x = -0.6 + Math.sin(view.t * 30 + i * 3) * 0.3; }); }
-    else { const m = bots[view.who]; stand(m, x, 1.5 - m.userData.eyeY + sh(), z, ry, 'scare', view.t, { glow: true, jaw, shake: 0.35, wide: true, wob: Math.sin(view.t * 30) * 0.15 }); m.rotation.z = sh() * 2; }
+    else { const m = bots[view.who]; stand(m, x, 1.5 - m.userData.eyeY + sh(), z, ry, 'scare', view.t, { glow: true, black: true, jaw, shake: 0.35, wide: true, wob: Math.sin(view.t * 30) * 0.15 }); m.rotation.z = sh() * 2; }
     light({ amb: 0.03, key: [dx * 0.2, 1.1, 2.6 + dz * 0.2, x, 1.5, z, 0xfff0e0, 13, 1.0, 0.8, 6], fills: [[0, 2.9, 0.4, 0xffe8c8, 5 * flick(view.t * 4), 5.7], [x - dz * 1.2, 2.2, z + dx * 1.2, 0xff3020, 9, 4]] }, t, 0);
     U.flash.value = Math.sin(view.t * 55) > 0.3 ? 1 : 0.3; U.warp.value = WARP_OFFICE + 0.12;
   }

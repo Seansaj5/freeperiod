@@ -8,6 +8,7 @@
 import * as store from './store.js';
 
 export const WHATS_NEW = Object.freeze([
+  { id: 'fnab-withered', date: '2026-11-11', game: 'five-nights-at-bings', title: "Five Nights at Bing's: they got worse", text: 'Withered robots: torn fur, bare metal, black eyes, extra teeth. Some walk right up to the camera.', href: 'play.html?g=five-nights-at-bings' },
   { id: 'fnab-map', date: '2026-11-11', game: 'five-nights-at-bings', title: "Five Nights at Bing's: a real building", text: 'Real furniture and kitchen gear in every room, photo-real walls and floors, furrier robots and a floor-plan camera map.', href: 'play.html?g=five-nights-at-bings' },
   { id: 'fnab-models', date: '2026-11-11', game: 'five-nights-at-bings', title: "Five Nights at Bing's: new models", text: 'Rebuilt animatronics with eyes that follow you, detailed rooms, real shadows and a lens. Benton lives in the music box.', href: 'play.html?g=five-nights-at-bings' },
   { id: 'fnab-3d', date: '2026-11-10', game: 'five-nights-at-bings', title: "Five Nights at Bing's goes 3D", text: 'A real 3D office and cameras, recorded voices, a hand crank, sound lures and a Prize Counter.', href: 'play.html?g=five-nights-at-bings' },

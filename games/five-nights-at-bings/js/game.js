@@ -116,7 +116,7 @@ function botStep(b) {
   if (b.id === 'bing' && g.mon && !g.glitch && g.cam === loc(b)) return; // Bing freezes while you watch him
   if (b.id === 'bing' && b.pos === 2) b.side = Math.random() < 0.5 ? 'L' : 'R';
   if (b.pos === 3 && atDoor(b.side)) return;
-  b.pos++; b.arr = g.t;
+  b.pos++; b.arr = g.t; b.close = b.pos <= 3 && Math.random() < 0.28; // sometimes they come right up to the camera
   if (b.id === 'dylan' && g.mon) { g.glitch = 1.2; Au.sfx.glitch(); cue('[camera signal lost]'); }
   if (b.id === 'bing') { Au.sfx.laugh(); cue('[a deep laugh echoes through the building]'); }
   if (b.id === 'gavin' && b.pos === 2) { Au.sfx.vent(); cue('[pots clatter in the kitchen]'); }
@@ -337,10 +337,10 @@ function box(x, y, w, h, col, r = 8) { c.fillStyle = col; c.beginPath(); c.round
 function R(id, x, y, w, h) { regions.push({ id, x, y, w, h }); }
 
 function sceneState() {
-  const where = {}, s = g.sal;
-  for (const k in g.bots) where[k] = g.bots[k].in ? null : loc(g.bots[k]);
+  const where = {}, close = {}, s = g.sal;
+  for (const k in g.bots) { where[k] = g.bots[k].in ? null : loc(g.bots[k]); close[k] = !!g.bots[k].close; }
   return {
-    dl: g.dl, dr: g.dr, sv: g.sv, doorL: g.doorL, doorR: g.doorR, lightL: g.lightL, lightR: g.lightR, seal: g.seal, where,
+    dl: g.dl, dr: g.dr, sv: g.sv, doorL: g.doorL, doorR: g.doorR, lightL: g.lightL, lightR: g.lightR, seal: g.seal, where, close,
     sal: { at: s.state === 'run' ? s.side : 'bar', k: 1 - s.t / s.T, thirst: s.thirst }, pour: g.pouring,
     awake: g.box.wake >= 0, windA: g.box.windA, tok: g.tok.in ? 0 : g.tok.st, out: !!g.out, eyes: !!g.out && g.out.stage === 1,
     call: !!g.call, intruder: !!g.intruder, crankA: g.crankA, clock: g.t / (HOUR * 6),

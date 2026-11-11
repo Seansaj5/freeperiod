@@ -88,15 +88,24 @@ export function beam(p, x, y, z, r, h, color = 0xfff2d0, op = 0.07) {
 }
 
 // ---------- fur: stacked see-through shells that read as real fuzz ----------
+// o.hole = [x, y, z, r] tears a ragged patch out of the fur (in the part's own space) and leaves a dark cavity under it.
 const FUR_N = 12, furShells = [], furBases = [];
-export function furMat(color, len = 0.034, den = 230) {
-  const c = new THREE.Color(color);
+export function furMat(color, len = 0.034, den = 230, o = {}) {
+  const c = new THREE.Color(color), hole = new THREE.Vector4(...(o.hole || [0, 0, 0, 0]));
   const base = new THREE.MeshStandardMaterial({ color: c.clone().multiplyScalar(0.5), map: GRIME, roughness: 1 }); base.userData.full = c; furBases.push(base);
+  base.onBeforeCompile = sh => {
+    sh.uniforms.uHole = { value: hole };
+    sh.vertexShader = 'varying vec3 vFurP;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vFurP = position;');
+    sh.fragmentShader = 'uniform vec4 uHole; varying vec3 vFurP;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n if (uHole.w > 0.0 && length(vFurP - uHole.xyz) < uHole.w * 1.08) diffuseColor.rgb = vec3(0.01);');
+  };
   const shell = new THREE.MeshStandardMaterial({ color: c, roughness: 0.95 });
   shell.onBeforeCompile = sh => {
-    sh.uniforms.uLen = { value: len }; sh.uniforms.uDen = { value: den };
+    sh.uniforms.uLen = { value: len }; sh.uniforms.uDen = { value: den }; sh.uniforms.uHole = { value: hole };
     sh.vertexShader = 'uniform float uLen; varying vec3 vFurP; varying float vShell;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\n vShell = (float(gl_InstanceID) + 1.0) / ${FUR_N}.0; vFurP = position; transformed += normal * vShell * uLen + vec3(0.0, -1.0, 0.0) * vShell * vShell * uLen * 0.3;`);
-    sh.fragmentShader = 'uniform float uDen; varying vec3 vFurP; varying float vShell;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>\n vec3 fp = vFurP * uDen; vec3 cl = floor(fp); float rn = fract(sin(dot(cl, vec3(12.9898, 78.233, 37.719))) * 43758.5453); float fd = length(fract(fp) - 0.5); if (rn < vShell * 0.8 || fd > 0.72 * (1.0 - vShell * 0.7)) discard; diffuseColor.rgb *= mix(0.45, 1.05, vShell) * (0.85 + 0.25 * rn);`);
+    sh.fragmentShader = 'uniform float uDen; uniform vec4 uHole; varying vec3 vFurP; varying float vShell;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>\n vec3 fp = vFurP * uDen; vec3 cl = floor(fp); float rn = fract(sin(dot(cl, vec3(12.9898, 78.233, 37.719))) * 43758.5453); float fd = length(fract(fp) - 0.5); if (rn < vShell * 0.8 || fd > 0.72 * (1.0 - vShell * 0.7)) discard;
+      float hd = length(vFurP - uHole.xyz) - uHole.w * (0.75 + 0.5 * rn); if (uHole.w > 0.0 && hd < 0.0) discard;
+      float mot = 0.8 + 0.2 * sin(vFurP.x * 23.0 + sin(vFurP.y * 17.0) * 2.0) * sin(vFurP.y * 19.0 + vFurP.z * 13.0);
+      diffuseColor.rgb *= mix(0.4, 1.05, vShell) * (0.85 + 0.25 * rn) * mot * (uHole.w > 0.0 ? 0.45 + 0.55 * smoothstep(0.0, 0.07, hd) : 1.0);`);
   };
   return { base, shell };
 }
@@ -105,6 +114,29 @@ export function furMesh(p, geo, fm, x = 0, y = 0, z = 0) {
   s.userData.noShadow = true; s.frustumCulled = false; m.add(s); furShells.push(s); return m;
 }
 export function setFur(v) { for (const s of furShells) s.visible = v; for (const b of furBases) b.color.copy(b.userData.full).multiplyScalar(v ? 0.5 : 1); }
+// Loose wires spilling out of a tear.
+export function wires(p, x, y, z, n = 4, len = 0.16, dir = [0, -1, 0.3]) {
+  const cols = [0xb01818, 0xd9b21a, 0x1c4fa8, 0x111111, 0xd8d8d8];
+  for (let i = 0; i < n; i++) {
+    const a = rand() * TAU, r = 0.02 + rand() * 0.03, L = len * (0.6 + rand() * 0.8), pts = [new THREE.Vector3(Math.cos(a) * r * 0.3, 0, Math.sin(a) * r * 0.3)];
+    for (let k = 1; k <= 4; k++) pts.push(new THREE.Vector3(Math.cos(a) * r * k + dir[0] * L * k / 4 + (rand() - 0.5) * 0.03, dir[1] * L * (k / 4) ** 1.4, Math.sin(a) * r * k * 0.6 + dir[2] * L * k / 4 + (rand() - 0.5) * 0.03));
+    const m = add(p, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 10, 0.0045, 5), paint(cols[i % 5], { roughness: 0.5 }), x, y, z); m.userData.noShadow = true;
+  }
+}
+// The worn paint on a face plate: grime, dark streaks running down from the eyes, soot round the mouth and hairline cracks.
+export function faceTex(n = 0) {
+  return tex(512, 256, (c, w, h) => {
+    c.fillStyle = '#fff'; c.fillRect(0, 0, w, h); blots(c, w, h, 50, '50,36,22', 8, 46, 0.2); blots(c, w, h, 90, '0,0,0', 1, 6, 0.3);
+    const U = u => u * w, V = v => (1 - v) * h;
+    for (const u of [0.172, 0.328]) {
+      const g = c.createRadialGradient(U(u), V(0.6), 4, U(u), V(0.6), 46); g.addColorStop(0, 'rgba(8,6,4,.85)'); g.addColorStop(1, 'rgba(8,6,4,0)'); c.fillStyle = g; c.fillRect(U(u) - 50, V(0.6) - 50, 100, 100);
+      for (let k = 0; k < 5; k++) { c.strokeStyle = `rgba(10,7,5,${0.35 + rand() * 0.4})`; c.lineWidth = 2 + rand() * 5; const x = U(u) + (k - 2) * 5; c.beginPath(); c.moveTo(x, V(0.56)); c.bezierCurveTo(x + (rand() - 0.5) * 8, V(0.48), x + (rand() - 0.5) * 8, V(0.42), x + (rand() - 0.5) * 10, V(0.26 + rand() * 0.12)); c.stroke(); }
+    }
+    const m = c.createRadialGradient(U(0.25), V(0.36), 6, U(0.25), V(0.36), 70); m.addColorStop(0, 'rgba(10,6,4,.6)'); m.addColorStop(1, 'rgba(10,6,4,0)'); c.fillStyle = m; c.fillRect(U(0.25) - 80, V(0.36) - 60, 160, 120);
+    c.strokeStyle = 'rgba(12,8,6,.85)'; c.lineCap = 'round';
+    for (let k = 0; k < 5 + n % 3; k++) { let x = U(0.12 + rand() * 0.26), y = V(0.75 - rand() * 0.2); c.lineWidth = 1.6; c.beginPath(); c.moveTo(x, y); for (let i = 0; i < 6; i++) { x += (rand() - 0.5) * 22; y += 6 + rand() * 12; c.lineTo(x, y); if (rand() < 0.3) { c.moveTo(x, y); c.lineTo(x + (rand() - 0.5) * 26, y + rand() * 10); c.moveTo(x, y); } } c.stroke(); }
+  });
+}
 // A coil spring standing on y (for necks, elbows and knees).
 export function spring(p, r, h, turns, x, y, z, mat = ENDO) {
   const pts = []; for (let i = 0; i <= turns * 14; i++) { const a = i / 14 * TAU; pts.push(new THREE.Vector3(Math.cos(a) * r, i / (turns * 14) * h - h / 2, Math.sin(a) * r)); }
