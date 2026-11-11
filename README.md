@@ -30,8 +30,9 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   and `race.js`. Coins unlock parts; the save is the `kart` field of `closecall.v1`, so it goes to the account too.
   It opens on a title screen (computer karts racing behind the logo, PRESS L + R = Q + E / LB + RB / click), then the
   liquid glass water transition (`games/close-call/js/liquid.js`; pages call `liquid.grab(canvas)` after drawing so the
-  water shows their view bent through it). Drifting: hop, hold + steer to slide (into the turn = tighter, faster sparks),
-  blue / orange / gold sparks, let go for a mini-turbo. Also slipstream, items dragged behind you as a shield (hold E,
+  water shows their view bent through it). Drifting: hop, hold + steer to slide; the drift turns a share of full normal
+  steering (`DRIFT_ARC` in `kart.js`: against / hands off / into the turn), easing between them, so keys stay usable.
+  Blue / orange / gold sparks, let go for a mini-turbo. Also slipstream, items dragged behind you as a shield (hold E,
   S + let go throws the ball backwards), look back (C), rocket start / burnout. The music is made on the fly
   (`kart/js/music.js`). Headless checks can set `__kart.test.fast` and `__kart.race.autoplay`.
 
