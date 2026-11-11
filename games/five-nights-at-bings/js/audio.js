@@ -21,10 +21,29 @@ function pickVoice() {
 export function setOn(v) {
   A.on = v;
   if (master) master.gain.value = v ? 0.8 : 0;
-  if (!v && 'speechSynthesis' in window) speechSynthesis.cancel();
+  if (!v) hush();
 }
-export function hush() { if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+export function hush() { if ('speechSynthesis' in window) speechSynthesis.cancel(); for (const s of playing.splice(0)) { try { s.stop(); } catch (e) { /* already ended */ } } }
+// Recorded voice clips (voice/<id>.mp3). They play through the same volume as everything else.
+const clips = {}, playing = [];
+function loadClip(id) {
+  if (!ctx) return Promise.reject(new Error('no audio'));
+  return clips[id] || (clips[id] = fetch(`voice/${id}.mp3`).then(r => { if (!r.ok) throw new Error('missing'); return r.arrayBuffer(); }).then(b => ctx.decodeAudioData(b)));
+}
+export function preload(ids) { for (const id of ids) loadClip(id).catch(() => {}); }
+// Play a clip; done() runs when it ends. If the file cannot be played, fallback() runs instead.
+export function playClip(id, done, fallback) {
+  if (!A.on || !ctx) { done && done(); return; }
+  loadClip(id).then(buf => {
+    if (!A.on) { done && done(); return; }
+    const s = ctx.createBufferSource(), g = ctx.createGain(); s.buffer = buf; g.gain.value = 1.25; s.connect(g); g.connect(master);
+    s.onended = () => { const i = playing.indexOf(s); if (i >= 0) playing.splice(i, 1); done && done(); };
+    playing.push(s); s.start();
+  }).catch(() => { if (fallback) fallback(); else done && done(); });
+}
+export function suspend(v) { if (ctx) v ? ctx.suspend() : ctx.resume(); }
 export const canSpeak = () => A.on && 'speechSynthesis' in window;
+export const canPlay = () => A.on && !!ctx;
 
 // Speak a line. done() runs when it ends (or fails).
 export function speak(text, { pitch = 1, rate = 1 } = {}, done) {
@@ -101,6 +120,9 @@ export const sfx = {
     for (const f of [311, 466, 622, 933]) tone(f, 1.2, { type: 'sawtooth', vol: 0.3, to: f * 0.6 });
   },
   chime() { [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => { tone(f, 0.9, { type: 'triangle', vol: 0.22, at: i * 0.32 }); tone(f * 2, 0.6, { vol: 0.07, at: i * 0.32 }); }); },
+  horn() { for (const f of [440, 554, 659]) tone(f, 1.1, { type: 'sawtooth', vol: 0.3 }); noise(1, { vol: 0.2, f: 1200, type: 'bandpass' }); },
+  lure() { [784, 988, 1175, 1568, 1175, 1568].forEach((f, i) => tone(f, 0.16, { type: 'square', vol: 0.08, at: i * 0.11 })); },
+  crank() { noise(0.07, { vol: 0.2, f: 900, type: 'bandpass', q: 3 }); tone(140, 0.06, { type: 'square', vol: 0.08 }); },
   jingle() { [392, 392, 494, 587, 494, 392, 330, 392].forEach((f, i) => tone(f, 0.5, { type: 'triangle', vol: 0.16, at: i * 0.55 })); },
 };
 
