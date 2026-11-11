@@ -25,7 +25,10 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   the server checks the token with the account server before showing OWNER, and guests can't use the owner's names.
   Kart racing (`games/close-call/kart/`, the glowing KART RACE button on the menu): build a kart from a body, wheels and
   a glider (`kart/js/parts.js`, stats and models), then Grand Prix (3 races, points, trophies), single race or time trial
-  on three tracks (`kart/js/tracks.js` layouts, `kart/js/track.js` builds them) against seven computer karts (`ai.js`).
+  on four tracks (`kart/js/tracks.js` layouts, `kart/js/track.js` builds them) against seven computer karts (`ai.js`).
+  Starlight Spectrum is a rainbow road in space (`kart/js/cosmic.js`: shader road, rails, arches, planets, the sky drawn
+  once into a cube map); `void` tracks have no ground off the road and `open` stretches with no rail. Kart models
+  (`parts.js`) are lofted hulls, lathe-turned tyres and curved cloth, kept clear of the wheels.
   Drifting with mini-turbos, jumps with tricks, glider ramps, dash pads, coins and items (`items.js`), all in `kart.js`
   and `race.js`. Coins unlock parts; the save is the `kart` field of `closecall.v1`, so it goes to the account too.
   It opens on a title screen (computer karts racing behind the logo, PRESS L + R = Q + E / LB + RB / click), then the

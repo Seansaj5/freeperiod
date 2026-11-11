@@ -7,6 +7,7 @@ const SONGS = {
   0: { bpm: 152, root: 60, chords: [[0, 'M'], [7, 'M'], [9, 'm'], [5, 'M']], lead: 'sq', seed: 11, drums: 1, arp: 'sq' },
   1: { bpm: 140, root: 57, chords: [[0, 'm'], [10, 'M'], [8, 'M'], [10, 'M']], lead: 'saw', seed: 23, drums: 1, arp: 'sq' },
   2: { bpm: 126, root: 54, chords: [[0, 'm'], [8, 'M'], [3, 'M'], [10, 'M']], lead: 'saw', seed: 37, drums: 1, arp: 'saw' },
+  3: { bpm: 154, root: 62, chords: [[0, 'm'], [8, 'M'], [10, 'M'], [7, 'M']], lead: 'sq', seed: 101, drums: 1, arp: 'tri' }, // Starlight Spectrum
   title: { bpm: 146, root: 62, chords: [[0, 'M'], [5, 'M'], [9, 'm'], [7, 'M']], lead: 'sq', seed: 77, drums: 1, arp: 'sq' },
   win: { bpm: 132, root: 60, chords: [[0, 'M'], [5, 'M'], [7, 'M'], [0, 'M']], lead: 'sq', seed: 5, drums: 0.8, arp: 'tri' },
 };

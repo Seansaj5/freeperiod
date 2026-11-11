@@ -2,6 +2,10 @@
 // number, e.g. 6.4 = 40% of the way from point 6 to 7), and the look.
 //   items: rows of item crystals   boost: dash pads [at, side -1..1]   coins: [at, side, count]
 //   ramps: jump ramps (do a trick in the air for a boost)   glide: [ramp, landing] glider ramp over a gap
+//   void: no ground off the road (drive off the edge and you fall)   open: [[from, to, side]] stretches with no
+//   rail on that side (-1 left, 1 right, 0 both)   bank / bankMax: how much the bends lean
+/** Control points round part of a circle (a = angle, counted so the road heads towards -z at a0 = 0). */
+const arc = (cx, cz, r, a0, a1, y0, y1, w, n) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + ((a1 - a0) * i) / n; return [cx + r * Math.cos(a), cz - r * Math.sin(a), y0 + ((y1 - y0) * i) / n, w]; });
 export const TRACKS = [
   {
     id: 'harbor', name: 'Sunset Harbor', blurb: 'Seaside loop at golden hour. Climb the pier hill and glide over the bay.',
@@ -37,6 +41,19 @@ export const TRACKS = [
     coins: [[0.8, 0, 6], [3.3, -0.35, 5], [5.4, 0.3, 4], [9.1, -0.3, 5], [10.6, 0.3, 4], [12.2, 0, 5]],
     bank: 1.5,
   },
+  {
+    id: 'spectrum', name: 'Starlight Spectrum', blurb: 'A rainbow ribbon in deep space. Spiral round a giant planet, no rails on the twisty bits, glide across the void.',
+    theme: 'cosmic', laps: 3, start: 0.55, void: true, bank: 2.6, bankMax: 0.24, bankSmooth: 12, planet: [178, 67, -152, 38],
+    pts: [
+      [0, 0, 40, 10], [90, 0, 41, 10], [165, -18, 44, 9.5], [222, -62, 48, 9.5], [240, -112, 51, 10],
+      ...arc(178, -152, 62, 0, Math.PI * 2.5, 53, 84, 10.5, 20), // the spiral: once and a quarter round the planet, climbing
+      [108, -226, 82, 9.5], [30, -234, 76, 9.5], [-32, -212, 70, 9], [-62, -168, 64, 9], [-104, -152, 59, 9], [-140, -176, 56, 9],
+      [-180, -164, 55, 9.5], [-208, -122, 54, 10], [-218, -36, 36, 10], [-192, 22, 35, 10], [-130, 48, 36, 10], [-70, 38, 38, 10], [-34, 12, 39, 10],
+    ],
+    items: [2.2, 15.5, 27.6, 36.2], boost: [[1.3, 0], [9.5, -0.35], [19.5, 0.35], [26.4, 0], [35.3, 0.35], [37.6, -0.3]], ramps: [27.1], glide: [33.05, 34.0],
+    coins: [[0.85, 0, 6], [3.3, -0.3, 5], [12.5, 0.35, 5], [22.5, -0.35, 5], [29.5, 0, 4], [31.5, 0.3, 4], [36.8, 0, 5]],
+    open: [[27.8, 32.6, 0], [25.6, 26.4, -1], [35.4, 37.4, 1]],
+  },
 ];
 export const trackById = (id) => TRACKS.find((t) => t.id === id) || TRACKS[0];
 
@@ -58,5 +75,11 @@ export const THEMES = {
     fog: [0x0b1430, 140, 900], hemi: [0x8aa0ff, 0x1a1c2a, 1.1], sun: [0x9ab4ff, 1.0],
     ground: ['#0e1220', '#121828', '#0a0e18'], shoulder: ['#202638', '#262c40', '#1c2232'], road: '#22262f', curb: ['#2ab8ff', '#f2f4f8'],
     wall: ['#1a2030', '#2ab8ff'], water: 0x060a14, music: 2, glowWall: true,
+  },
+  cosmic: {
+    sky: { top: [0.01, 0.01, 0.04], mid: [0.03, 0.03, 0.09], glow: [0.25, 0.2, 0.55] }, sunDir: [0.45, 0.3, -0.84], stars: true, space: true,
+    fog: [0x060816, 500, 3200], hemi: [0xb8c4ff, 0x2a2048, 1.25], sun: [0xfff2e0, 1.7],
+    ground: ['#05060c', '#070910', '#04050a'], shoulder: ['#101420', '#141826', '#0c1018'], road: '#1a1c2a', curb: ['#ffffff', '#ffd84a'],
+    wall: ['#1a2030', '#2ab8ff'], water: 0x000000, music: 3, cosmic: true,
   },
 };
