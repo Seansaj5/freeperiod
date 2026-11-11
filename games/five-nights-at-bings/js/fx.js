@@ -9,11 +9,5 @@ export function staticFx(c, a, t) {
   c.drawImage(noiseCv[(t * 30 | 0) % 4], 0, 0, 256, 144, 0, 0, 1280, 720);
   c.restore();
 }
-// The look of a security feed: static, scan lines, a rolling bar, dark corners.
-export function feedFx(c, t, glitch) {
-  staticFx(c, glitch ? 0.95 : 0.06, t);
-  c.fillStyle = 'rgba(0,0,0,.2)'; for (let y = 0; y < 720; y += 4) c.fillRect(0, y, 1280, 1);
-  c.fillStyle = 'rgba(255,255,255,.035)'; c.fillRect(0, (t * 90) % 900 - 90, 1280, 70);
-  const g = c.createRadialGradient(640, 340, 250, 640, 360, 820); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.6)'); c.fillStyle = g; c.fillRect(0, 0, 1280, 720);
-  c.fillStyle = 'rgba(40,90,70,.08)'; c.fillRect(0, 0, 1280, 720);
-}
+// Extra snow over a camera feed while its signal is lost (the lens shader does the rest).
+export function feedFx(c, t, glitch) { if (glitch) staticFx(c, 0.45, t); }

@@ -65,7 +65,7 @@ function voice(who, key) {
   const arr = VOICE[who][key], i = Math.random() * arr.length | 0, s = arr[i];
   cue('"' + s + '"', 'bot', NAMES[who], 4.5);
   Au.sfx.growl();
-  if (!g.call) Au.playClip(`${who}_${key}_${i}`, null, () => Au.speak(s, { pitch: who === 'lana' ? 1.9 : who === 'laith' ? 1.5 : 0.1, rate: 0.8 }));
+  if (!g.call) Au.playClip(`${who}_${key}_${i}`, null, () => Au.speak(s, { pitch: who === 'benton' ? 1.5 : 0.1, rate: 0.8 }));
 }
 
 // ---------- a night ----------
@@ -189,7 +189,7 @@ function update(dt) {
   const loud = g.cranking && !g.out ? 1.7 : 1;
   if (g.cranking) { g.crankA += dt * 10; g.crankTick -= dt; if (g.crankTick <= 0) { g.crankTick = 0.16; Au.sfx.crank(); } if (!g.crankCue || g.t - g.crankCue > 6) cue('[the crank grinds loudly]', '', '', 2.5); g.crankCue = g.t; }
   if (g.lureCd > 0) g.lureCd -= dt;
-  // the music box and the twins
+  // the music box and Benton
   const bx = g.box, onCam = id => g.mon && g.cam === id && !g.glitch;
   g.acting = !!((held === 'act' || keys.f) && g.mon);
   if (bx.wake < 0) {
@@ -199,12 +199,12 @@ function update(dt) {
     Au.musicBox(dt, bx.v, g.mon && g.cam === 'prize');
     if (bx.v <= 0 && bx.lvl > 0) {
       bx.wake = 15; bx.sec = 15; Au.sfx.wake(); cue('[the music box winds down and stops]', '', '', 5);
-      voice('lana', 'wake'); setTimeout(() => { if (mode === 'play' && g.box === bx) voice('laith', 'wake'); }, 1800);
+      voice('benton', 'wake'); setTimeout(() => { if (mode === 'play' && g.box === bx) voice('benton', 'play'); }, 2600);
     }
   } else {
     bx.wake -= dt;
     if (Math.ceil(bx.wake) < bx.sec) { bx.sec = Math.ceil(bx.wake); Au.sfx.tick(); }
-    if (bx.wake <= 0) return scare('twins');
+    if (bx.wake <= 0) return scare('benton');
   }
 
   if (g.out) {
@@ -343,7 +343,7 @@ function sceneState() {
     dl: g.dl, dr: g.dr, sv: g.sv, doorL: g.doorL, doorR: g.doorR, lightL: g.lightL, lightR: g.lightR, seal: g.seal, where,
     sal: { at: s.state === 'run' ? s.side : 'bar', k: 1 - s.t / s.T, thirst: s.thirst }, pour: g.pouring,
     awake: g.box.wake >= 0, windA: g.box.windA, tok: g.tok.in ? 0 : g.tok.st, out: !!g.out, eyes: !!g.out && g.out.stage === 1,
-    call: !!g.call, intruder: !!g.intruder, crankA: g.crankA,
+    call: !!g.call, intruder: !!g.intruder, crankA: g.crankA, clock: g.t / (HOUR * 6),
   };
 }
 const yaw = () => (0.5 - g.pan) * 2 * S3.YAW;
@@ -375,7 +375,7 @@ function drawCam() {
     tx(job.label, 56, 522, 13, '#fff');
     box(56, 538, 288, 20, '#111', 4); box(56, 538, 288 * job.v / 100, 20, job.v < 30 ? (blink ? '#ff3b2f' : '#7a1a14') : job.col, 4);
     if (job.ok) { box(56, 570, 288, 66, g.acting ? job.col : 'rgba(40,60,50,.95)', 10); tx(job.btn, 200, 596, 14, g.acting ? '#111' : '#fff', 'center'); tx('or hold F', 200, 620, 9, g.acting ? '#111' : '#9ab', 'center'); R('act', 46, 560, 308, 86); }
-    else tx(id === 'bar' ? 'HE IS COMING' : 'THEY ARE AWAKE', 200, 602, 15, blink ? '#ff3b2f' : '#fff', 'center');
+    else tx(id === 'bar' ? 'HE IS COMING' : 'BENTON IS AWAKE', 200, 602, 15, blink ? '#ff3b2f' : '#fff', 'center');
   }
   if (LURE[id]) { const rdy = g.lureCd <= 0; box(40, 444, 320, 46, rdy ? 'rgba(40,60,50,.95)' : 'rgba(0,0,0,.6)', 10); tx(rdy ? 'PLAY SOUND (L)' : `RECHARGING ${Math.ceil(g.lureCd)}`, 200, 468, 12, rdy ? '#fff' : '#889', 'center'); R('lure', 36, 438, 328, 58); }
 }
@@ -383,11 +383,10 @@ function drawCam() {
 function drawPlay() {
   subs.classList.toggle('cam', g.mon);
   const o = g.out, onCam = g.monT >= 0.5;
-  S3.render(onCam ? { type: 'cam', id: g.cam } : { type: 'office', yaw: yaw() }, sceneState(), T);
+  S3.render(onCam ? { type: 'cam', id: g.cam, glitch: g.glitch > 0 } : { type: 'office', yaw: yaw() }, sceneState(), T);
   c.clearRect(0, 0, W, H);
   if (onCam) { if (g.monT >= 1) drawCam(); else { const keep = regions; regions = []; drawCam(); regions = keep; } }
   else {
-    const v = c.createRadialGradient(640, 380, 330, 640, 380, 900); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.7)'); c.fillStyle = v; c.fillRect(0, 0, W, H);
     if (!g.mon) for (const b of S3.buttons()) { if (o && b.id !== 'crank') continue; R(b.id, b.x, b.y, b.w, b.h); }
     if (o) { tx(g.cranked ? 'The breaker is dead.' : 'Generator dead. Hold the CRANK (G) to try a restart.', 640, H - 60, 13, '#cfd6d0', 'center'); if (o.charge && !g.cranked) { box(440, H - 40, 400, 16, '#111', 4); box(440, H - 40, 400 * Math.min(1, o.charge / 6), 16, '#e8b923', 4); } R('crank', 340, H - 90, 600, 90); }
   }
@@ -408,14 +407,14 @@ function drawPlay() {
   if (g.perk.horn && !o) { box(20, 204, 190, 40, 'rgba(120,20,10,.75)', 8); tx('AIR HORN (H)', 115, 225, 11, '#fff', 'center'); R('horn', 14, 198, 202, 52); }
   if (g.cranking && !o) tx('CRANKING  +POWER  (LOUD)', 640, H - 80, 12, '#e8b923', 'center');
   if (g.call) { box(20, 150, 190, 40, 'rgba(0,0,0,.6)', 8); tx('MUTE CALL', 115, 171, 12, '#fff', 'center'); R('mute', 14, 144, 202, 52); }
-  if (g.box.wake >= 0) { const w = Math.sin(T * 12) > 0; box(380, 20, 520, 64, 'rgba(120,0,0,.75)', 10); tx(`THEY'RE AWAKE  0:${String(Math.ceil(g.box.wake)).padStart(2, '0')}`, 640, 53, 20, w ? '#fff' : '#ffb0a8', 'center'); }
+  if (g.box.wake >= 0) { const w = Math.sin(T * 12) > 0; box(380, 20, 520, 64, 'rgba(120,0,0,.75)', 10); tx(`BENTON IS AWAKE  0:${String(Math.ceil(g.box.wake)).padStart(2, '0')}`, 640, 53, 20, w ? '#fff' : '#ffb0a8', 'center'); }
 }
 
 function frame(now) {
   const dt = Math.min(0.1, (now - (frame.last || now)) / 1000); frame.last = now; T += dt;
   c.setTransform(SS, 0, 0, SS, 0, 0);
   regions = [];
-  if (mode === 'menu' || mode === 'cert') { S3.render({ type: 'title' }, null, T); c.clearRect(0, 0, W, H); const gr = c.createLinearGradient(0, 0, 800, 0); gr.addColorStop(0, 'rgba(0,0,0,.9)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = gr; c.fillRect(0, 0, W, H); staticFx(c, 0.05, T); c.fillStyle = 'rgba(0,0,0,.25)'; for (let y = 0; y < H; y += 4) c.fillRect(0, y, W, 1); }
+  if (mode === 'menu' || mode === 'cert') { S3.render({ type: 'title' }, null, T); c.clearRect(0, 0, W, H); const gr = c.createLinearGradient(0, 0, 800, 0); gr.addColorStop(0, 'rgba(0,0,0,.9)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = gr; c.fillRect(0, 0, W, H); }
   else if (mode === 'intro') {
     if (!paused) intro += dt;
     c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
@@ -423,7 +422,7 @@ function frame(now) {
     staticFx(c, 0.08, T);
     if (intro > 2.6) mode = 'play';
   } else if (mode === 'play') { if (!paused) update(dt); if (mode === 'play') drawPlay(); }
-  else if (mode === 'scare') { sc.t += dt; S3.render({ type: 'scare', who: sc.who, t: sc.t, yaw: yaw() }, sceneState(), T); c.clearRect(0, 0, W, H); if (Math.sin(sc.t * 60) > 0.5) { c.fillStyle = 'rgba(255,0,0,.12)'; c.fillRect(0, 0, W, H); } staticFx(c, 0.07, T * 3); if (sc.t > 1.35) gameOver(); }
+  else if (mode === 'scare') { sc.t += dt; S3.render({ type: 'scare', who: sc.who, t: sc.t, yaw: yaw() }, sceneState(), T); c.clearRect(0, 0, W, H); if (sc.t > 1.35) gameOver(); }
   else if (mode === 'over') { c.fillStyle = '#000'; c.fillRect(0, 0, W, H); staticFx(c, 0.22, T); }
   else if (mode === 'dawn') {
     dawn += dt; c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
@@ -439,7 +438,7 @@ function frame(now) {
 function show(id) { for (const el of document.querySelectorAll('.screen')) el.classList.toggle('on', el.id === id); }
 function gameOver() {
   mode = 'over'; clearSubs();
-  $('o-who').textContent = sc.why === 'power' ? 'The lights went out. Bing was waiting.' : sc.who === 'twins' ? 'Lana and Laith woke up.' : `${NAMES[sc.who]} got into the office.`;
+  $('o-who').textContent = sc.why === 'power' ? 'The lights went out. Bing was waiting.' : sc.who === 'benton' ? 'Benton woke up.' : `${NAMES[sc.who]} got into the office.`;
   $('o-tip').textContent = TIPS[sc.why];
   show('over');
 }
@@ -499,7 +498,7 @@ on('m-sound', toggleSound); on('m-subs', toggleSubs); on('t-sound', toggleSound)
 on('t-pause', () => { if (mode === 'play' || mode === 'intro') pause(!paused); });
 on('p-resume', () => pause(false)); on('p-quit', menu);
 on('o-retry', () => startNight(g.night, g.custom ? save.custom : null)); on('o-menu', menu); on('w-ok', menu);
-const CROWS = [['bing', 'Bing'], ['dylan', 'Dylan'], ['gavin', 'Gavin'], ['sal', 'Sal'], ['box', 'Lana & Laith'], ['tok', 'Mr. Tokens']];
+const CROWS = [['bing', 'Bing'], ['dylan', 'Dylan'], ['gavin', 'Gavin'], ['sal', 'Sal'], ['box', 'Benton'], ['tok', 'Mr. Tokens']];
 function buildCustom() {
   const host = $('c-rows'); host.textContent = '';
   for (const [k, name] of CROWS) {

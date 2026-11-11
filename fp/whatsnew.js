@@ -8,8 +8,9 @@
 import * as store from './store.js';
 
 export const WHATS_NEW = Object.freeze([
+  { id: 'fnab-models', date: '2026-11-11', game: 'five-nights-at-bings', title: "Five Nights at Bing's: new models", text: 'Rebuilt animatronics with eyes that follow you, detailed rooms, real shadows and a camera lens. Benton now lives in the music box.', href: 'play.html?g=five-nights-at-bings' },
   { id: 'fnab-3d', date: '2026-11-10', game: 'five-nights-at-bings', title: "Five Nights at Bing's goes 3D", text: 'A real 3D office and cameras, recorded voices, a hand crank, sound lures and a Prize Counter.', href: 'play.html?g=five-nights-at-bings' },
-  { id: 'fnab-launch', date: '2026-11-10', game: 'five-nights-at-bings', title: "Five Nights at Bing's is out", text: 'Survive the night shift with Bing, Sal, Dylan, Gavin and the twins in the music box. Fully captioned.', href: 'play.html?g=five-nights-at-bings' },
+  { id: 'fnab-launch', date: '2026-11-10', game: 'five-nights-at-bings', title: "Five Nights at Bing's is out", text: 'Survive the night shift with Bing, Sal, Dylan, Gavin and Benton in the music box. Fully captioned.', href: 'play.html?g=five-nights-at-bings' },
   { id: 'fp-trophies', date: '2026-11-10', game: 'free-period', title: 'Trophies, profiles and themes', text: 'Earn 22 trophies, show off a player card, and pick your accent color from the account menu.', href: 'trophies.html' },
   { id: 'fp-leaderboards', date: '2026-11-10', game: 'free-period', title: 'Leaderboards', text: 'Every top player in one place, game by game.', href: 'leaderboards.html' },
   { id: 'bb-b71', date: '2026-11-10', game: 'bing-ball', title: 'Bing Ball 5.1.1 build 71', text: 'Daily streaks live on your account: check-ins, streak badges and flair you earn.', href: 'play.html?g=bing-ball' },

@@ -8,8 +8,8 @@ export const CALLS = {
     'Thing is, after midnight they don\'t see a night guard. They see a guest who stayed past closing. And guests who stay past closing get... escorted.',
     'Check your cameras. If one of them shows up at a door, hit the light to be sure, then shut the door. Open it again once they leave.',
     'Doors, lights and cameras all eat power. Run out before six and, well. Don\'t run out.',
-    'One more thing. The music box in the Prize Corner. Lana and Laith sleep in there. Keep it wound from the camera.',
-    'If the music stops, they wake up. And Sean, if they wake up, you have about fifteen seconds. There is no fixing it.',
+    'One more thing. The music box in the Prize Corner. Benton sleeps in there. Keep it wound from the camera.',
+    'If the music stops, he wakes up. And Sean, if Benton wakes up, you have about fifteen seconds. There is no fixing it.',
     'Okay. You\'ll do great. Talk to you tomorrow.',
   ],
   2: [
@@ -66,11 +66,10 @@ export const VOICE = {
     pour: ['Keep it coming.', 'That\'s the stuff.'],
   },
   tokens: { move: ['Insert coin.', 'Winner. Winner.', 'Claim your prize.'] },
-  lana: { wake: ['You stopped the music.'] },
-  laith: { wake: ['Now we play.'] },
+  benton: { wake: ['You stopped my music, Sean.'], play: ['Now we play.'] },
 };
 
-export const NAMES = { bing: 'BING', dylan: 'DYLAN', gavin: 'GAVIN', sal: 'SAL', tokens: 'MR. TOKENS', lana: 'LANA', laith: 'LAITH', twins: 'LANA & LAITH' };
+export const NAMES = { bing: 'BING', dylan: 'DYLAN', gavin: 'GAVIN', sal: 'SAL', tokens: 'MR. TOKENS', benton: 'BENTON' };
 
 export const TIPS = {
   bing: 'Bing only moves when you are not watching him. Find him on the cameras and keep checking. At the door you can spot his eyes in the dark.',
@@ -78,6 +77,6 @@ export const TIPS = {
   gavin: 'Gavin comes through the kitchen to the RIGHT door. Hit the light, and shut the door if he is there.',
   sal: 'Sal ran because his bottle went empty. Hold POUR on the Bar camera before it runs dry. If glass breaks, shut the door on his side.',
   tokens: 'Mr. Tokens crawls the vent over the desk. When the coins rattle close, flip the vent seal.',
-  twins: 'The music box ran down and woke Lana and Laith. Hold WIND on the Prize Corner camera before it stops.',
+  benton: 'The music box ran down and woke Benton. Hold WIND on the Prize Corner camera before it stops.',
   power: 'The power ran out. Close doors only when someone is there, and put the cameras down when you can.',
 };
