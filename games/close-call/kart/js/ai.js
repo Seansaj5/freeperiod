@@ -41,24 +41,26 @@ export function drive(k, race, dt, time) {
   d = Math.max(-lim, Math.min(lim, d));
   const p = t.point(tk, d);
   const want = Math.atan2(p.x - k.pos.x, p.z - k.pos.z);
-  const diff = wrapA(want - k.yaw - k.driftAng * 0.5);
+  const diff = wrapA(want - k.yaw); // yaw is where it is going (the drift angle is only the body)
   let steer = Math.max(-1, Math.min(1, -diff * 2.6));
   inp.gas = true; inp.brake = false;
   if (Math.abs(diff) > 1.3 && k.v > 6) inp.gas = false;
   // drifting through bends
   const c = t.curv[t.w(L.k + 10)], cNear = t.curv[t.w(L.k + 3)];
+  if (b.cool > 0) b.cool -= dt;
   if (!b.drifting) {
-    if (Math.abs(c) > 0.03 && k.v > 15 && k.ground && !k.spinT) { b.drifting = -Math.sign(c); b.dT = 0; }
+    if (Math.abs(c) > 0.02 && k.v > 15 && k.ground && !k.spinT && !k.stallT && !(b.cool > 0)) { b.drifting = -Math.sign(c); b.dT = 0; }
     inp.drift = false;
   }
   if (b.drifting) {
     b.dT += dt;
     inp.drift = true;
-    // until the slide has started, steer into it
+    // hop and steer into the bend; once sliding, steer to hold the line (into it for more turn, out for less)
     if (!k.drift) steer = b.drifting;
-    else steer = Math.max(-1, Math.min(1, steer * 1.2));
-    const straight = Math.abs(cNear) < 0.012 && Math.abs(c) < 0.015;
-    if ((straight && b.dT > 0.5) || b.dT > 4.5 || k.spinT > 0 || (k.drift === 0 && b.dT > 0.8)) { b.drifting = 0; inp.drift = false; }
+    else steer = Math.max(-1, Math.min(1, steer * 1.3));
+    const done = Math.abs(cNear) < 0.009 && Math.abs(c) < 0.011 && b.dT > 0.9 && (k.charge >= 0.8 || b.dT > 1.6); // the bend has finished (hold on a moment to cash in blue sparks)
+    const flips = Math.sign(c) === b.drifting && Math.abs(c) > 0.015; // an S-bend: let go and drift the other way
+    if (done || flips || b.dT > 5 || k.spinT > 0 || (k.drift === 0 && b.dT > 0.8)) { b.drifting = 0; inp.drift = false; b.cool = 0.35; }
   }
   inp.steer = steer;
   // catch-up: a bit quicker when behind you, a bit slower when far ahead

@@ -44,6 +44,32 @@
     @keyframes bob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-10px) rotate(1deg); } }
     #liq-logo.off { opacity: 0; }
 
+    /* ---------- title screen: karts racing behind the logo, PRESS L + R ---------- */
+    #title { display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 42%, rgba(2, 6, 16, 0.25) 0%, rgba(2, 6, 16, 0.05) 45%, rgba(2, 6, 16, 0.55) 100%); cursor: pointer; }
+    .t-logo { position: relative; text-align: center; margin-top: -6vh; animation: tIn 0.9s cubic-bezier(.2, 1.4, .4, 1) both; }
+    .t-logo .a { font: 400 clamp(18px, 2.6vw, 30px) 'PressStart', monospace; letter-spacing: 0.22em; color: #e8fbff; text-shadow: 0 3px 0 #08406e, 0 0 20px rgba(150, 235, 255, 0.9); }
+    .t-logo .b { position: relative; display: inline-block; font: 400 clamp(84px, 15vw, 190px)/0.92 'Bungee', sans-serif; margin-top: 8px; background: linear-gradient(180deg, #ffffff 0%, #d4f6ff 34%, #4cc8f4 50%, #1676b8 68%, #c4f2ff 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 8px 0 rgba(3, 30, 66, 0.85)) drop-shadow(0 0 34px rgba(110, 225, 255, 0.55)); }
+    .t-logo .b i { font-style: normal; background: linear-gradient(180deg, #fff8d0 0%, #ffd24a 42%, #ff961a 60%, #ffe58a 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .t-logo .b::after { content: 'KARTS'; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.95) 48%, transparent 60%); background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shine 3.2s ease-in-out infinite; }
+    @keyframes shine { 0% { background-position: 130% 0; } 55%, 100% { background-position: -130% 0; } }
+    @keyframes tIn { 0% { opacity: 0; transform: scale(0.6) translateY(30px); } 100% { opacity: 1; transform: none; } }
+    .t-press { margin-top: 5vh; display: flex; align-items: center; gap: 16px; font: 400 clamp(16px, 2vw, 24px) 'PressStart', monospace; color: #fff; text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5), 0 0 16px rgba(255, 210, 90, 0.7); animation: pulse 1.1s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(0.97); } }
+    .sh { position: relative; width: 74px; height: 42px; border-radius: 22px 22px 8px 8px; background: linear-gradient(180deg, #4a5470, #1c2234); border: 3px solid #cfd8ee; display: grid; place-items: center; font: 400 18px 'Bungee', sans-serif; color: #fff; box-shadow: 0 5px 0 #0a0e1a, 0 0 18px rgba(120, 220, 255, 0.35); transition: transform 0.08s, background 0.08s, box-shadow 0.08s; text-shadow: none; }
+    .sh.on { transform: translateY(4px); background: linear-gradient(180deg, #ffd24a, #ff8a1a); color: #1a0f00; box-shadow: 0 1px 0 #0a0e1a, 0 0 26px rgba(255, 190, 60, 0.9); }
+    .t-keys { margin-top: 18px; font: 700 13px 'Outfit', sans-serif; color: rgba(225, 235, 255, 0.85); text-shadow: 0 1px 6px #000; letter-spacing: 0.04em; }
+    .t-back { position: absolute; left: 18px; bottom: 16px; font: 700 12px 'Outfit', sans-serif; color: var(--muted); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; }
+    .t-foot { position: absolute; right: 18px; bottom: 16px; font: 400 9px 'PressStart', monospace; color: rgba(200, 215, 240, 0.6); letter-spacing: 0.1em; }
+    #title.go .t-logo { animation: tGo 0.5s ease-in forwards; }
+    #title.go .t-press { animation: none; transform: scale(1.15); opacity: 1; }
+    #title.go::after { content: ''; position: absolute; inset: 0; background: #fff; animation: flashOut 0.45s ease-out forwards; pointer-events: none; }
+    @keyframes tGo { 0% { transform: scale(1); } 30% { transform: scale(1.12); } 100% { transform: scale(1.5); opacity: 0; } }
+    @keyframes flashOut { 0% { opacity: 0.85; } 100% { opacity: 0; } }
+    #speedlines { position: fixed; inset: 0; pointer-events: none; }
+    .rear { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); font: 400 14px 'Bungee', sans-serif; background: rgba(0, 0, 0, 0.5); border: 1px solid var(--line); padding: 5px 12px; border-radius: 999px; letter-spacing: 0.1em; }
+    .ctl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; color: var(--muted); margin-top: 6px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+    .ctl b { color: var(--ink); font-weight: 700; white-space: nowrap; }
+
     /* ---------- customize (the garage) ---------- */
     #garage { display: flex; }
     .g-left { width: min(560px, 50vw); height: 100%; padding: 22px 0 22px 26px; display: flex; flex-direction: column; gap: 14px; background: linear-gradient(90deg, rgba(3, 7, 16, 0.92) 0%, rgba(3, 7, 16, 0.75) 75%, rgba(3, 7, 16, 0) 100%); }
@@ -150,7 +176,7 @@
 
     /* ---------- pause / results ---------- */
     .center { display: grid; place-items: center; background: rgba(2, 6, 14, 0.55); }
-    .menu { width: min(380px, 92vw); display: flex; flex-direction: column; gap: 10px; }
+    .menu { width: min(420px, 92vw); display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 20px); overflow-y: auto; }
     .menu h2 { font: 400 40px 'Bungee', sans-serif; margin: 0 0 8px; text-align: center; }
     .menu .btn { width: 100%; justify-content: space-between; }
     #results .panel { width: min(560px, 94vw); max-height: calc(100vh - 30px); overflow-y: auto; }
@@ -213,6 +239,15 @@
   <div id="liq-cover"></div>
   <div id="liq-logo"><div class="wrap"><div class="t1">CLOSE CALL</div><div class="t2">K<i>A</i>RTS</div><div class="load"><i id="load-bar"></i></div><div class="msg" id="load-msg">Filling the tank…</div></div></div>
 
+  <!-- the title screen -->
+  <section id="title" class="screen hidden">
+    <div class="t-logo"><div class="a">CLOSE CALL</div><div class="b">K<i>A</i>RTS</div></div>
+    <div class="t-press">PRESS <span class="sh" id="t-l">L</span> + <span class="sh" id="t-r">R</span></div>
+    <div class="t-keys" id="t-keys"></div>
+    <button class="t-back" id="t-back">Esc · back to Close Call</button>
+    <div class="t-foot">A FREE PERIOD GAME</div>
+  </section>
+
   <!-- customize your kart -->
   <section id="garage" class="screen hidden">
     <div class="g-left">
@@ -257,8 +292,10 @@
     </div>
   </section>
 
+  <canvas id="speedlines"></canvas>
   <!-- racing -->
   <div id="hud" class="hidden">
+    <div class="rear hidden" id="h-rear">REAR VIEW</div>
     <div class="itembox" id="h-item"><span class="n hidden" id="h-itemn"></span></div>
     <div class="coins" id="h-coins"><span class="coin"></span><span id="h-coinn">0</span></div>
     <div class="lap"><div>LAP <span id="h-lap">1</span><small>/<span id="h-laps">3</span></small></div><div class="clock" id="h-time">0:00.00</div></div>
@@ -269,7 +306,7 @@
     <div id="pops"></div>
     <div class="warn hidden" id="h-warn">⚠ ROCKET</div>
     <div class="mt" id="h-mt"><i></i><i></i><i></i></div>
-    <div class="hint" id="h-hint"><kbd>W</kbd> gas · <kbd>A</kbd><kbd>D</kbd> steer · hold <kbd>Space</kbd> + steer to drift · <kbd>E</kbd> item · <kbd>Esc</kbd> pause</div>
+    <div class="hint" id="h-hint"><kbd>W</kbd> gas · <kbd>A</kbd><kbd>D</kbd> steer · hold <kbd>Space</kbd> + steer to drift, let go to boost · <kbd>E</kbd> item · <kbd>C</kbd> look back · <kbd>Esc</kbd> pause</div>
     <div class="intro-name hidden" id="h-intro"><span id="h-introsub"></span><b id="h-introname"></b></div>
     <div class="skip hidden" id="h-skip">Press any key to skip</div>
   </div>
@@ -281,6 +318,16 @@
       <button class="btn" id="p-restart">Restart race</button>
       <button class="btn" id="p-music">Music <small id="p-musicv">on</small></button>
       <button class="btn" id="p-quit">Quit to garage</button>
+      <div class="ctl">
+        <b>W / S</b><span>gas / brake (S backs up)</span>
+        <b>A / D</b><span>steer</span>
+        <b>Space</b><span>hop. Hold it while steering to drift; steer into the turn for faster sparks: blue, orange, gold. Let go to boost</span>
+        <b>Space in the air</b><span>off a ramp: a trick, boost when you land</span>
+        <b>E</b><span>use your item. Hold it with oil or a ball to drag it behind you as a shield; hold S as you let go to fire the ball backwards</span>
+        <b>C</b><span>look behind you</span>
+        <b>Start</b><span>hold W just after the 2 for a rocket start (too early burns out)</span>
+        <b>Slipstream</b><span>tuck in right behind a kart for a boost</span>
+      </div>
     </div>
   </section>
 
