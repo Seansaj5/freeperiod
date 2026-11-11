@@ -93,3 +93,26 @@ test('theme-boot.js regex accepts exactly the THEMES ids', () => {
   for (const t of T.THEMES) assert.equal(re.test(t.id), t.id !== 'neon', t.id);
   assert.equal(re.test('bogus'), false);
 });
+
+test('accent: nothing stored = Theme; an explicit lime is stored and survives a theme switch', () => {
+  reset();
+  T.setTheme('neon');
+  assert.equal(T.getAccent(), 'theme');                    // the Theme swatch is the selected one
+  assert.equal(T.themeAccent('neon').color, '#c6ff3d');    // neon with nothing stored is lime
+  assert.equal(T.themeAccent('aero').color, '#4fd8ff');
+  assert.equal(T.themeAccent('space').color, '#ffb84a');
+  assert.equal(T.themeAccent('minimal').color, '#e8e8ea');
+  T.setTheme('aero');
+  assert.equal(T.setAccent('lime'), 'lime');
+  assert.equal(localStorage.getItem('fp.accent'), 'lime');
+  T.setTheme('space'); T.setTheme('aero');
+  assert.equal(T.getAccent(), 'lime');
+  T.setAccent('theme');
+  assert.equal(localStorage.getItem('fp.accent'), null);
+  assert.equal(T.getAccent(), 'theme');
+});
+
+test('themes.css has an explicit lime accent override after the theme blocks', () => {
+  const css = readFileSync(new URL('../themes.css', import.meta.url), 'utf8');
+  assert.ok(css.indexOf(':root[data-accent="lime"]') > css.indexOf(':root[data-theme="minimal"]'));
+});

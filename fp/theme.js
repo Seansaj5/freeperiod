@@ -12,10 +12,11 @@ export const ACCENTS = Object.freeze([
   Object.freeze({ id: 'orange', label: 'Orange', color: '#ffa23d', second: '#ffd84a' }),
   Object.freeze({ id: 'violet', label: 'Violet', color: '#a98bff', second: '#3de0ff' }),
 ]);
-export const DEFAULT_ACCENT = 'lime';
+/** 'theme' = no stored accent: the current theme's own accent (themes.css). 'lime' is a real, stored accent like the others. */
+export const DEFAULT_ACCENT = 'theme';
 const KEY = 'fp.accent';
 
-/** A known accent id, or the default. */
+/** A known accent id, or 'theme'. */
 export function cleanAccent(id) { return ACCENTS.some((a) => a.id === id) ? id : DEFAULT_ACCENT; }
 export function getAccent() { return cleanAccent(store.get(KEY)); }
 
@@ -26,7 +27,7 @@ export function onAccent(fn) { listeners.add(fn); return () => listeners.delete(
 export function onPrefs(fn) { prefListeners.add(fn); return () => prefListeners.delete(fn); }
 function firePrefs() { for (const fn of [...prefListeners]) { try { fn(); } catch { /* ignore */ } } }
 
-/** Puts the accent on <html> (lime = no attribute, the stylesheet default). */
+/** Puts the accent on <html> ('theme' = no attribute: the theme's own accent). */
 export function applyAccent(id = getAccent()) {
   const a = cleanAccent(id), root = globalThis.document && document.documentElement;
   if (!root) return a;
@@ -50,6 +51,9 @@ export const THEMES = Object.freeze([
   Object.freeze({ id: 'minimal', name: 'Minimal' }),
 ]);
 export const DEFAULT_THEME = 'neon';
+// Each theme's own accent: what the "Theme" swatch shows (keep in step with themes.css).
+const THEME_ACCENT = { neon: ['#c6ff3d', '#3de0ff'], aero: ['#4fd8ff', '#7ea8ff'], space: ['#ffb84a', '#8fd3ff'], minimal: ['#e8e8ea', '#a0a0a8'] };
+export function themeAccent(id = getTheme()) { const [color, second] = THEME_ACCENT[cleanTheme(id)]; return { id: 'theme', label: 'Theme', color, second }; }
 const THEME_KEY = 'fp.theme', FX_KEY = 'fp.fx', SFX_KEY = 'fp.sfx';
 // Blocked storage: a write that fails is remembered for this page only.
 const session = {};

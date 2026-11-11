@@ -50,10 +50,11 @@
   --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; --font-display: 'Inter', system-ui, sans-serif;
   --btn-bg: var(--lime); --btn-text: #0d0d0f;
 }
-:root[data-theme="minimal"] :focus-visible { outline-color: #c6ff3d; }
+:root[data-theme="minimal"] :focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; }
 
 /* A chosen accent overrides only the accent (and its second color), in every theme. Same values as style.css, restated here
    because the theme blocks above come later and would otherwise win. */
+:root[data-accent="lime"] { --lime: #c6ff3d; --lime-rgb: 198 255 61; --cyan: #3de0ff; --cyan-rgb: 61 224 255; }
 :root[data-accent="cyan"] { --lime: #3de0ff; --lime-rgb: 61 224 255; --cyan: #5dffc0; --cyan-rgb: 93 255 192; }
 :root[data-accent="pink"] { --lime: #ff6ad5; --lime-rgb: 255 106 213; --cyan: #3de0ff; --cyan-rgb: 61 224 255; }
 :root[data-accent="orange"] { --lime: #ffa23d; --lime-rgb: 255 162 61; --cyan: #ffd84a; --cyan-rgb: 255 216 74; }

@@ -1,7 +1,7 @@
 // The Themes sheet: four live mini previews (each drawn with its own theme's tokens), the accent row, and the Sounds and
 // Effects switches. Opened by the palette button in the shared header (fp/shell.js) and by the account card's accent row.
 import { h, openSheet } from './ui.js';
-import { THEMES, ACCENTS, getTheme, setTheme, getAccent, setAccent, getEffects, setEffects, getSounds, setSounds, onPrefs } from './theme.js';
+import { THEMES, ACCENTS, getTheme, setTheme, themeAccent, getAccent, setAccent, getEffects, setEffects, getSounds, setSounds, onPrefs } from './theme.js';
 
 let open = null;
 
@@ -16,7 +16,7 @@ export function openThemeSheet() {
   const grid = h('div', { class: 'fp-theme-grid', role: 'group', 'aria-label': 'Theme' }, THEMES.map((t) =>
     h('button', { type: 'button', class: 'fp-theme-pick', 'data-theme-pick': t.id, 'aria-pressed': 'false', onclick: () => setTheme(t.id) },
       preview(t), h('span', { class: 'fp-theme-name', text: t.name }))));
-  const swatches = h('div', { class: 'fp-swatches', role: 'radiogroup', 'aria-label': 'Accent color' }, ACCENTS.map((a) =>
+  const swatches = h('div', { class: 'fp-swatches', role: 'radiogroup', 'aria-label': 'Accent color' }, [themeAccent(), ...ACCENTS].map((a) =>
     h('button', { type: 'button', class: 'fp-swatch', role: 'radio', 'aria-checked': 'false', 'aria-label': a.label, title: a.label,
       'data-accent-pick': a.id, style: `--sw:${a.color};--sw2:${a.second}`, onclick: () => setAccent(a.id) })));
   const sw = (cls, label, onToggle) => h('button', { type: 'button', role: 'switch', 'aria-checked': 'false', 'aria-label': label,
@@ -32,7 +32,9 @@ export function openThemeSheet() {
       h('div', { class: 'fp-pref' }, h('span', {}, 'Sounds', h('small', { text: 'Clicks and whooshes around the site' })), sfx),
       h('div', { class: 'fp-pref' }, h('span', {}, 'Effects', h('small', { text: 'Animated backgrounds and the cursor trail' })), fx)));
   function sync() {
-    const t = getTheme(), a = getAccent();
+    const t = getTheme(), a = getAccent(), ta = themeAccent(t);
+    const tsw = swatches.querySelector('[data-accent-pick="theme"]');
+    if (tsw) tsw.style.cssText = `--sw:${ta.color};--sw2:${ta.second}`;
     grid.querySelectorAll('[data-theme-pick]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.themePick === t)));
     swatches.querySelectorAll('[data-accent-pick]').forEach((b) => {
       const on = b.dataset.accentPick === a;

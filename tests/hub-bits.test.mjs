@@ -7,23 +7,24 @@ function fakeStorage() {
 }
 globalThis.localStorage = fakeStorage();
 
-test('theme: five accents, lime by default, unknown ids fall back', async () => {
+test('theme: five accents, the theme\'s own accent by default, unknown ids fall back', async () => {
   const T = await import('../fp/theme.js');
   assert.deepEqual(T.ACCENTS.map((a) => a.id), ['lime', 'cyan', 'pink', 'orange', 'violet']);
-  assert.equal(T.DEFAULT_ACCENT, 'lime');
+  assert.equal(T.DEFAULT_ACCENT, 'theme');
   assert.equal(T.cleanAccent('pink'), 'pink');
-  assert.equal(T.cleanAccent('neon'), 'lime');
-  assert.equal(T.getAccent(), 'lime');
+  assert.equal(T.cleanAccent('neon'), 'theme');
+  assert.equal(T.getAccent(), 'theme');
   assert.equal(T.setAccent('orange'), 'orange');      // no document: stored, nothing else
   assert.equal(localStorage.getItem('fp.accent'), 'orange');
   assert.equal(T.getAccent(), 'orange');
-  T.setAccent('lime');
+  T.setAccent('theme');
   assert.equal(localStorage.getItem('fp.accent'), null);   // the default is not stored
   for (const a of T.ACCENTS) assert.match(a.color, /^#[0-9a-f]{6}$/);
-  // theme-boot.js must accept exactly the non-default accents
+  // theme-boot.js must accept exactly the accent ids (lime included; 'theme' = none stored)
   const boot = (await import('node:fs')).readFileSync(new URL('../fp/theme-boot.js', import.meta.url), 'utf8');
   const re = new RegExp(boot.match(/\/\^\((.*?)\)\$\//)[0].slice(1, -1));
-  for (const a of T.ACCENTS) assert.equal(re.test(a.id), a.id !== 'lime', a.id);
+  for (const a of T.ACCENTS) assert.equal(re.test(a.id), true, a.id);
+  assert.equal(re.test('theme'), false);
 });
 
 test('carousel wrapIndex', async () => {

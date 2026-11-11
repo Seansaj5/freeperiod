@@ -3,8 +3,8 @@
 // with ACCENTS and THEMES there (tests/hub-bits and tests/theme check both).
 try {
   var fpAccent = localStorage.getItem('fp.accent');
-  if (/^(cyan|pink|orange|violet)$/.test(fpAccent || '')) document.documentElement.setAttribute('data-accent', fpAccent);
-} catch (e) { /* storage blocked: lime */ }
+  if (/^(lime|cyan|pink|orange|violet)$/.test(fpAccent || '')) document.documentElement.setAttribute('data-accent', fpAccent);
+} catch (e) { /* storage blocked: the theme's accent */ }
 try {
   var fpTheme = localStorage.getItem('fp.theme');
   var fpFx = localStorage.getItem('fp.fx');
