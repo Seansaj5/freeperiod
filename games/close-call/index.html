@@ -116,6 +116,9 @@
     .mapc[data-m='city']::before { background: linear-gradient(160deg, #0b1440 0%, #1c2a66 45%, #ffb347 46%, #20160c 60%, #080a12 100%); }
     .mapc[data-m='coast']::before { background: linear-gradient(170deg, #2c4d8c 0%, #e0884a 42%, #ffd27a 50%, #164a63 52%, #0b2433 100%); }
     .mapc[data-m='canyon']::before { background: linear-gradient(170deg, #060a1c 0%, #1b2140 40%, #a8461f 41%, #5a2412 70%, #1a0e0a 100%); }
+    .mapc[data-m='alpine']::before { background: linear-gradient(170deg, #22324f 0%, #5d6e8c 38%, #eef3fb 39%, #a9b6c9 60%, #183626 61%, #0d1a14 100%); }
+    .mapc[data-m='storm']::before { background: linear-gradient(165deg, #06090f 0%, #232c3b 36%, #b8c8e0 37%, #1a2230 39%, #ffd49a 55%, #0c1119 68%, #05070b 100%); }
+    @media (max-height: 860px) { .maps { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .maps .mapc { padding-left: 62px; } .maps .mapc::before { width: 42px; } .maps .mapc b { font-size: 14px; } .maps .mapc small { font-size: 11px; } }
     .mapc b { display: block; font-family: 'Bungee', sans-serif; font-weight: 400; font-size: 17px; }
     .mapc span { display: block; font-size: 13px; color: var(--muted); line-height: 1.35; margin-top: 3px; }
     .mapc small { display: block; font-size: 12px; font-weight: 700; color: var(--green); margin-top: 5px; }
@@ -124,6 +127,7 @@
     @media (max-height: 860px) { .mapc span { display: none; } .mapc { min-height: 0; padding-top: 10px; padding-bottom: 10px; } .mapc small { margin-top: 3px; } }
     .lanes .btn small { margin-left: 6px; }
     .seg { display: flex; gap: 6px; }
+    #mp-maps { flex-wrap: wrap; } #mp-maps .btn { flex: 1 1 30%; }
     .seg .btn { flex: 1; justify-content: center; padding: 0 6px; height: 38px; font-size: 12px; }
     #route .panel { width: min(470px, 100%); }
     .panel { max-height: calc(100vh - 24px); overflow-y: auto; }
@@ -140,9 +144,9 @@
       #route .lbl { margin: 8px 0 4px; }
       #r-note { display: none; }
       #route .btn.small, #route .btn { height: 38px; }
-      /* phones sideways: the three maps side by side, compact results, a slimmer top bar */
-      .maps { flex-direction: row; }
-      .mapc { flex: 1; padding: 8px 10px; }
+      /* phones sideways: the maps side by side, compact results, a slimmer top bar */
+      .maps { flex-direction: row; grid-template-columns: repeat(5, 1fr); }
+      .maps .mapc, .mapc { flex: 1; padding: 8px 10px; }
       .mapc::before, .mapc small { display: none; }
       .mapc b { font-size: 13px; }
       .wallet .pill:not(.acct):last-child { display: none; }
@@ -230,6 +234,11 @@
     @keyframes fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
     .slip { position: absolute; left: 50%; top: 118px; transform: translateX(-50%); font: 400 14px 'Bungee', sans-serif; color: var(--cyan); letter-spacing: 0.08em; text-shadow: 0 0 12px rgba(61, 224, 255, 0.7); opacity: 0; transition: opacity 0.2s; }
     .slip.on { opacity: 1; }
+    .ta { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); font: 400 34px 'Bungee', sans-serif; color: #eaffef; letter-spacing: 0.04em; text-shadow: 0 0 16px rgba(109, 255, 138, 0.6), 0 2px 0 rgba(0,0,0,0.5); }
+    .ta.low { color: #ff6a6a; text-shadow: 0 0 18px rgba(255, 59, 78, 0.8); animation: taPulse 0.5s ease-in-out infinite alternate; }
+    @keyframes taPulse { to { transform: translateX(-50%) scale(1.08); } }
+    .modes { flex-wrap: wrap; }
+    .modes .btn { flex: 1 1 30%; min-width: 0; }
     .trapd { position: absolute; right: 22px; bottom: 150px; text-align: right; font: 400 13px 'Bungee', sans-serif; color: #ffd27a; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8); opacity: 0; transition: opacity 0.3s; }
     .trapd.on { opacity: 1; }
     .trapd small { display: block; font: 700 11px 'Outfit', sans-serif; letter-spacing: 0.12em; color: var(--muted); }
@@ -299,7 +308,7 @@
       <span class="lbl">Lanes</span>
       <div class="row lanes"><button class="btn small" data-l="2">2 <small>x1.5 cash</small></button><button class="btn small" data-l="3">3 <small>x1.25</small></button><button class="btn small" data-l="4">4 <small>x1</small></button></div>
       <span class="lbl">Mode</span>
-      <div class="row lanes"><button class="btn small" data-lv="0">Free drive <small>endless</small></button><button class="btn small" data-lv="1">Two lives <small>x1.5 cash</small></button></div>
+      <div class="row lanes modes"><button class="btn small" data-gm="free">Free drive <small>endless</small></button><button class="btn small" data-gm="lives">Two lives <small>x1.5</small></button><button class="btn small" data-gm="hard">Hardcore <small>x2</small></button><button class="btn small" data-gm="time">Time attack <small>x1.25</small></button><button class="btn small" data-gm="zen">Zen cruise <small>x0.5</small></button></div>
       <div class="status" id="r-note"></div>
       <div class="row" style="margin-top:6px">
         <button class="btn small" id="r-back" style="flex:0 0 auto">Back</button>
@@ -315,7 +324,7 @@
       <span class="lbl" style="margin-top:0">Your name</span>
       <input class="field" id="mp-name" maxlength="16" spellcheck="false" autocomplete="off" />
       <span class="lbl">Map and lanes <span style="text-transform:none;letter-spacing:0;font-weight:600">(for quick play and new rooms)</span></span>
-      <div class="seg" id="mp-maps"><button class="btn small" data-mm="city">Night City</button><button class="btn small" data-mm="coast">Sunset Coast</button><button class="btn small" data-mm="canyon">Red Canyon</button></div>
+      <div class="seg" id="mp-maps"><button class="btn small" data-mm="city">Night City</button><button class="btn small" data-mm="coast">Sunset Coast</button><button class="btn small" data-mm="canyon">Red Canyon</button><button class="btn small" data-mm="alpine">Alpine Pass</button><button class="btn small" data-mm="storm">Storm City</button></div>
       <div class="seg" style="margin-top:6px" id="mp-lanes"><button class="btn small" data-ml="2">2 lanes</button><button class="btn small" data-ml="3">3 lanes</button><button class="btn small" data-ml="4">4 lanes</button></div>
       <div class="seg" style="margin-top:6px" id="mp-modes"><button class="btn small" data-mlv="0">Free drive</button><button class="btn small" data-mlv="1">Two lives · x1.5 cash</button></div>
       <div class="stack" style="width:100%;margin-top:16px">
@@ -344,6 +353,12 @@
       <div class="row"><button class="btn small" data-u="kmh" style="flex:1">km/h</button><button class="btn small" data-u="mph" style="flex:1">mph</button></div>
       <span class="lbl">Solo traffic</span>
       <div class="row"><button class="btn small" data-t="0.7" style="flex:1">Light</button><button class="btn small" data-t="1" style="flex:1">Normal</button><button class="btn small" data-t="1.4" style="flex:1">Rush hour</button></div>
+      <span class="lbl">Weather</span>
+      <div class="row lanes modes"><button class="btn small" data-w="map">Map's own</button><button class="btn small" data-w="clear">Clear</button><button class="btn small" data-w="rain">Rain</button><button class="btn small" data-w="snow">Snow</button><button class="btn small" data-w="fog">Fog</button></div>
+      <span class="lbl">Camera <span style="text-transform:none;letter-spacing:0;font-weight:600">(C switches while driving)</span></span>
+      <div class="row"><button class="btn small" data-cam="0" style="flex:1">Chase</button><button class="btn small" data-cam="2" style="flex:1">Far chase</button><button class="btn small" data-cam="1" style="flex:1">Bonnet</button></div>
+      <span class="lbl">Show hitboxes</span>
+      <div class="row"><button class="btn small" data-hb="0" style="flex:1">Off</button><button class="btn small" data-hb="1" style="flex:1">On</button></div>
       <div class="status" id="s-note"></div>
       <button class="btn small" id="s-back" style="margin-top:8px">Back</button>
     </div>
@@ -438,6 +453,7 @@
       <div class="sub">Cash <b id="h-cash">$0</b></div>
       <div class="sub" id="h-route" style="opacity:0.8"></div>
     </div>
+    <div class="ta hidden" id="h-ta">1:00.0</div>
     <div class="combo off" id="h-combo">
       <div class="pts" id="h-pend">0</div>
       <div><span class="mult" id="h-mult">x1.0</span><span class="chain" id="h-chain"></span></div>

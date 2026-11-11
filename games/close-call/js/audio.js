@@ -71,6 +71,15 @@ export class Sound {
     if (!this.ready) return;
     for (const s of this.slices) { try { s.src.stop(); } catch { /* already stopped */ } s.g.disconnect(); }
     this.slices = [];
+    if (this.ev) { for (const o of this.ev.o) o.stop(); this.ev.g.disconnect(); this.ev = null; }
+    if (voice === 'ev') { // electric: no engine recordings, a motor whine that rises with speed
+      const ctx = this.ctx, g = ctx.createGain(); g.gain.value = 0;
+      const o = ['sine', 'triangle', 'sawtooth'].map((type) => { const x = ctx.createOscillator(); x.type = type; x.connect(g); x.start(); return x; });
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+      g.connect(lp); lp.connect(this.eMix);
+      this.ev = { o, g };
+      return;
+    }
     for (const { file, rpm } of this.man.engines[voice] || this.man.engines.i4) {
       const b = this.buf[file];
       if (!b) continue;
@@ -97,6 +106,11 @@ export class Sound {
         s.src.playbackRate.setTargetAtTime(Math.min(2.4, Math.max(0.3, re / s.rpm)), t, 0.03);
       });
     }
+    if (this.ev) {
+      const f = (90 + speed * 15) * this.pitch, [a, b, c] = this.ev.o;
+      a.frequency.setTargetAtTime(f, t, 0.05); b.frequency.setTargetAtTime(f * 2.01, t, 0.05); c.frequency.setTargetAtTime(f * 3.02, t, 0.05);
+      this.ev.g.gain.setTargetAtTime(on ? 0.05 + load * 0.1 + Math.min(0.06, speed / 1500) : 0.015, t, 0.08);
+    }
     this.eFilter.frequency.setTargetAtTime(load > 0 ? (boosting ? 16000 : 9000) : 900 + rpm * 0.25, t, 0.06);
     this.eGain.gain.setTargetAtTime(on ? (load > 0 ? 0.55 : 0.32) + (rpm / 7400) * 0.15 + (boosting ? 0.1 : 0) : 0.14, t, 0.08);
     const L = this.loops, w = Math.min(1, speed / 95);
@@ -114,6 +128,22 @@ export class Sound {
   /** Tyre squeal amount 0..1 and barrier scrape amount 0..1, set every frame. */
   tires(k) { if (this.ready && this.loops.squeal) { this.loops.squeal.g.gain.setTargetAtTime(k * 0.5, this.ctx.currentTime, 0.06); this.loops.squeal.src.playbackRate.setTargetAtTime(0.9 + k * 0.2, this.ctx.currentTime, 0.1); } }
   scrape(k) { if (this.ready && this.loops.scrape) this.loops.scrape.g.gain.setTargetAtTime(k * 0.6, this.ctx.currentTime, 0.04); }
+  /** Rain on the roof and road, 0..1 (filtered noise; no recording needed). */
+  rain(k) {
+    if (!this.ready) return;
+    if (!this.rainG) {
+      if (k <= 0) return;
+      const ctx = this.ctx, b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource(); src.buffer = b; src.loop = true;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6500;
+      const g = ctx.createGain(); g.gain.value = 0;
+      src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(this.bus); src.start();
+      this.rainG = g;
+    }
+    this.rainG.gain.setTargetAtTime(k * 0.085, this.ctx.currentTime, 0.4);
+  }
   /** 0 outside .. 1 deep in a tunnel. */
   setTunnel(k) { if (this.ctx) this.wet.gain.setTargetAtTime(k * 0.5, this.ctx.currentTime, 0.15); }
 

@@ -25,7 +25,14 @@ export const KINDS = [
   { id: 'van', hl: 2.6, hw: 0.99, w: [0, 1, 2, 3], ot: true },
   { id: 'truck', hl: 4.6, hw: 1.25, w: [0, 0.5, 1.5, 2.5], ot: false },
   { id: 'bus', hl: 5.8, hw: 1.24, w: [0, 0, 0.4, 1], ot: false },
+  { id: 'sport', hl: 2.25, hw: 0.96, w: [2.2, 1.2, 0.4, 0.1], ot: true },
+  { id: 'police', hl: 2.4, hw: 0.92, w: [0.45, 0.4, 0.3, 0.2], ot: true },
+  { id: 'moto', hl: 1.1, hw: 0.42, w: [0.9, 0.9, 0.6, 0.3], ot: true },
+  { id: 'semi', hl: 8.3, hw: 1.28, w: [0, 0.15, 0.7, 1.5], ot: false },
 ];
+export const POLICE = KINDS.findIndex((k) => k.id === 'police'), MOTO = KINDS.findIndex((k) => k.id === 'moto');
+const SPORT = KINDS.findIndex((k) => k.id === 'sport');
+const SPORT_PAINTS = [0xe8322a, 0xf4b400, 0xff7a1a, 0x2a8cff, 0xc6ff3d, 0x111318, 0xf2f2f2, 0x16c2b0];
 const TAXI = 1, TAXI_YELLOW = 0xf2b705;
 const KIND_TOTAL = [0, 1, 2, 3].map((c) => KINDS.reduce((a, k) => a + k.w[c], 0));
 const PAINTS = [0xd8dde6, 0x1d2129, 0x8a919c, 0xb3202a, 0x22407a, 0xe8e2d0, 0x2f5d43, 0x5a5f6b, 0x0f1115, 0xc7a14a, 0x7a2238, 0x3d8fd1];
@@ -66,6 +73,8 @@ function clearFor(seed, set, fillK, L, k, T, t0, t1) {
 }
 
 const smooth01 = (a, b, x) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+/** Rate of change of smooth01 (per second). */
+const dsmooth01 = (a, b, x) => { const u = (x - a) / (b - a); return u <= 0 || u >= 1 ? 0 : (6 * u * (1 - u)) / (b - a); };
 
 /**
  * Every car whose position is within [sMin, sMax] at time t on this road. Results are written into
@@ -85,12 +94,13 @@ export function trafficNear(road, density, t, sMin, sMax, out, skipMask = 0) {
       if (Number.isNaN(s) || s < sMin || s > sMax) continue;
       const r2 = hash(seed + 11, L, k);
       const kind = pickKind(set.col[L], hash(seed + 23, L, k));
-      let man = 0, blink = 0;
+      let man = 0, blink = 0, dman = 0;
       // overtaking: pull out into the faster lane on the left, then back
       if (L > 0 && KINDS[kind].ot && !(skipMask & (1 << (L - 1)))) {
         const ph = hash(seed + 51, L, k) * MAN_P, w = Math.floor((t + ph) / MAN_P), t0 = w * MAN_P - ph, tau = t - t0;
         if (tau < MAN_T && hash(seed + 53, L * 977 + k, w) < MAN_Q && clearFor(seed, set, density, L, k, L - 1, t0, t0 + MAN_T)) {
           man = smooth01(1.5, 3.5, tau) - smooth01(7.6, 9.6, tau);
+          dman = dsmooth01(1.5, 3.5, tau) - dsmooth01(7.6, 9.6, tau);
           const on = Math.floor(t * 2.7) % 2 === 0;
           if (tau < 3.5) blink = on ? -1 : 0;
           else if (tau > 6.2) blink = on ? 1 : 0;
@@ -103,11 +113,14 @@ export function trafficNear(road, density, t, sMin, sMax, out, skipMask = 0) {
       o.v = v;
       o.d = road.laneCenter(L) - man * LANE_W + Math.sin(t * 0.35 + r2 * 40) * 0.14 * (1 - man);
       o.man = man;
+      // the car turns into its lane change (+ = nose left), and its hitbox turns with it
+      o.yaw = Math.atan2(dman * LANE_W, Math.max(5, v));
       o.blink = blink;
       o.kind = kind;
       o.hl = KINDS[kind].hl;
       o.hw = KINDS[kind].hw;
-      o.color = kind === TAXI ? TAXI_YELLOW : PAINTS[Math.floor(hash(seed + 37, L, k) * PAINTS.length)];
+      const ph = hash(seed + 37, L, k);
+      o.color = kind === TAXI ? TAXI_YELLOW : kind === POLICE ? 0xf2f4f8 : kind === SPORT ? SPORT_PAINTS[Math.floor(ph * SPORT_PAINTS.length)] : PAINTS[Math.floor(ph * PAINTS.length)];
       n++;
     }
   }

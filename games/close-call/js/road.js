@@ -86,6 +86,21 @@ export class Road {
     return out;
   }
 
+  /** Road works on the shoulder: { j, a, b, side } stretches lined with cones (map.work = chance per km). */
+  worksIn(s0, s1) {
+    const out = [], W = this.map.work || 0, seg = 1000;
+    if (!W) return out;
+    for (let j = Math.max(1, Math.floor(s0 / seg) - 1); j <= Math.floor(s1 / seg); j++) {
+      if (hash(this.seed + 301, j) >= W) continue;
+      const a = j * seg + 150 + hash(this.seed + 303, j) * 500, b = a + 110 + hash(this.seed + 305, j) * 150;
+      if (this.featureAt(a) || this.featureAt(b) || this.featureAt((a + b) / 2)) continue; // never inside a tunnel or on a bridge
+      if (b >= s0 && a <= s1) out.push({ j, a, b, side: hash(this.seed + 307, j) < 0.5 ? -1 : 1 });
+    }
+    return out;
+  }
+  /** Distance between road-work cones. */
+  get coneGap() { return 6; }
+
   ensure(s) {
     const need = Math.ceil(s) + 2;
     if (need <= this.n) return;

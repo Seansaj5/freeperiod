@@ -1,5 +1,7 @@
-// The routes. Each map is its own place: road shape (bends, hills), features (tunnels, bridges)
-// and look (sky, light, scenery). Lane modes change how many lanes the highway has.
+// The routes. Each map is its own place: road shape (bends, hills), features (tunnels, bridges, road works)
+// and look (sky, light, scenery, weather). Lane modes change how many lanes the highway has.
+//   look: which scenery family builds it (city, coast, canyon, alpine)   weather: what it is like by default
+//   grip: how well tyres hold (snow and rain are slippier)   work: chance per kilometre of road works on the shoulder
 
 export const LANE_MODES = [2, 3, 4];
 /** Fewer lanes is harder, so it pays more. */
@@ -7,7 +9,7 @@ export const CASH_MULT = { 2: 1.5, 3: 1.25, 4: 1 };
 
 export const MAPS = {
   city: {
-    id: 'city', name: 'Night City', blurb: 'Elevated expressway over downtown. Rolling ramps, sweeping bends and glowing covered tubes.',
+    id: 'city', look: 'city', work: 0.3, name: 'Night City', blurb: 'Elevated expressway over downtown. Rolling ramps, sweeping bends and glowing covered tubes.',
     // curvature: sum of sines (wavelengths w, weights a); |sum| below th is straight road; k = tightest bend (1/radius)
     curve: { k: 1 / 300, w: [640, 1700, 260], a: [0.62, 0.38, 0.14], th: 0.26 },
     hills: { base: 0, a: [6.5, 2.5], w: [360, 140] },
@@ -21,7 +23,7 @@ export const MAPS = {
     paint: 'white', far: 'city',
   },
   coast: {
-    id: 'coast', name: 'Sunset Coast', blurb: 'Cliff-top coast road at golden hour. Palm trees, bay bridges and tunnels through the headlands.',
+    id: 'coast', look: 'coast', work: 0.25, name: 'Sunset Coast', blurb: 'Cliff-top coast road at golden hour. Palm trees, bay bridges and tunnels through the headlands.',
     curve: { k: 1 / 240, w: [520, 1300, 230], a: [0.6, 0.4, 0.18], th: 0.2 },
     hills: { base: 12, a: [7, 3.2], w: [330, 130] },
     feat: { seg: 1500, tunnel: 0.28, bridge: 0.3, tunnelLen: [200, 380], bridgeLen: [460, 760] },
@@ -34,7 +36,7 @@ export const MAPS = {
     paint: 'yellow', far: 'islands',
   },
   canyon: {
-    id: 'canyon', name: 'Red Canyon', blurb: 'Desert highway through red rock at nightfall. Big hills, tight bends, no street lights.',
+    id: 'canyon', look: 'canyon', work: 0.2, name: 'Red Canyon', blurb: 'Desert highway through red rock at nightfall. Big hills, tight bends, no street lights.',
     curve: { k: 1 / 205, w: [470, 1150, 210], a: [0.6, 0.4, 0.2], th: 0.16 },
     hills: { base: 0, a: [15, 6], w: [420, 165] },
     feat: { seg: 1500, tunnel: 0.38, bridge: 0, tunnelLen: [180, 360] },
@@ -45,6 +47,35 @@ export const MAPS = {
     lamps: null, rail: 'posts', tube: 'rock',
     paint: 'yellow', far: 'mesas',
   },
+  alpine: {
+    id: 'alpine', look: 'alpine', name: 'Alpine Pass', blurb: 'Mountain pass in falling snow. Pine forest, snow sheds, steep climbs and slippery bends.',
+    curve: { k: 1 / 215, w: [500, 1250, 220], a: [0.6, 0.4, 0.2], th: 0.18 },
+    hills: { base: 30, a: [14, 5], w: [400, 150] },
+    feat: { seg: 1500, tunnel: 0.42, bridge: 0, tunnelLen: [170, 320] },
+    trapEvery: 1800,
+    sky: { top: [0.03, 0.05, 0.11], mid: [0.2, 0.26, 0.38], glow: [0.5, 0.56, 0.66], cloud: [0.42, 0.47, 0.56], stars: 0.4, sun: null },
+    fog: [0x66778e, 55, 480], bg: 0x4a5a72,
+    hemi: [0xdde8ff, 0x55606f, 1.4], light: [0xd2e2ff, 0.9, [60, 120, -80]],
+    lamps: { gap: 45, both: false, color: 0xffe2b8 }, rail: 'guard', tube: 'rock',
+    paint: 'yellow', far: 'peaks', weather: 'snow', grip: 0.88, work: 0.25,
+  },
+  storm: {
+    id: 'storm', look: 'city', name: 'Storm City', blurb: 'Downtown expressway in a thunderstorm. Wet roads, spray off the traffic, lightning over the towers.',
+    curve: { k: 1 / 280, w: [600, 1600, 250], a: [0.62, 0.38, 0.16], th: 0.24 },
+    hills: { base: 0, a: [5.5, 2.5], w: [360, 140] },
+    feat: { seg: 1500, tunnel: 0.38, bridge: 0, tunnelLen: [240, 420] },
+    trapEvery: 1900,
+    elevated: true,
+    sky: { top: [0.008, 0.01, 0.018], mid: [0.045, 0.052, 0.07], glow: [0.16, 0.18, 0.24], cloud: [0.13, 0.14, 0.17], stars: 0, sun: null },
+    fog: [0x121822, 45, 460], bg: 0x0c1119,
+    hemi: [0x8494b4, 0x1c1c22, 1.05], light: [0xa8b8d8, 0.4, [-60, 120, -40]],
+    lamps: { gap: 20, both: true, color: 0xffd49a }, rail: 'jersey', tube: 'glass',
+    paint: 'white', far: 'city', weather: 'rain', grip: 0.92, work: 0.3, noMoon: true,
+  },
 };
-export const MAP_LIST = ['city', 'coast', 'canyon'];
+export const MAP_LIST = ['city', 'coast', 'canyon', 'alpine', 'storm'];
+/** Weather you can pick in settings ('map' = whatever the map has). */
+export const WEATHERS = ['map', 'clear', 'rain', 'snow', 'fog'];
+/** Grip for each kind of weather (rain and snow make the road slippier). */
+export const WEATHER_GRIP = { clear: 1, rain: 0.92, snow: 0.86, fog: 1 };
 export const mapById = (id) => MAPS[id] || MAPS.city;

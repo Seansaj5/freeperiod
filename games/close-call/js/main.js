@@ -12,8 +12,10 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { trafficNear, laneKmh } from './traffic.js';
-import { MAPS, MAP_LIST, LANE_MODES, CASH_MULT, mapById } from './maps.js';
+import { trafficNear, laneKmh, KINDS } from './traffic.js';
+const KIND_IDS = KINDS.map((k) => k.id);
+import { MAPS, MAP_LIST, LANE_MODES, CASH_MULT, mapById, WEATHER_GRIP } from './maps.js';
+import { Weather } from './weather.js';
 import { clamp, damp, fmt } from './util.js';
 import { SERVER_URL } from './config.js';
 import { Puffs, Wreck, blast } from './wreck.js';
@@ -32,20 +34,33 @@ const httpUrl = serverUrl.replace(/^ws/, 'http');
 const KEY = 'closecall.v1';
 const readStored = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { return {}; } };
 // lives: two lives mode on; lifeBests: best two-lives run per route; admin: the owner's switches (ignored for anyone else)
-const DEFAULTS = () => ({ cash: 0, owned: ['pocket'], car: 'pocket', paint: {}, best: 0, total: 0, name: '', route: { map: 'city', lanes: 4 }, bests: {}, lives: false, lifeBests: {}, admin: {} });
+// gm: game mode (free, lives, time, zen, hard); taBests: best time attack score per route
+const DEFAULTS = () => ({ cash: 0, owned: ['pocket'], car: 'pocket', paint: {}, best: 0, total: 0, name: '', route: { map: 'city', lanes: 4 }, bests: {}, lives: false, gm: null, lifeBests: {}, taBests: {}, admin: {} });
 const stored = readStored();
 const save = Object.assign(DEFAULTS(), stored);
 const routeKey = (map, lanes) => `${map}-${lanes}`;
 const weak = (navigator.hardwareConcurrency || 4) <= 4 || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent);
-save.settings = Object.assign({ vol: 0.7, quality: weak ? 'low' : 'high', units: 'kmh', density: 1 }, stored.settings || {});
+// weather: 'map' (the map's own) or clear / rain / snow / fog; cam: 0 chase, 1 bonnet, 2 far chase; boxes: draw hitboxes
+save.settings = Object.assign({ vol: 0.7, quality: weak ? 'low' : 'high', units: 'kmh', density: 1, weather: 'map', cam: 0, boxes: false }, stored.settings || {});
 function fixSave() {
   if (!MAPS[save.route?.map] || !LANE_MODES.includes(save.route?.lanes)) save.route = { map: 'city', lanes: 4 };
   if (!Array.isArray(save.owned)) save.owned = ['pocket'];
   save.owned = save.owned.filter((id) => CARS.some((c) => c.id === id));
   if (!save.owned.includes('pocket')) save.owned.unshift('pocket');
   if (!save.owned.includes(save.car)) save.car = 'pocket';
-  for (const k of ['paint', 'bests', 'lifeBests', 'admin']) if (!save[k] || typeof save[k] !== 'object') save[k] = {};
+  for (const k of ['paint', 'bests', 'lifeBests', 'taBests', 'admin']) if (!save[k] || typeof save[k] !== 'object') save[k] = {};
+  if (!GAME_MODES[save.gm]) save.gm = save.lives ? 'lives' : 'free';
+  save.lives = save.gm === 'lives';
 }
+/** Game modes: lives = crashes you can take (0 = endless), cash multiplier, what the HUD says. */
+const GAME_MODES = {
+  free: { name: 'Free drive', lives: 0, cash: 1 },
+  lives: { name: 'Two lives', lives: 2, cash: 1.5 },
+  hard: { name: 'Hardcore', lives: 1, cash: 2 },
+  time: { name: 'Time attack', lives: 0, cash: 1.25 },
+  zen: { name: 'Zen cruise', lives: 0, cash: 0.5 },
+};
+const TA = { start: 60, every: 1500, add: 25, near: [2, 1, 0.5] }; // time attack: seconds to start, checkpoint gap (m), seconds per checkpoint, per near miss tier
 fixSave();
 // every save also goes to your Free Period account when you're signed in (account.js)
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* private mode */ } saved(); };
@@ -82,6 +97,8 @@ if (hi) {
   composer.setSize(innerWidth, innerHeight);
 }
 const fx = new Fx(scene, camera, hi);
+const weather = new Weather(scene, hi);
+weather.onThunder = (delay) => sound.play('boom', { gain: 0.32, rate: 0.42 + Math.random() * 0.1, delay });
 // fire and smoke for two lives mode, and the light the fireball throws (in the scene from the start, so lighting
 // never has to be rebuilt mid-game)
 const fire = new Puffs(scene, 170, true), smoke = new Puffs(scene, 260, false);
@@ -134,6 +151,7 @@ let camLift = 0, camMode = 0, camD = 0, fov = 66, shake = 0, menuAng = 0.6, last
 let revUntil = 0, lastGear = 0, lastBoost = false, prevS = 0, draftT = 0;
 // two lives mode: lives left (0 = mode off), the wreck after the second crash, and this run's numbers
 let lives = 0, wreck = null, wreckT = 0, wreckAng = 0, trailAcc = 0;
+let gm = 'free', timeLeft = 0, nextCp = 0, cpCount = 0, taDone = false; // the mode being played, and time attack's clock
 const run = { s0: 0, cash0: 0, best: 0, newBest: false };
 const MENU_SEED = 20261107;
 
@@ -141,6 +159,7 @@ const MENU_SEED = 20261107;
 function enterMenuWorld() {
   const before = world.mapId;
   world.setRoute({ map: save.route.map, lanes: save.route.lanes, seed: MENU_SEED, density: 1 });
+  applyWeather();
   sim.reset(420, world.road.laneCenter(1), laneKmh(world.road.lanes, 1) / 3.6);
   if (before !== world.mapId) setCarModel(mode === 'garage' ? CARS[gIdx] : spec, mode === 'garage' ? gPaint : paintOf(spec.id)); // pick up the new reflections
 }
@@ -160,7 +179,7 @@ addEventListener('keydown', (e) => {
     else if (mode === 'over') quitToMenu();
   }
   if (mode === 'over' && (e.code === 'KeyR' || e.code === 'Enter')) driveAgain();
-  if (e.code === 'KeyC' && mode === 'play') camMode = (camMode + 1) % 2;
+  if (e.code === 'KeyC' && mode === 'play') camMode = (camMode + 1) % 3;
   if (mode === 'garage') { if (e.code === 'ArrowLeft' || e.code === 'KeyA') browse(-1); if (e.code === 'ArrowRight' || e.code === 'KeyD') browse(1); }
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
 });
@@ -209,7 +228,7 @@ function show(name) {
   $('b-kart').classList.toggle('hidden', name !== 'menu');
   if (name === 'menu') { refreshWallet(); pollOnline(); $('b-route').textContent = routeLabel(); }
 }
-const routeLabel = () => `${mapById(save.route.map).name} · ${save.route.lanes} lanes${save.lives ? ' · two lives' : ''}`;
+const routeLabel = () => `${mapById(save.route.map).name} · ${save.route.lanes} lanes${save.gm !== 'free' ? ` · ${GAME_MODES[save.gm].name.toLowerCase()}` : ''}`;
 function refreshWallet() {
   $('w-cash').textContent = `$${fmt(save.cash)}`;
   $('w-best').textContent = fmt(save.best);
@@ -241,7 +260,8 @@ function setRoute(map, lanes) {
   enterMenuWorld();
   $('b-route').textContent = routeLabel();
 }
-function setLives(on) { save.lives = !!on; persist(); paintRoute(); paintMpRoute(); }
+function setMode(gm) { save.gm = GAME_MODES[gm] ? gm : 'free'; save.lives = save.gm === 'lives'; persist(); paintRoute(); paintMpRoute(); $('b-route').textContent = routeLabel(); }
+function setLives(on) { setMode(on ? 'lives' : 'free'); }
 function paintRoute() {
   const L = save.route.lanes;
   $('r-maps').innerHTML = MAP_LIST.map((id) => {
@@ -249,12 +269,20 @@ function paintRoute() {
     return `<button class="mapc${id === save.route.map ? ' on' : ''}" data-m="${id}"><b>${m.name}</b><span>${m.blurb}</span><small>${best ? `Best combo here (${L} lanes): ${fmt(best)}` : `No combo banked here on ${L} lanes yet`}</small></button>`;
   }).join('');
   for (const b of document.querySelectorAll('[data-l]')) b.classList.toggle('primary', +b.dataset.l === L);
-  for (const b of document.querySelectorAll('[data-lv]')) b.classList.toggle('primary', (b.dataset.lv === '1') === !!save.lives);
+  for (const b of document.querySelectorAll('[data-gm]')) b.classList.toggle('primary', b.dataset.gm === save.gm);
   const lanesNote = L === 2 ? 'Two lanes: tight gaps, half again the cash for every bank.' : L === 3 ? 'Three lanes: a quarter more cash for every bank.' : 'Four lanes: the most room to weave.';
   const lb = save.lifeBests[routeKey(save.route.map, L)] || 0;
-  $('r-note').textContent = save.lives ? `Two lives: crash twice and you blow up. x1.5 cash. ${lb ? `Best run here: ${fmt(lb)}.` : 'No run here yet.'}` : lanesNote;
+  const tb = save.taBests[routeKey(save.route.map, L)] || 0;
+  const notes = {
+    free: lanesNote,
+    lives: `Two lives: crash twice and you blow up. x1.5 cash. ${lb ? `Best run here: ${fmt(lb)}.` : 'No run here yet.'}`,
+    hard: 'Hardcore: one crash and you blow up. x2 cash.',
+    time: `Time attack: ${TA.start} seconds on the clock. Checkpoints add ${TA.add}s, near misses add a little. x1.25 cash. ${tb ? `Best here: ${fmt(tb)}.` : ''}`,
+    zen: 'Zen cruise: crashes never cost you the combo. Half cash. Just drive.',
+  };
+  $('r-note').textContent = notes[save.gm] || lanesNote;
 }
-for (const b of document.querySelectorAll('[data-lv]')) b.onclick = () => setLives(b.dataset.lv === '1');
+for (const b of document.querySelectorAll('[data-gm]')) b.onclick = () => { sound.click(); setMode(b.dataset.gm); };
 $('r-maps').onclick = (e) => { const b = e.target.closest('.mapc'); if (!b) return; sound.click(); setRoute(b.dataset.m, null); paintRoute(); };
 for (const b of document.querySelectorAll('[data-l]')) b.onclick = () => { setRoute(null, +b.dataset.l); paintRoute(); };
 $('r-go').onclick = () => startSolo();
@@ -262,7 +290,7 @@ $('r-back').onclick = () => show('menu');
 function paintMpRoute() {
   for (const b of document.querySelectorAll('[data-mm]')) b.classList.toggle('primary', b.dataset.mm === save.route.map);
   for (const b of document.querySelectorAll('[data-ml]')) b.classList.toggle('primary', +b.dataset.ml === save.route.lanes);
-  for (const b of document.querySelectorAll('[data-mlv]')) b.classList.toggle('primary', (b.dataset.mlv === '1') === !!save.lives);
+  for (const b of document.querySelectorAll('[data-mlv]')) b.classList.toggle('primary', (b.dataset.mlv === '1') === (save.gm === 'lives'));
 }
 for (const b of document.querySelectorAll('[data-mlv]')) b.onclick = () => setLives(b.dataset.mlv === '1');
 for (const b of document.querySelectorAll('[data-mm]')) b.onclick = () => { setRoute(b.dataset.mm, null); paintMpRoute(); };
@@ -274,6 +302,25 @@ function paintSettings() {
   for (const b of document.querySelectorAll('[data-q]')) b.classList.toggle('primary', b.dataset.q === save.settings.quality);
   for (const b of document.querySelectorAll('[data-u]')) b.classList.toggle('primary', b.dataset.u === save.settings.units);
   for (const b of document.querySelectorAll('[data-t]')) b.classList.toggle('primary', +b.dataset.t === save.settings.density);
+  for (const b of document.querySelectorAll('[data-w]')) b.classList.toggle('primary', b.dataset.w === save.settings.weather);
+  for (const b of document.querySelectorAll('[data-cam]')) b.classList.toggle('primary', +b.dataset.cam === save.settings.cam);
+  for (const b of document.querySelectorAll('[data-hb]')) b.classList.toggle('primary', (b.dataset.hb === '1') === !!save.settings.boxes);
+}
+for (const b of document.querySelectorAll('[data-w]')) b.onclick = () => { save.settings.weather = b.dataset.w; persist(); paintSettings(); applyWeather(); };
+for (const b of document.querySelectorAll('[data-cam]')) b.onclick = () => { save.settings.cam = +b.dataset.cam; camMode = save.settings.cam; persist(); paintSettings(); };
+for (const b of document.querySelectorAll('[data-hb]')) b.onclick = () => { save.settings.boxes = b.dataset.hb === '1'; persist(); paintSettings(); };
+
+// ---------------- weather ----------------
+let weatherKind = 'clear';
+/** Rain, snow or fog from settings (or the map's own), with what it does to the road and the grip. */
+function applyWeather() {
+  if (!world.map) return;
+  const w = save.settings.weather === 'map' ? world.map.weather || 'clear' : save.settings.weather;
+  weatherKind = w;
+  weather.set(w, world.map.id === 'storm');
+  world.setWet(w === 'rain' ? 1 : 0);
+  world.setFog(w === 'fog' ? 0.32 : w === 'snow' ? 0.72 : w === 'rain' ? 0.85 : 1);
+  sim.gripK = WEATHER_GRIP[w] ?? 1;
 }
 $('s-vol').oninput = (e) => { save.settings.vol = +e.target.value; sound.setVolume(save.settings.vol); persist(); };
 for (const b of document.querySelectorAll('[data-q]')) b.onclick = () => {
@@ -356,8 +403,16 @@ const driveSpec = () => (cheat('turbo') ? { ...spec, top: Math.round(spec.top * 
 function beginPlay() {
   clearWreck();
   scorer.reset();
-  lives = save.lives ? 2 : 0;
-  scorer.cashMult = (CASH_MULT[world.road.lanes] || 1) * (lives ? 1.5 : 1);
+  // multiplayer rooms play free drive or two lives; the other modes are solo
+  gm = net ? (save.gm === 'lives' ? 'lives' : 'free') : save.gm;
+  const G = GAME_MODES[gm];
+  lives = G.lives;
+  scorer.cashMult = (CASH_MULT[world.road.lanes] || 1) * G.cash;
+  timeLeft = gm === 'time' ? TA.start : 0; nextCp = TA.every; cpCount = 0; taDone = false;
+  world.checkpointEvery = gm === 'time' ? TA.every : 0;
+  if (gm === 'time') nextCp = Math.ceil((sim.s + 50) / TA.every) * TA.every;
+  $('h-ta').classList.toggle('hidden', gm !== 'time');
+  camMode = save.settings.cam || 0;
   setCarModel(spec, paintOf(spec.id)); sim.setSpec(driveSpec());
   show('play');
   playTime = 0;
@@ -366,11 +421,12 @@ function beginPlay() {
   $('h-hint').style.opacity = 1;
   const m = world.map, L = world.road.lanes;
   const admin = ['god', 'nitro', 'turbo', 'combo'].some(cheat);
-  $('h-route').textContent = `${m.name} · ${L} lanes${lives ? ' · two lives' : ''}${scorer.cashMult > 1 ? ` · cash x${+scorer.cashMult.toFixed(2)}` : ''}${admin ? ' · ADMIN' : ''}`;
-  banner('GO', lives ? 'Two lives · crash twice and you blow up' : `${m.name} · ${L} lanes`, '#ffb020');
+  $('h-route').textContent = `${m.name} · ${L} lanes${gm !== 'free' ? ` · ${G.name.toLowerCase()}` : ''}${scorer.cashMult !== 1 ? ` · cash x${+scorer.cashMult.toFixed(2)}` : ''}${weatherKind !== 'clear' ? ` · ${weatherKind}` : ''}${admin ? ' · ADMIN' : ''}`;
+  const sub = { lives: 'Two lives · crash twice and you blow up', hard: 'Hardcore · one crash and you blow up', time: `Time attack · reach the checkpoints · ${TA.start}s on the clock`, zen: 'Zen cruise · crashes never cost the combo' }[gm];
+  banner('GO', sub || `${m.name} · ${L} lanes`, '#ffb020');
 }
 function paintLives() {
-  $('h-lives').classList.toggle('hidden', !save.lives || !(mode === 'play' || mode === 'pause'));
+  $('h-lives').classList.toggle('hidden', !GAME_MODES[gm]?.lives || !(mode === 'play' || mode === 'pause'));
   [...$('h-lives').children].forEach((el, i) => el.classList.toggle('gone', i >= lives));
 }
 function clearWreck() {
@@ -379,6 +435,7 @@ function clearWreck() {
 }
 function startSolo() {
   world.setRoute({ map: save.route.map, lanes: save.route.lanes, seed: Math.floor(Math.random() * 1e9), density: save.settings.density });
+  applyWeather();
   wt = 300 + Math.random() * 3000;
   spawn(300, 100 / 3.6);
   $('h-mp').classList.add('hidden');
@@ -423,6 +480,7 @@ async function joinMp(how, code) {
     if (w.name) me.name = w.name; // the server's version (a guest can't drive under the owner's name)
     wireNet();
     world.setRoute({ map: w.map || 'city', lanes: w.lanes || 4, seed: w.seed, density: w.density });
+    applyWeather();
     mpStart = w.start;
     wt = (net.serverNow() - mpStart) / 1000;
     spawn(300, 100 / 3.6);
@@ -588,6 +646,7 @@ function handleEvents(ev) {
   for (const e of ev) {
     switch (e.type) {
       case 'near':
+        if (e.bonus) { pop(e.name, `+${fmt(e.pts)}`, '#ffb020', false); break; }
         pop(e.name, `+${fmt(e.pts)}`, TIER_COL[e.tier], e.tier === 0); sound.whoosh(e.side, e.tier, sim.v * 3.6); sound.near(e.tier);
         if (e.tier === 0 && Math.random() < 0.35) sound.horn(e.side); // they didn't like that
         break;
@@ -616,6 +675,7 @@ const hudCache = {};
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
 let boardAt = 0;
 function updateHud(now) {
+  if (gm === 'time') { const t = Math.max(0, timeLeft); setText('h-ta', `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}.${Math.floor((t % 1) * 10)}`); $('h-ta').classList.toggle('low', t < 10); }
   setText('h-run', fmt(scorer.run));
   setText('h-cash', `$${fmt(save.cash)}`);
   const live = scorer.pending > 0 || scorer.timer > 0;
@@ -708,8 +768,8 @@ function updateCamera(dt) {
     look.addScaledVector(right, g ? -2.1 : -3.4);
     camera.lookAt(look);
     fov = damp(fov, mode === 'garage' ? 52 : 58, 4, dt);
-  } else if (camMode === 0) {
-    const dist = 6.3 + kmh * 0.009, h = 1.95 + kmh * 0.0026;
+  } else if (camMode === 0 || camMode === 2) {
+    const far = camMode === 2, dist = (far ? 9.4 : 6.3) + kmh * (far ? 0.012 : 0.009), h = (far ? 3.3 : 1.95) + kmh * 0.0026;
     camD = damp(camD, sim.d, 7, dt);
     road.toWorld(sim.s - dist, camD, P2);
     // rise over any vehicle parked where the camera wants to be (after a rear-end shunt)
@@ -767,8 +827,8 @@ function frame() {
     for (const e of sim.step(dt, inp, world.road, traffic, n)) {
       if (e.type === 'crash') {
         hitNow = e;
-        scorer.lose(ev, 'crash');
-        if (!ev.length) pop('CRASH', '', '#ff3b4e', true);
+        if (gm === 'zen') pop('BUMP', 'combo kept', '#9fd4ff', false);
+        else { scorer.lose(ev, 'crash'); if (!ev.length) pop('CRASH', '', '#ff3b4e', true); }
         sound.crash(e.impact); shake = 1; flash();
         // sparks where the cars touched
         world.road.toWorld(sim.s + (e.side ? 0 : Math.sign(e.ds) * sim.hl), sim.d + (e.side ? -Math.sign(e.dd) * sim.hw : 0), FP);
@@ -787,6 +847,23 @@ function frame() {
     sim.draft = draftT > 0.4;
     if (sim.draft) sim.nitro = Math.min(1, sim.nitro + dt * 0.08);
     scorer.update(dt, sim, traffic, n, ev);
+    // road works: clip the cones on the shoulder and they go flying (a little bonus, a little slower)
+    for (const z of world.works || []) {
+      if (sim.s < z.a - sim.hl - 1 || sim.s > z.b + sim.hl + 1 || Math.sign(sim.d) !== z.side) continue;
+      if (Math.abs(sim.d) + sim.hwEff < world.road.half + 0.38) continue;
+      const i0 = Math.max(0, Math.floor((sim.s - sim.hl - z.a) / world.road.coneGap)), i1 = Math.floor((sim.s + sim.hl + 0.3 - z.a) / world.road.coneGap);
+      for (let i = i0; i <= i1; i++) {
+        if (z.a + i * world.road.coneGap > z.b) break;
+        if (world.knockCone(z, i, CV.x, CV.z)) { sim.v *= 0.985; scorer.bonus(60, 'CONE!', z.side, ev); sound.play('clank', { gain: 0.45, rate: 1.2 + Math.random() * 0.3 }); }
+      }
+    }
+    // time attack: the clock runs down; checkpoints and near misses buy time
+    if (gm === 'time') {
+      timeLeft -= dt;
+      for (const e of ev) if (e.type === 'near' && !e.bonus && TA.near[e.tier]) timeLeft += TA.near[e.tier];
+      if (sim.s >= nextCp) { cpCount++; nextCp += TA.every; timeLeft += TA.add; banner('CHECKPOINT', `+${TA.add}s · ${cpCount} reached`, '#6dff8a'); sound.play('chaching', { gain: 0.5 }); }
+      if (timeLeft <= 0 && !taDone) { timeLeft = 0; endTimeAttack(ev); }
+    }
     handleEvents(ev);
     if (hitNow && lives) loseLife(hitNow, ev);
     if (cheat('combo') && scorer.timer > 0) scorer.timer = COMBO_TIME;
@@ -850,6 +927,11 @@ function frame() {
   updateCamera(dt);
   world.follow(camera);
   world.tick(sim.s, now / 1000, dt);
+  world.updateProps(sim.s, now / 1000, frozen ? 0 : dt);
+  weather.update(frozen ? 0 : dt, camera, CV, now / 1000);
+  if (weather.flash > 0) { world.hemi.intensity += weather.flash * 3.2; world.dirLight.intensity += weather.flash * 2; }
+  sound.rain(weatherKind === 'rain' ? 1 - world.tunnelK * 0.8 : 0);
+  drawHitboxes(playing && save.settings.boxes && !wreck);
   if (playing) updateHud(now);
   if (mode === 'play') adaptResolution(dt);
   // in the garage, switching cars gives a quick rev so you hear each engine
@@ -858,6 +940,58 @@ function frame() {
   if (composer) composer.render(dt); else renderer.render(scene, camera);
   if (liquid.showing) liquid.grab(renderer.domElement); // the kart button's water shows this view through it
 }
+// ---------------- time attack ----------------
+/** The clock ran out: bank what's pending, then the results card. */
+function endTimeAttack(ev) {
+  taDone = true;
+  scorer.bank(ev);
+  sim.ghost = 3;
+  banner('TIME UP', `${cpCount} checkpoint${cpCount === 1 ? '' : 's'} reached`, '#ffb020');
+  sound.play('register', { gain: 0.5 });
+  setTimeout(() => {
+    if (mode !== 'play' && mode !== 'pause') return;
+    const k = routeKey(world.map.id, world.road.lanes);
+    run.newBest = scorer.run > 0 && scorer.run > (save.taBests[k] || 0);
+    if (run.newBest) { save.taBests[k] = scorer.run; persist(); }
+    showOver();
+  }, 1400);
+}
+
+// ---------------- hitbox outlines (settings) ----------------
+let boxLines = null;
+const HB_H = { truck: 3.4, bus: 3.3, semi: 4.1, van: 2.1, moto: 1.5, suv: 1.8, pickup: 1.9 };
+/** Draw every car's hitbox (the exact turned box collisions use) as a wire frame. */
+function drawHitboxes(on) {
+  if (!on) { if (boxLines) boxLines.visible = false; return; }
+  if (!boxLines) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(40 * 24 * 3), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(40 * 24 * 3), 3));
+    boxLines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false, transparent: true }));
+    boxLines.frustumCulled = false; boxLines.renderOrder = 5; scene.add(boxLines);
+  }
+  boxLines.visible = true;
+  const pos = boxLines.geometry.attributes.position.array, col = boxLines.geometry.attributes.color.array, road = world.road, q = {};
+  let n = 0;
+  const box = (s, d, hl, hw, yaw, h, r, g, b) => {
+    if (n >= 40) return;
+    const f = [Math.cos(yaw), -Math.sin(yaw)], rt = [Math.sin(yaw), Math.cos(yaw)], c = [];
+    for (const [lx, ly] of [[hl, hw], [hl, -hw], [-hl, -hw], [-hl, hw]]) { road.toWorld(s + f[0] * lx + rt[0] * ly, d + f[1] * lx + rt[1] * ly, q); c.push([q.x, q.y + 0.04, q.z], [q.x, q.y + h, q.z]); }
+    const edges = [[0, 2], [2, 4], [4, 6], [6, 0], [1, 3], [3, 5], [5, 7], [7, 1], [0, 1], [2, 3], [4, 5], [6, 7]];
+    let o = n * 72;
+    for (const [a, bb] of edges) for (const v of [c[a], c[bb]]) { pos[o] = v[0]; pos[o + 1] = v[1]; pos[o + 2] = v[2]; col[o] = r; col[o + 1] = g; col[o + 2] = b; o += 3; }
+    n++;
+  };
+  box(sim.s, sim.d, sim.hl, sim.hw, sim.yaw, 1.3, 0.3, 1, 0.5);
+  for (let i = 0; i < world.trafficCount; i++) {
+    const c = world.traffic[i];
+    if (Math.abs(c.s - sim.s) > 60) continue;
+    box(c.s, c.d, c.hl, c.hw, c.yaw || 0, HB_H[KIND_IDS[c.kind]] || 1.45, 1, 0.35, 0.3);
+  }
+  boxLines.geometry.setDrawRange(0, n * 24);
+  boxLines.geometry.attributes.position.needsUpdate = boxLines.geometry.attributes.color.needsUpdate = true;
+}
+
 // ---------------- two lives ----------------
 let wreckScale = 1, wreckOff = 0;
 const wreckLook = new THREE.Vector3();
@@ -925,8 +1059,9 @@ function showOver() {
   $('o-dist').textContent = `${dist.toFixed(dist < 10 ? 2 : 1)} ${mph ? 'mi' : 'km'}`;
   $('o-cash').textContent = `+$${fmt(Math.max(0, save.cash - run.cash0))}`;
   $('o-time').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-  const lb = save.lifeBests[routeKey(world.map.id, world.road.lanes)] || 0;
-  $('o-sub').textContent = `${world.map.name} · ${world.road.lanes} lanes · two lives`;
+  const lb = (gm === 'time' ? save.taBests : save.lifeBests)[routeKey(world.map.id, world.road.lanes)] || 0;
+  $('o-sub').textContent = `${world.map.name} · ${world.road.lanes} lanes · ${GAME_MODES[gm].name.toLowerCase()}${gm === 'time' ? ` · ${cpCount} checkpoint${cpCount === 1 ? '' : 's'}` : ''}`;
+  $('over').querySelector('h2').textContent = gm === 'time' ? 'Time up' : 'Wrecked';
   $('o-note').innerHTML = run.newBest ? '<b style="color:var(--green)">New best run on this route!</b>' : lb ? `Best run here: ${fmt(lb)}` : '';
   $('o-again').innerHTML = `${net ? 'Back in' : 'Drive again'} <small>R</small>`;
 }
@@ -1078,4 +1213,4 @@ if (framed && /^[A-Z]{4}$/.test(joinCode)) {
 }
 
 // handy for testing in the console
-window.__cc = { sim, scorer, world, save, persist, sound, setRoute, get fps() { return fpsAvg; }, get mode() { return mode; }, startSolo, quitToMenu, get net() { return net; }, account, get lives() { return lives; }, get wreck() { return wreck; }, blowUp, loseLife, driveAgain, fire, smoke };
+window.__cc = { sim, scorer, world, save, persist, sound, setRoute, get timeLeft() { return timeLeft; }, set timeLeft(v) { timeLeft = v; }, weather, get fps() { return fpsAvg; }, get mode() { return mode; }, startSolo, quitToMenu, get net() { return net; }, account, get lives() { return lives; }, get wreck() { return wreck; }, blowUp, loseLife, driveAgain, fire, smoke };
