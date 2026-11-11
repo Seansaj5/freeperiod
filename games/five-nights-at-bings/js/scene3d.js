@@ -6,7 +6,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { TAU, add, B, sq, limbGeo, lathe, gSph, gCyl, gBox, tex, wallTex, tileTex, WOOD, GRIME, label, sign, beam, suit, paint, metal, plastic, glass, glow, setEnv, BLACK, ENDO, rand } from './kit.js';
+import { TAU, add, B, sq, limbGeo, lathe, gSph, gCyl, gBox, tex, wallTex, tileTex, WOOD, GRIME, label, sign, beam, suit, paint, metal, plastic, glass, glow, setEnv, setFur, BLACK, ENDO, rand } from './kit.js';
 import { makeBot, makeHead, makeDoll, makeTokens, makeMusicBox, makeEndo, setPose, animate } from './models.js';
 
 let R, scene, cam, composer, bloom, fin, amb, key, quality = 2;
@@ -249,7 +249,7 @@ function buildSets() {
   });
   ROOM.whall = { ox: 0, cam: [-5.4, 2.6, -5.0], look: [-5.4, 1.2, -11], amb: 0.03, key: [-5.4, 3.1, -8, -5.4, 0, -8.3, 0xeaf2ff, 60, 1.15, 0.7, 9, 1], fills: [[-5.4, 2.9, -3.5, 0xeaf2ff, 14, 6], [-5.4, 2.9, -12.5, 0xeaf2ff, 14, 6, 1], [-5.4, 2.5, -15.6, 0x7dffa0, 4, 4]], spots: { dylan: [-5.6, 0, -8.2, 0], bing: [-5.2, 0, -10.6, 0] }, pose: 'idle', fx: [P.hallFx.L[2], P.hallFx.L[3]] };
   ROOM.ehall = { ox: 0, cam: [5.4, 2.6, -5.0], look: [5.4, 1.2, -11], amb: 0.03, key: [5.4, 3.1, -8, 5.4, 0, -8.3, 0xfff0d0, 60, 1.15, 0.7, 9, 1], fills: [[5.4, 2.9, -3.5, 0xfff0d0, 14, 6], [5.4, 2.9, -12.5, 0xfff0d0, 14, 6, 1], [5.4, 2.5, -15.6, 0x7dffa0, 4, 4]], spots: { gavin: [5.6, 0, -8.2, 0], bing: [5.2, 0, -10.6, 0] }, pose: 'idle', fx: [P.hallFx.R[2], P.hallFx.R[3]] };
-  set('title', 800, { cam: [-0.5, 1.7, 2.7], look: [-0.75, 1.72, 0], amb: 0.015, sway: 0, key: [-1.6, 0.5, 1.8, 0, 1.8, 0, 0xc8ffa0, 60, 0.8, 0.7, 8, 1], fills: [[1.6, 2.8, -0.4, 0x3ad7ff, 16, 5], [-1.4, 2.6, -0.8, 0xff4030, 6, 5]], spots: {} }, g => { curtain(g, 9, 5, 0, 2.5, -1.6); B(g, 9, 0.1, 6, wood, 0, -0.05, 0); });
+  set('title', 800, { cam: [-0.5, 1.7, 2.7], look: [-0.75, 1.72, 0], amb: 0.015, sway: 0, key: [-1.8, 1.0, 2.4, 0, 1.7, 0, 0xfff0d8, 85, 0.8, 0.7, 8, 1], fills: [[1.8, 2.8, -0.3, 0x3ad7ff, 26, 5], [-1.4, 2.6, -0.8, 0xff4030, 10, 5], [0.2, 0.4, 1.6, 0xffd9a0, 4, 4]], spots: {} }, g => { curtain(g, 9, 5, 0, 2.5, -1.6); B(g, 9, 0.1, 6, wood, 0, -0.05, 0); });
   P.scareDoll = makeDoll(); P.scareDoll.scale.setScalar(2.3); P.scareDoll.visible = false; scene.add(P.scareDoll);
   P.scareTok = makeTokens(); scene.add(P.scareTok);
 }
@@ -293,7 +293,7 @@ export function init(canvas) {
   for (const who of ['bing', 'dylan', 'gavin', 'sal']) { bots[who] = makeBot(who); scene.add(bots[who]); }
   buildOffice(); buildSets();
   scene.traverse(o => { if (!o.isMesh) return; const m = Array.isArray(o.material) ? o.material[0] : o.material; const flat = m.isMeshBasicMaterial || m.transparent || o.userData.noShadow; o.castShadow = !flat; o.receiveShadow = !m.isMeshBasicMaterial; });
-  composer = new EffectComposer(R); composer.setPixelRatio(pr); composer.setSize(1280, 720);
+  composer = new EffectComposer(R, new THREE.WebGLRenderTarget(1280, 720, { type: THREE.HalfFloatType, samples: 4 })); composer.setPixelRatio(pr); composer.setSize(1280, 720);
   composer.addPass(new RenderPass(scene, cam)); bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), 0.4, 0.6, 1.25); composer.addPass(bloom); composer.addPass(new OutputPass()); fin = new ShaderPass(FINAL); composer.addPass(fin);
 }
 const flick = (t, s = 0) => (Math.sin(t * 17 + s) > 0.2 || Math.sin(t * 3.1 + s) > 0) ? 1 : 0.2;
@@ -370,7 +370,7 @@ export function render(view, s, t) {
     } else {
       P.lampGlow.color.setRGB(3 * f, 2.8 * f, 2.3 * f); P.lampBeam.opacity = 0.02 * f;
       const lx = Math.sin(t * 0.8) * 0.02;
-      light({ amb: 0.05, key: [lx, 2.5, 0.6, lx * 30, 0, 0.6, 0xfff0c8, 120 * f, 0.95, 0.7, 7], fills: [[0, 2.6, -1.7, 0xbfd6ff, 15 * f, 5.4], s.lightL ? [-4.4, 2.15, 0.2, 0xf2f6dc, 14 * flick(t * 2.3), 4.2] : [-1.2, 1.3, 1.0, 0x4dffa0, 1.5, 2.5], s.lightR ? [4.4, 2.15, 0.2, 0xf2f6dc, 14 * flick(t * 2.3), 4.2] : null] }, t, 0);
+      light({ amb: 0.05, key: [lx, 2.5, 0.6, lx * 30, 0, 0.6, 0xfff0c8, 120 * f, 0.95, 0.7, 7], fills: [[0, 2.6, -1.7, 0xbfd6ff, 15 * f, 5.4], s.lightL ? [-4.4, 2.15, 0.2, 0xf2f6dc, 8 * flick(t * 2.3), 4.6] : [-1.2, 1.3, 1.0, 0x4dffa0, 1.5, 2.5], s.lightR ? [4.4, 2.15, 0.2, 0xf2f6dc, 8 * flick(t * 2.3), 4.6] : null] }, t, 0);
     }
   } else { // jumpscare, in the office
     const k = Math.min(1, view.t / 0.16), e = 1 - Math.pow(1 - k, 3), dist = 2.8 - (view.who === 'benton' ? 1.5 : 1.75) * e, dx = -Math.sin(view.yaw), dz = -Math.cos(view.yaw);
@@ -385,7 +385,7 @@ export function render(view, s, t) {
   if (quality > 0) composer.render(); else R.render(scene, cam);
   // drop quality on slow machines so the game stays playable
   const now = performance.now(), dt = now - last; last = now;
-  if (dt < 250) { slow = dt > 36 ? slow + dt : Math.max(0, slow - dt * 0.5); if (slow > 3500 && quality > 0) { quality--; slow = 0; if (quality === 1) { R.setPixelRatio(1); composer.setPixelRatio(1); bloom.enabled = false; key.shadow.mapSize.set(512, 512); if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; } } else { key.castShadow = false; } } }
+  if (dt < 250) { slow = dt > 36 ? slow + dt : Math.max(0, slow - dt * 0.5); if (slow > 3500 && quality > 0) { quality--; slow = 0; if (quality === 1) { R.setPixelRatio(1); composer.setPixelRatio(1); bloom.enabled = false; setFur(false); key.shadow.mapSize.set(512, 512); if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; } } else { key.castShadow = false; } } }
 }
 export const getQuality = () => quality;
 // Where the office's 3D buttons are on the 1280x720 screen right now (call after render). Follows the lens warp.

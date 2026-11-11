@@ -86,3 +86,36 @@ export function beam(p, x, y, z, r, h, color = 0xfff2d0, op = 0.07) {
   const m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false, alphaMap: FADE });
   const c = add(p, new THREE.ConeGeometry(r, h, 24, 1, true), m, x, y - h / 2, z); m.opacity = op = op * 0.5; c.userData.noShadow = true; m.userData.base = op; return m;
 }
+
+// ---------- fur: stacked see-through shells that read as real fuzz ----------
+const FUR_N = 12, furShells = [], furBases = [];
+export function furMat(color, len = 0.034, den = 230) {
+  const c = new THREE.Color(color);
+  const base = new THREE.MeshStandardMaterial({ color: c.clone().multiplyScalar(0.5), map: GRIME, roughness: 1 }); base.userData.full = c; furBases.push(base);
+  const shell = new THREE.MeshStandardMaterial({ color: c, roughness: 0.95 });
+  shell.onBeforeCompile = sh => {
+    sh.uniforms.uLen = { value: len }; sh.uniforms.uDen = { value: den };
+    sh.vertexShader = 'uniform float uLen; varying vec3 vFurP; varying float vShell;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\n vShell = (float(gl_InstanceID) + 1.0) / ${FUR_N}.0; vFurP = position; transformed += normal * vShell * uLen + vec3(0.0, -1.0, 0.0) * vShell * vShell * uLen * 0.3;`);
+    sh.fragmentShader = 'uniform float uDen; varying vec3 vFurP; varying float vShell;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>\n vec3 fp = vFurP * uDen; vec3 cl = floor(fp); float rn = fract(sin(dot(cl, vec3(12.9898, 78.233, 37.719))) * 43758.5453); float fd = length(fract(fp) - 0.5); if (rn < vShell * 0.8 || fd > 0.72 * (1.0 - vShell * 0.7)) discard; diffuseColor.rgb *= mix(0.45, 1.25, vShell) * (0.85 + 0.3 * rn);`);
+  };
+  return { base, shell };
+}
+export function furMesh(p, geo, fm, x = 0, y = 0, z = 0) {
+  const m = add(p, geo, fm.base, x, y, z), s = new THREE.InstancedMesh(geo, fm.shell, FUR_N);
+  s.userData.noShadow = true; s.frustumCulled = false; m.add(s); furShells.push(s); return m;
+}
+export function setFur(v) { for (const s of furShells) s.visible = v; for (const b of furBases) b.color.copy(b.userData.full).multiplyScalar(v ? 0.5 : 1); }
+// A coil spring standing on y (for necks, elbows and knees).
+export function spring(p, r, h, turns, x, y, z, mat = ENDO) {
+  const pts = []; for (let i = 0; i <= turns * 14; i++) { const a = i / 14 * TAU; pts.push(new THREE.Vector3(Math.cos(a) * r, i / (turns * 14) * h - h / 2, Math.sin(a) * r)); }
+  return add(p, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), turns * 14, r * 0.14, 6), mat, x, y, z);
+}
+// An iris, drawn outward from the pupil (fits a sphere cap: top of the picture is the centre of the eye).
+export function irisTex(color) {
+  return tex(64, 64, (c, w, h) => {
+    const col = new THREE.Color(color), g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#' + col.clone().multiplyScalar(0.35).getHexString()); g.addColorStop(0.45, '#' + col.getHexString()); g.addColorStop(0.85, '#' + col.clone().lerp(new THREE.Color(0xffffff), 0.25).getHexString()); g.addColorStop(1, '#050505');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+    for (let i = 0; i < 64; i++) { c.fillStyle = `rgba(${rand() < 0.5 ? '0,0,0' : '255,255,255'},${rand() * 0.28})`; c.fillRect(i, 8 + rand() * 12, 1, 30 + rand() * 22); }
+    c.fillStyle = '#050505'; c.fillRect(0, h - 6, w, 6);
+  });
+}
