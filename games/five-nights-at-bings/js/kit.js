@@ -54,7 +54,7 @@ export function wallTex(top, bottom, band = true, repX = 1) {
 export function tileTex(a, b, n = 8, grout = '#0c0c0c') {
   return tex(256, 256, (c, w, h) => { const s = w / n; for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { c.fillStyle = (i + j) % 2 ? a : b; c.fillRect(i * s, j * s, s, s); c.fillStyle = `rgba(0,0,0,${rnd() * 0.14})`; c.fillRect(i * s, j * s, s, s); } c.strokeStyle = grout; c.lineWidth = 2; for (let i = 0; i <= n; i++) { c.beginPath(); c.moveTo(i * s, 0); c.lineTo(i * s, h); c.moveTo(0, i * s); c.lineTo(w, i * s); c.stroke(); } blots(c, w, h, 14, '0,0,0', 10, 50, 0.12); });
 }
-export const WOOD = tex(256, 256, (c, w, h) => { c.fillStyle = '#6a4424'; c.fillRect(0, 0, w, h); for (let i = 0; i < 90; i++) { c.strokeStyle = `rgba(${rnd() < 0.5 ? '30,16,6' : '140,96,52'},${0.1 + rnd() * 0.25})`; c.lineWidth = 1 + rnd() * 2; const y = rnd() * h; c.beginPath(); c.moveTo(0, y); c.bezierCurveTo(w * 0.3, y + (rnd() - 0.5) * 12, w * 0.6, y + (rnd() - 0.5) * 12, w, y + (rnd() - 0.5) * 6); c.stroke(); } for (let i = 1; i < 4; i++) { c.fillStyle = 'rgba(0,0,0,.4)'; c.fillRect(0, i * 64, w, 2); } }, { repeat: [2, 1] });
+const WOOD_OLD = tex(256, 256, (c, w, h) => { c.fillStyle = '#6a4424'; c.fillRect(0, 0, w, h); for (let i = 0; i < 90; i++) { c.strokeStyle = `rgba(${rnd() < 0.5 ? '30,16,6' : '140,96,52'},${0.1 + rnd() * 0.25})`; c.lineWidth = 1 + rnd() * 2; const y = rnd() * h; c.beginPath(); c.moveTo(0, y); c.bezierCurveTo(w * 0.3, y + (rnd() - 0.5) * 12, w * 0.6, y + (rnd() - 0.5) * 12, w, y + (rnd() - 0.5) * 6); c.stroke(); } for (let i = 1; i < 4; i++) { c.fillStyle = 'rgba(0,0,0,.4)'; c.fillRect(0, i * 64, w, 2); } }, { repeat: [2, 1] });
 export const label = (s, col, bg, size = 0.3, font = 'Bungee') => (c, w, h) => { if (bg) { c.fillStyle = bg; c.fillRect(0, 0, w, h); } c.fillStyle = col; c.textAlign = 'center'; c.textBaseline = 'middle'; const L = s.split('\n'); c.font = `${h * size}px ${font}, sans-serif`; L.forEach((l, i) => c.fillText(l, w / 2, h / 2 + (i - (L.length - 1) / 2) * h * size * 1.1)); };
 
 // ---------- materials ----------
@@ -96,7 +96,7 @@ export function furMat(color, len = 0.034, den = 230) {
   shell.onBeforeCompile = sh => {
     sh.uniforms.uLen = { value: len }; sh.uniforms.uDen = { value: den };
     sh.vertexShader = 'uniform float uLen; varying vec3 vFurP; varying float vShell;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\n vShell = (float(gl_InstanceID) + 1.0) / ${FUR_N}.0; vFurP = position; transformed += normal * vShell * uLen + vec3(0.0, -1.0, 0.0) * vShell * vShell * uLen * 0.3;`);
-    sh.fragmentShader = 'uniform float uDen; varying vec3 vFurP; varying float vShell;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>\n vec3 fp = vFurP * uDen; vec3 cl = floor(fp); float rn = fract(sin(dot(cl, vec3(12.9898, 78.233, 37.719))) * 43758.5453); float fd = length(fract(fp) - 0.5); if (rn < vShell * 0.8 || fd > 0.72 * (1.0 - vShell * 0.7)) discard; diffuseColor.rgb *= mix(0.45, 1.25, vShell) * (0.85 + 0.3 * rn);`);
+    sh.fragmentShader = 'uniform float uDen; varying vec3 vFurP; varying float vShell;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>\n vec3 fp = vFurP * uDen; vec3 cl = floor(fp); float rn = fract(sin(dot(cl, vec3(12.9898, 78.233, 37.719))) * 43758.5453); float fd = length(fract(fp) - 0.5); if (rn < vShell * 0.8 || fd > 0.72 * (1.0 - vShell * 0.7)) discard; diffuseColor.rgb *= mix(0.45, 1.05, vShell) * (0.85 + 0.25 * rn);`);
   };
   return { base, shell };
 }
@@ -119,3 +119,14 @@ export function irisTex(color) {
     c.fillStyle = '#050505'; c.fillRect(0, h - 6, w, 6);
   });
 }
+
+// ---------- photographed surfaces (tex/*.jpg): colour, bumps (normal) and shininess (roughness) ----------
+const TLD = new THREE.TextureLoader();
+export function ptex(file, rx = 1, ry = 1, srgb = false) { const t = TLD.load('tex/' + file + '.jpg'); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
+export function pbrMat(name, rx, ry, o = {}, maps = 'dnr') {
+  const m = new THREE.MeshStandardMaterial({ roughness: 1, ...o });
+  if (maps.includes('d')) m.map = ptex(name + '_d', rx, ry, true); if (maps.includes('n')) m.normalMap = ptex(name + '_n', rx, ry); if (maps.includes('r')) m.roughnessMap = ptex(name + '_r', rx, ry);
+  return m;
+}
+export const woodMat = (o = {}, rx = 2, ry = 1) => pbrMat('wood_table_001', rx, ry, o);
+export const WOOD = ptex('wood_table_001_d', 2, 1, true);
