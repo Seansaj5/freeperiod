@@ -11,6 +11,10 @@
 }
 .fpco-count.dot { top: -2px; right: -2px; min-width: 0; width: 11px; height: 11px; padding: 0; }
 .fpco-count[hidden] { display: none; }
+/* in voice: a green speaker dot (Task 5 restyles) */
+.fpco-voice { position: absolute; bottom: -5px; right: -5px; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--ok, #62ff8f); color: #06210f; box-shadow: 0 0 0 2px #0a0d16; }
+.fpco-voice svg { width: 10px; height: 10px; color: inherit; }
+.fpco-voice[hidden] { display: none; }
 
 .fpco-panel {
   position: fixed; z-index: 30; top: 54px; right: 0; bottom: 0; width: 380px; max-width: 100%;

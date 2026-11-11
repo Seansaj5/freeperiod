@@ -1,10 +1,11 @@
-// Owner and mod tools: the message menu (pin, delete, report), the member menu (time-outs, ban, mods), the owner's
-// channel manager and the Reports tab of the owner Inbox. The menus only offer what perms.js says will work; the
-// database checks every action again. No innerHTML: message text goes through format.js.
+// Owner and mod tools: the message menu (pin, delete, report), the member menu (time-outs, ban, mods, disconnect from
+// voice), the owner's channel manager (categories too) and the Reports tab of the owner Inbox. The menus only offer what
+// perms.js says will work; the database checks every action again. No innerHTML: message text goes through format.js.
 import { h, openSheet, toast } from '../../ui.js';
 import * as data from '../data.js';
 import { parseMessage, renderTokens } from '../format.js';
 import { canPin, canStaffDelete, canReport, memberActions, TIMEOUTS, timedOut, channelName, checkChannel, roleOfProfile, LIMITS } from '../perms.js';
+import { groupSidebar, voiceLabel } from '../sidebarlogic.js';
 import { icon, avatar, nameEl, nameOf, roleMark, openMenu, fullStamp, timeoutLeft, mediaSrc } from './common.js';
 import { openEmojiPicker } from './emoji-picker.js';
 
@@ -58,18 +59,24 @@ export function openReport(m, author) {
 }
 
 // ---------- member menu (staff) ----------
-// cx: { me(), patchProfile(id, patch) }. Returns the menu items, or [] when there is nothing to offer.
-export function memberItems(target, cx) {
+// cx: { me(), patchProfile(id, patch), voiceOf(id)? -> the voice channel id they are in, or null }. onError(text)?: the
+// opener's error line (the profile card's) for a refused disconnect; without one it is a toast like the others.
+// Returns the menu items, or [] when there is nothing to offer.
+export function memberItems(target, cx, { onError } = {}) {
   const me = cx.me();
   const can = memberActions(me, target);
   if (!can.timeout && !can.clear && !can.ban && !can.mod) return [];
-  const run = async (fn, patch, ok) => {
+  const run = async (fn, patch, ok, shown) => {
     try { await fn(); if (patch && cx.patchProfile) cx.patchProfile(target.id, patch); toast(ok); }
-    catch (e) { toast(errText(e), 'err'); }
+    catch (e) { if (shown) shown(errText(e)); else toast(errText(e), 'err'); }
   };
   const who = nameOf(target);
   const left = timeoutLeft(target.muted_until);
   const items = [{ heading: 'Moderate ' + who }];
+  // (who may disconnect whom = who may time out whom; the database checks it again)
+  const inVoice = can.timeout && typeof cx.voiceOf === 'function' ? cx.voiceOf(target.id) : null;
+  if (inVoice != null) items.push({ label: 'Disconnect from voice', icon: 'hangup', danger: true,
+    onClick: () => run(() => data.voiceKick(target.id, inVoice), null, who + ' was disconnected from voice', onError) }, 'sep');
   if (can.timeout) for (const [min, label] of TIMEOUTS) items.push({ label: 'Time out ' + label, icon: 'clock',
     onClick: () => run(() => data.timeout(target.id, min), { muted_until: new Date(Date.now() + min * 60e3).toISOString(), muted_by: roleOfProfile(me) === 'owner' ? 'owner' : 'mod' }, who + ' is timed out for ' + label) });
   if (timedOut(target)) items.push({ label: 'Clear time-out', icon: 'check', disabled: !can.clear, note: left + ' min left' + (target.muted_by === 'owner' ? ' · set by Sean' : ''),
@@ -82,8 +89,8 @@ export function memberItems(target, cx) {
     onClick: () => (target.banned ? run(() => data.setBan(target.id, false), { banned: false }, who + ' can chat again') : confirmBan(target, () => run(() => data.setBan(target.id, true), { banned: true }, who + ' is banned from chat'))) });
   return items;
 }
-export function openMemberMenu(anchor, target, cx) {
-  const items = memberItems(target, cx);
+export function openMemberMenu(anchor, target, cx, opts) {
+  const items = memberItems(target, cx, opts);
   if (items.length) openMenu(anchor, items, { label: 'Moderate ' + nameOf(target) });
   return items.length > 0;
 }
@@ -98,81 +105,197 @@ function confirmBan(target, go) {
 }
 
 // ---------- channel manager (owner) ----------
-// cx: { channels(), reloadChannels() }
-export function openChannelManager(cx) {
+// cx: { channels(), categories(), reloadChannels() (reloads the categories too) }. opts.categoryId: the category the
+// new-channel form starts in (the sidebar's + on a category header). Grouped like the sidebar: channels with no category
+// first, then each category (rename, delete, up/down); each channel moves up/down inside its category or to another one.
+const CAT_MAX = 24;
+function checkCategory(raw) {
+  const name = String(raw ?? '').trim();
+  if (!name) return { error: 'Name the category' };
+  if ([...name].length > CAT_MAX) return { error: 'Category names are up to 24 characters' };
+  if (/[\u0000-\u001f\u007f]/.test(name)) return { error: 'Category names can’t have special characters' };
+  return { name };
+}
+const byPos = (a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id;
+export function openChannelManager(cx, { categoryId = null } = {}) {
   const sheet = openSheet({ title: 'Channels' });
   sheet.el.classList.add('cx-sheet', 'cx-chman');
   const list = h('div', { class: 'cx-chm-list' });
   const errEl = h('p', { class: 'fp-err', role: 'alert' });
-  let editing = null; // channel id being edited
+  let editing = null;              // channel id being edited
+  let renaming = null, draft = ''; // category id being renamed, and what is typed so far
+  let deleting = null;             // category id waiting for its "Delete?" answer
   let busy = false;
-  const sorted = () => cx.channels().slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
+  const cats = () => (typeof cx.categories === 'function' ? cx.categories() : []).slice().sort(byPos);
+  const groups = () => groupSidebar({ channels: cx.channels(), categories: cats(), showEmpty: true });
+  const tagOf = (c) => (c.kind === 'voice' ? voiceLabel(c.name) : '#' + c.name);
   async function act(fn) {
     if (busy) return;
     busy = true; errEl.textContent = '';
     try { await fn(); await cx.reloadChannels(); } catch (e) { errEl.textContent = e && e.formError ? e.formError : errText(e); } finally { busy = false; draw(); }
   }
-  // the form for a new channel or an edit
+  // A category select: '' = no category.
+  function fillCats(sel, value) {
+    const v = value == null ? '' : String(value);
+    sel.replaceChildren(h('option', { value: '', text: 'No category' }), ...cats().map((k) => h('option', { value: String(k.id), text: k.name })));
+    sel.value = v;
+    if (sel.value !== v) sel.value = ''; // that category is gone
+  }
+  const catOf = (sel) => (sel.value ? Number(sel.value) : null);
+
+  // the form for a new channel or an edit (a channel's type is fixed once it exists, so only the new form asks for it)
+  let newCat = null;
   function form(c, onDone) {
     const name = h('input', { class: 'cx-field', value: c ? c.name : '', maxlength: '40', placeholder: 'new-channel', 'aria-label': 'Channel name', autocomplete: 'off', spellcheck: 'false' });
     const emoji = h('button', { type: 'button', class: 'cx-emoji-pick', 'aria-label': 'Channel emoji', 'aria-haspopup': 'dialog', text: c ? c.emoji : '💬' });
     const topic = h('input', { class: 'cx-field', value: c ? c.topic || '' : '', maxlength: '120', placeholder: 'What’s it for?', 'aria-label': 'Topic' });
     const only = h('input', { type: 'checkbox' }); only.checked = !!(c && c.owner_only);
+    const onlyRow = h('label', { class: 'cx-check' }, only, h('span', {}, h('b', { text: 'Owner-only' }), ' Only Sean and mods post. Everyone reads and reacts.'));
     const hint = h('p', { class: 'cx-hint', text: 'Lowercase letters, numbers and dashes, up to 24' });
     name.addEventListener('input', () => { const v = channelName(name.value); if (v !== name.value) name.value = v; });
     emoji.addEventListener('click', () => openEmojiPicker(emoji, { label: 'Channel emoji', onPick: (e) => { emoji.textContent = e; } }));
+    const hash = h('span', { class: 'cx-chm-hash', text: '#', hidden: !!(c && c.kind === 'voice') });
+    let cat = null, kind = null;
+    if (!c) {
+      cat = h('select', { class: 'cx-field cx-chm-sel cx-chm-newcat' });
+      fillCats(cat, categoryId);
+      newCat = cat;
+      kind = h('select', { class: 'cx-field cx-chm-sel cx-chm-kind' }, h('option', { value: 'text', text: 'Text' }), h('option', { value: 'voice', text: 'Voice' }));
+      kind.addEventListener('change', () => {
+        const voice = kind.value === 'voice';
+        onlyRow.hidden = voice; // voice channels hold no messages
+        hash.hidden = voice;
+        if (emoji.textContent === (voice ? '💬' : '🔊')) emoji.textContent = voice ? '🔊' : '💬';
+      });
+    }
     const save = h('button', { type: 'button', class: 'fp-btn' }, c ? 'Save' : 'Add channel');
     save.addEventListener('click', () => {
       const v = { name: channelName(name.value), emoji: emoji.textContent, topic: topic.value.trim() };
       const errs = checkChannel(v, cx.channels().filter((x) => !c || x.id !== c.id).map((x) => x.name));
       if (errs.length) { errEl.textContent = errs[0].message; return; }
+      const isVoice = c ? c.kind === 'voice' : kind.value === 'voice';
+      const tag = isVoice ? voiceLabel(v.name) : '#' + v.name;
       act(async () => {
         if (c) await data.updateChannel(c.id, { name: v.name, emoji: v.emoji, topic: v.topic, owner_only: only.checked });
-        else await data.createChannel({ name: v.name, emoji: v.emoji, topic: v.topic, ownerOnly: only.checked });
-        toast(c ? '#' + v.name + ' saved' : '#' + v.name + ' added');
-        if (!c) { name.value = ''; topic.value = ''; emoji.textContent = '💬'; only.checked = false; } // ready for the next one
+        else await data.createChannel({ name: v.name, emoji: v.emoji, topic: v.topic, ownerOnly: !isVoice && only.checked, categoryId: catOf(cat), kind: isVoice ? 'voice' : 'text' });
+        toast(c ? tag + ' saved' : tag + ' added');
+        if (!c) { name.value = ''; topic.value = ''; emoji.textContent = isVoice ? '🔊' : '💬'; only.checked = false; } // ready for the next one
         onDone();
       });
     });
     return h('div', { class: 'cx-chm-form' + (c ? ' edit' : '') },
-      h('div', { class: 'cx-chm-row1' }, emoji, h('span', { class: 'cx-chm-hash', text: '#' }), name), hint, topic,
-      h('label', { class: 'cx-check' }, only, h('span', {}, h('b', { text: 'Owner-only' }), ' Only Sean and mods post. Everyone reads and reacts.')),
+      h('div', { class: 'cx-chm-row1' }, emoji, hash, name), hint, topic,
+      c ? null : h('div', { class: 'cx-chm-row2' },
+        h('label', { class: 'cx-chm-pick' }, h('span', { text: 'Category' }), cat),
+        h('label', { class: 'cx-chm-pick' }, h('span', { text: 'Type' }), kind)),
+      c && c.kind === 'voice' ? null : onlyRow,
       h('div', { class: 'cx-sheet-actions' }, c ? h('button', { type: 'button', class: 'fp-mini', onclick: () => { editing = null; draw(); } }, 'Cancel') : null, save));
   }
   function confirmDelete(c) {
-    const s2 = openSheet({ title: 'Delete #' + c.name + '?' });
+    const tag = tagOf(c);
+    const s2 = openSheet({ title: 'Delete ' + tag + '?' });
     s2.el.classList.add('cx-sheet');
     const b = h('button', { type: 'button', class: 'fp-btn cx-danger-btn' }, 'Delete channel');
-    s2.body.append(h('p', { class: 'fp-note', text: 'Every message in #' + c.name + ' goes with it. This can’t be undone.' }),
+    s2.body.append(h('p', { class: 'fp-note', text: c.kind === 'voice' ? 'Anyone talking in ' + tag + ' is disconnected. This can’t be undone.' : 'Every message in ' + tag + ' goes with it. This can’t be undone.' }),
       h('div', { class: 'cx-sheet-actions' }, h('button', { type: 'button', class: 'fp-mini', onclick: () => s2.close() }, 'Cancel'), b));
-    b.addEventListener('click', () => { s2.close(); act(async () => { await data.deleteChannel(c.id); toast('#' + c.name + ' deleted'); }); });
+    b.addEventListener('click', () => { s2.close(); act(async () => { await data.deleteChannel(c.id); toast(tag + ' deleted'); }); });
     b.focus();
   }
-  function move(c, dir) {
-    const arr = sorted();
+  // Positions 0.. in the new order, writing only the rows that changed.
+  async function renumber(rows, write) { for (let k = 0; k < rows.length; k++) if ((rows[k].position ?? 0) !== k) await write(rows[k].id, k); }
+  function move(c, arr, dir) {
     const i = arr.findIndex((x) => x.id === c.id), j = i + dir;
-    if (j < 0 || j >= arr.length) return;
+    if (i < 0 || j < 0 || j >= arr.length) return;
+    const next = arr.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    act(() => renumber(next, (id, k) => data.moveChannel(id, k)));
+  }
+  function moveTo(c, catId) {
+    const there = cx.channels().filter((x) => x.id !== c.id && (x.category_id ?? null) === catId);
+    const end = there.reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
+    act(async () => { await data.moveChannel(c.id, end, catId); toast(tagOf(c) + ' moved'); });
+  }
+  function moveCat(k, dir) {
+    const arr = cats();
+    const i = arr.findIndex((x) => x.id === k.id), j = i + dir;
+    if (i < 0 || j < 0 || j >= arr.length) return;
     [arr[i], arr[j]] = [arr[j], arr[i]];
-    act(async () => { for (let k = 0; k < arr.length; k++) if (arr[k].position !== k) await data.moveChannel(arr[k].id, k); });
+    act(() => renumber(arr, (id, n) => data.moveCategory(id, n)));
+  }
+  function catRow(k, i, n) {
+    if (renaming === k.id) {
+      const inp = h('input', { class: 'cx-field', value: draft, maxlength: String(CAT_MAX), 'aria-label': 'Category name', autocomplete: 'off' });
+      inp.addEventListener('input', () => { draft = inp.value; });
+      const go = () => {
+        const v = checkCategory(inp.value);
+        if (v.error) { errEl.textContent = v.error; return; }
+        act(async () => { await data.updateCategory(k.id, { name: v.name }); renaming = null; toast('Category renamed'); });
+      };
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+      setTimeout(() => { if (inp.isConnected) inp.focus(); }, 0);
+      return h('div', { class: 'cx-chm-cat editing', dataset: { cat: String(k.id) } }, inp,
+        h('button', { type: 'button', class: 'fp-mini', onclick: () => { renaming = null; draw(); } }, 'Cancel'),
+        h('button', { type: 'button', class: 'fp-mini', onclick: go }, 'Save'));
+    }
+    if (deleting === k.id) {
+      const inIt = cx.channels().filter((c) => c.category_id === k.id).length;
+      const del = h('button', { type: 'button', class: 'fp-mini danger cx-chm-catdel-yes' }, 'Delete category');
+      del.addEventListener('click', () => act(async () => { await data.deleteCategory(k.id); deleting = null; toast(k.name + ' deleted'); }));
+      setTimeout(() => { if (del.isConnected) del.focus(); }, 0);
+      return h('div', { class: 'cx-chm-cat confirm', role: 'group', 'aria-label': 'Delete ' + k.name + '?', dataset: { cat: String(k.id) } },
+        h('span', { class: 'cx-chm-ask', text: 'Delete ' + k.name + '? ' + (inIt ? (inIt === 1 ? 'Its channel moves' : 'Its ' + inIt + ' channels move') + ' to No category.' : 'It has no channels.') }),
+        h('button', { type: 'button', class: 'fp-mini', onclick: () => { deleting = null; draw(); } }, 'Cancel'), del);
+    }
+    return h('div', { class: 'cx-chm-cat', dataset: { cat: String(k.id) } },
+      h('span', { class: 'cx-chm-catname', text: k.name }),
+      h('span', { class: 'cx-chm-btns' },
+        h('button', { type: 'button', class: 'cx-iconbtn sm', 'aria-label': 'Move ' + k.name + ' up', title: 'Move up', disabled: i === 0, onclick: () => moveCat(k, -1) }, icon('up')),
+        h('button', { type: 'button', class: 'cx-iconbtn sm', 'aria-label': 'Move ' + k.name + ' down', title: 'Move down', disabled: i === n - 1, onclick: () => moveCat(k, 1) }, icon('down')),
+        h('button', { type: 'button', class: 'cx-iconbtn sm', 'aria-label': 'Rename ' + k.name, title: 'Rename', onclick: () => { renaming = k.id; draft = k.name; deleting = null; draw(); } }, icon('edit')),
+        h('button', { type: 'button', class: 'cx-iconbtn sm danger', 'aria-label': 'Delete ' + k.name, title: 'Delete', onclick: () => { deleting = k.id; renaming = null; draw(); } }, icon('trash'))));
+  }
+  function chanRow(c, i, arr) {
+    const tag = tagOf(c);
+    const sel = h('select', { class: 'cx-field cx-chm-sel cx-chm-move', 'aria-label': 'Category for ' + tag, title: 'Category' });
+    fillCats(sel, c.category_id);
+    sel.addEventListener('change', () => moveTo(c, catOf(sel)));
+    return h('div', { class: 'cx-chm-item' + (c.kind === 'voice' ? ' voice' : ''), dataset: { cid: String(c.id) } },
+      h('span', { class: 'cx-ch-emoji', 'aria-hidden': 'true', text: c.emoji || '#' }),
+      h('span', { class: 'cx-chm-text' }, h('span', { class: 'cx-chm-name', text: tag }), c.topic ? h('small', { text: c.topic }) : null),
+      c.owner_only ? h('span', { class: 'cx-ch-lock', title: 'Owner-only' }, icon('lock')) : null,
+      h('span', { class: 'cx-chm-btns' }, sel,
+        h('button', { type: 'button', class: 'cx-iconbtn sm', 'aria-label': 'Move ' + tag + ' up', title: 'Move up', disabled: i === 0, onclick: () => move(c, arr, -1) }, icon('up')),
+        h('button', { type: 'button', class: 'cx-iconbtn sm', 'aria-label': 'Move ' + tag + ' down', title: 'Move down', disabled: i === arr.length - 1, onclick: () => move(c, arr, 1) }, icon('down')),
+        h('button', { type: 'button', class: 'cx-iconbtn sm', 'aria-label': 'Edit ' + tag, title: c.kind === 'voice' ? 'Rename, topic' : 'Rename, topic, owner-only', onclick: () => { editing = c.id; draw(); } }, icon('edit')),
+        h('button', { type: 'button', class: 'cx-iconbtn sm danger', 'aria-label': 'Delete ' + tag, title: 'Delete', onclick: () => confirmDelete(c) }, icon('trash'))));
   }
   function draw() {
-    const arr = sorted();
-    list.replaceChildren(...arr.map((c, i) => {
-      if (editing === c.id) return form(c, () => { editing = null; });
-      return h('div', { class: 'cx-chm-item', dataset: { cid: String(c.id) } },
-        h('span', { class: 'cx-ch-emoji', 'aria-hidden': 'true', text: c.emoji || '#' }),
-        h('span', { class: 'cx-chm-text' }, h('span', { class: 'cx-chm-name', text: '#' + c.name }), c.topic ? h('small', { text: c.topic }) : null),
-        c.owner_only ? h('span', { class: 'cx-ch-lock', title: 'Owner-only' }, icon('lock')) : null,
-        h('span', { class: 'cx-chm-btns' },
-          h('button', { type: 'button', class: 'cx-iconbtn sm', 'aria-label': 'Move #' + c.name + ' up', title: 'Move up', disabled: i === 0, onclick: () => move(c, -1) }, icon('up')),
-          h('button', { type: 'button', class: 'cx-iconbtn sm', 'aria-label': 'Move #' + c.name + ' down', title: 'Move down', disabled: i === arr.length - 1, onclick: () => move(c, 1) }, icon('down')),
-          h('button', { type: 'button', class: 'cx-iconbtn sm', 'aria-label': 'Edit #' + c.name, title: 'Rename, topic, owner-only', onclick: () => { editing = c.id; draw(); } }, icon('edit')),
-          h('button', { type: 'button', class: 'cx-iconbtn sm danger', 'aria-label': 'Delete #' + c.name, title: 'Delete', onclick: () => confirmDelete(c) }, icon('trash'))));
-    }));
+    const all = cats();
+    const kids = [];
+    for (const g of groups()) {
+      if (g.category) kids.push(catRow(g.category, all.findIndex((k) => k.id === g.category.id), all.length));
+      else kids.push(h('div', { class: 'cx-chm-cat none', text: 'No category' }));
+      g.channels.forEach((c, i) => kids.push(editing === c.id ? form(c, () => { editing = null; }) : chanRow(c, i, g.channels)));
+      if (g.category && !g.channels.length) kids.push(h('p', { class: 'cx-hint cx-chm-empty', text: 'No channels in ' + g.category.name + ' yet' }));
+    }
+    list.replaceChildren(...kids);
+    if (newCat) fillCats(newCat, catOf(newCat));
   }
+  // new category
+  const catName = h('input', { class: 'cx-field', maxlength: String(CAT_MAX), placeholder: 'New category', 'aria-label': 'New category name', autocomplete: 'off' });
+  const addCat = () => {
+    const v = checkCategory(catName.value);
+    if (v.error) { errEl.textContent = v.error; return; }
+    act(async () => { await data.createCategory({ name: v.name }); catName.value = ''; toast(v.name + ' added'); });
+  };
+  catName.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addCat(); } });
+  const newForm = form(null, () => {});
   draw();
-  sheet.body.append(list, errEl, h('h3', { class: 'cx-sheet-sub', text: 'New channel' }), form(null, () => {}));
-  sheet.focus();
+  sheet.body.append(list, errEl,
+    h('div', { class: 'cx-chm-addcat' }, catName, h('button', { type: 'button', class: 'fp-mini cx-chm-addcat-btn', onclick: addCat }, 'Add category')),
+    h('h3', { class: 'cx-sheet-sub', text: 'New channel' }), newForm);
+  if (categoryId != null) { const n = newForm.querySelector('input'); n.scrollIntoView({ block: 'nearest' }); n.focus(); }
+  else sheet.focus();
   return { redraw: draw, close: sheet.close };
 }
 

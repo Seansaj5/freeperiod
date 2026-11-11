@@ -1,6 +1,7 @@
-// The chat app: rail, channel list / DM list, messages, composer, members, status banners, profile cards, the profile
-// editor and the owner / mod tools. Used by the Messages page (chat.html) and, with { compact: true }, by the play-page
-// overlay (one panel at a time, no title or history changes).
+// The chat app: rail, channel list (categories, voice channels) / DM list, messages, composer, members, status banners,
+// profile cards, the profile editor and the owner / mod tools. Voice itself is voice.js (a singleton the app drives).
+// Used by the Messages page (chat.html) and, with { compact: true }, by the play-page overlay (one panel at a time, no
+// title or history changes).
 import { h, toast, openSheet } from '../ui.js';
 import * as session from '../session.js';
 import { chatState, onChatState, ensureChatSession, me as chatMe, chatError as sessionError, getChat } from './client.js';
@@ -10,6 +11,9 @@ import { mentionsMe } from './format.js';
 import { filterPeople, findByUsername } from './commands.js';
 import { newClientId } from './feedlogic.js';
 import { roleOfProfile, isStaffRole, timedOut } from './perms.js';
+import { readCollapsed, writeCollapsed, voiceLabel } from './sidebarlogic.js';
+import { voice } from './voice.js';
+import { VOICE_ERRORS } from './voicelogic.js';
 import { mountRail } from './views/rail.js';
 import { mountChannels } from './views/channels.js';
 import { mountMessages, networkFailure } from './views/messages.js';
@@ -33,6 +37,9 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } },
 };
+const storage = () => { try { return localStorage; } catch { return null; } }; // (sidebarlogic's helpers catch a null)
+const byPos = (a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id;
+const isText = (c) => c && c.kind !== 'voice';
 const idsOf = (x) => {
   if (!x) return [];
   if (x instanceof Set) return [...x];
@@ -76,7 +83,9 @@ export function mountChatApp(root, { compact = false } = {}) {
   let paused = false;          // the overlay is closed: no Realtime (see pauseLive)
   let mode = 'server';         // rail: 'server' | 'dms'
   let channels = [];
-  let cur = null;              // open channel
+  let categories = [];
+  let collapsed = readCollapsed(storage()); // category ids folded on this device
+  let cur = null;              // open text channel (a voice channel is never "opened": it is joined)
   let dms = [];                // listDMs()
   let curDM = null;            // open DM id
   let members = [];
@@ -104,6 +113,10 @@ export function mountChatApp(root, { compact = false } = {}) {
   let friendTimer = 0;
   let faq = [];                // Hallpass FAQ (everyone reads)
   let aiOn = false;            // bot_settings.ai_on
+  let voiceWatch = null;       // voice.watch() stop: the sidebar's voice occupants, while ready and not paused
+  let voiceTarget = null;      // the voice channel I last asked to join ({ id, name }: an error's {name} after teardown)
+  let voiceErr = voice.state().error; // the error already shown (a new one becomes a toast)
+  let voiceKey = '';           // what the sidebar last drew of voice (not the speaking rings)
 
   const myId = () => (chatMe() && chatMe().id) || '';
   const myProfile = () => byId.get(myId()) || (chatMe() ? { id: myId(), username: chatMe().username } : null);
@@ -129,7 +142,9 @@ export function mountChatApp(root, { compact = false } = {}) {
     profile: (id) => byId.get(id) || null,
     patchProfile: (id, patch) => mergeProfile({ id, ...patch }),
     channels: () => channels,
-    reloadChannels: () => reloadChannels(),
+    categories: () => categories,
+    reloadChannels: () => Promise.all([reloadChannels(), reloadCategories()]),
+    voiceOf: (id) => voiceChannelOf(id),
   };
   const cardCx = {
     me: () => myProfile(),
@@ -146,7 +161,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     editProfile: () => openEditor(),
     friendState: (id) => friendState(id),
     friend: (p, act) => friendAct(p, act),
-    memberMenu: (anchor, p) => openMemberMenu(anchor, live(p), modCx),
+    memberMenu: (anchor, p, onError) => openMemberMenu(anchor, live(p), modCx, { onError }),
     grantBadge: async (p, badge, on) => {      // owner only (the card shows the switches only to the owner)
       let list;
       try { list = await data.grantBadge(p.id, badge, on); } catch (e) { throw { shown: errText(e) }; }
@@ -168,7 +183,15 @@ export function mountChatApp(root, { compact = false } = {}) {
 
   // ---------- views ----------
   const rail = mountRail(railEl, { homeLink: !compact, onServer: () => setMode('server'), onDMs: () => setMode('dms'), onFriends: () => setMode('friends') });
-  const side = mountChannels(sideEl, { onPick: (c) => openChannel(c, true), onManage: () => openChannelManager(modCx), onTools: (anchor) => openServerTools(anchor), onMe: (anchor) => openCard(myProfile(), anchor), onSettings: () => openEditor() });
+  const side = mountChannels(sideEl, { onPick: (c) => openChannel(c, true), onManage: () => openChannelManager(modCx), onTools: (anchor) => openServerTools(anchor), onMe: (anchor) => openCard(myProfile(), anchor), onSettings: () => openEditor(),
+    onToggleCat: (id) => toggleCategory(id),
+    onAddChannel: (categoryId) => { if (st === 'ready' && myRole() === 'owner') openChannelManager(modCx, { categoryId }); },
+    onVoice: (c) => joinVoice(c),
+    onVoiceUser: (p, anchor) => openCard(p, anchor),
+    onVoiceMenu: (p, anchor) => (isStaff() ? openMemberMenu(anchor, live(p), modCx) : false),
+    onMic: () => { const s = voice.state(); if (s.deaf) { voice.setDeaf(false); voice.setMute(false); } else voice.setMute(!s.mute); },
+    onDeaf: () => voice.setDeaf(!voice.state().deaf),
+    onVoiceLeave: () => voice.leave() });
   // A ban shows only to staff and to the banned person (like the profile card): a public "Banned" tag is a bullying hook.
   const showBan = (p) => !!p && (isStaff() || p.id === myId());
   const memberList = mountMembers(membersEl, { onBack: () => goBack(), onPick: (p, anchor) => openCard(p, anchor), onMenu: (p, anchor) => (isStaff() ? openMemberMenu(anchor, live(p), modCx) : false), showBan });
@@ -367,9 +390,11 @@ export function mountChatApp(root, { compact = false } = {}) {
   function drawSide() {
     const dmNodes = mode === 'dms' || mode === 'friends' ? dmListNodes({ dms, current: mode === 'dms' ? curDM : null, unread, myId: myId(), online, profile: (id) => byId.get(id), isBlocked: (id) => blocked.has(id),
       onPick: (dm) => openDM(dm, true), onNew: () => newDM(), onNewGroup: () => newGroup() }) : null;
-    side.render({ mode, channels, current: cur && cur.id, unread, guest: guest(), loading: loading || (st !== 'ready' && st !== 'guest'), status: st,
+    voiceKey = voiceShape();
+    side.render({ mode, channels, categories, collapsed, current: cur && cur.id, unread, guest: guest(), loading: loading || (st !== 'ready' && st !== 'guest'), status: st,
       online: online.size, members: members.length, me: st === 'ready' ? myProfile() : null, meStatus: conn === 'live' ? 'online' : 'away',
-      canManage: st === 'ready' && myRole() === 'owner', canTools: st === 'ready' && isStaff(), dmNodes });
+      canManage: st === 'ready' && myRole() === 'owner', canTools: st === 'ready' && isStaff(), dmNodes,
+      roster: guest() ? new Map() : voice.roster(), voice: guest() ? null : voice.state(), people: (id) => byId.get(id) || null, myId: myId() });
     rail.setActive(mode);
     const t = totals();
     rail.setBadges({ server: mode === 'server' ? { dot: false, text: '' } : badge(t), dms: badge({ unread: t.dms, mentions: t.dms }),
@@ -504,7 +529,8 @@ export function mountChatApp(root, { compact = false } = {}) {
   }
   function pickStart() {
     const last = store.get(LAST_KEY);
-    return channels.find((c) => c.name === last) || channels.find((c) => c.name === 'general') || channels[0] || null;
+    const text = channels.filter(isText);
+    return text.find((c) => c.name === last) || text.find((c) => c.name === 'general') || text[0] || null;
   }
   function switchTyping(target) {
     if (typingH) { try { typingH.stop(); } catch { /* ignore */ } typingH = null; }
@@ -533,18 +559,22 @@ export function mountChatApp(root, { compact = false } = {}) {
     } catch { /* that conversation just won't be live */ }
   }
   function unsubscribe(key) { const u = subs.get(key); if (u) { try { u(); } catch { /* ignore */ } subs.delete(key); } }
+  // Guests read the owner-only text channels only (never a voice channel).
+  const visible = (list) => (st === 'guest' ? list.filter((c) => c.owner_only && isText(c)) : list);
   async function reloadChannels() {
     const g = gen;
     let list = await data.listChannels();
     if (g !== gen) return;
-    list = (Array.isArray(list) ? list : []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
-    setChannels(st === 'guest' ? list.filter((c) => c.owner_only) : list);
+    list = (Array.isArray(list) ? list : []).slice().sort(byPos);
+    setChannels(visible(list));
   }
   function setChannels(list) {
-    channels = list.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
-    const ids = new Set(channels.map((c) => 'c:' + c.id));
+    channels = list.slice().sort(byPos);
+    const ids = new Set(channels.filter(isText).map((c) => 'c:' + c.id));
     for (const k of [...subs.keys()]) if (k.startsWith('c:') && !ids.has(k)) unsubscribe(k);
-    for (const c of channels) subscribeTarget({ channel: c.id });
+    for (const c of channels) if (isText(c)) subscribeTarget({ channel: c.id });
+    const vs = voice.state(); // the voice channel I'm in was deleted (or I can't see it any more)
+    if (st === 'ready' && vs.channelId != null && !channels.some((c) => c.id === vs.channelId)) voice.channelGone(vs.channelId);
     if (cur) {
       const again = channels.find((c) => c.id === cur.id);
       if (again) cur = again;
@@ -553,6 +583,61 @@ export function mountChatApp(root, { compact = false } = {}) {
     }
     drawSide(); drawHead(); setComposer();
   }
+
+  // ---------- categories (collapsed ones are remembered per device) ----------
+  async function reloadCategories() {
+    const g = gen;
+    let list;
+    try { list = await data.listCategories(); } catch { return; } // the sidebar works without them (no headers)
+    if (g === gen) setCategories(list);
+  }
+  function setCategories(list) {
+    categories = (Array.isArray(list) ? list : []).filter((k) => k && k.id != null).sort(byPos);
+    drawSide();
+  }
+  function toggleCategory(id) {
+    if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id);
+    writeCollapsed(storage(), collapsed);
+    drawSide();
+  }
+
+  // ---------- voice (voice.js): join from a voice row, errors as toasts, the sidebar follows its changes ----------
+  function voiceChannelOf(id) {
+    for (const [ch, people] of voice.roster()) if (people.some((p) => p.id === id)) return ch;
+    return null;
+  }
+  // Everything the sidebar draws of voice except the speaking rings (those only repaint: they change many times a second).
+  function voiceShape() {
+    const s = voice.state();
+    const r = [...voice.roster()].map(([ch, l]) => ch + ':' + l.map((u) => u.id + (u.mute ? 'm' : '') + (u.deaf ? 'd' : '')).join(',')).join(';');
+    return [s.status, s.channelId, s.mute, s.deaf, r, [...s.peers].map(([id, p]) => id + p.state).join(',')].join('|');
+  }
+  function onVoiceChange() {
+    const s = voice.state();
+    if (s.error && s.error !== voiceErr) {
+      const name = voiceLabel((voiceTarget && voiceTarget.name) || s.channelName || 'That channel');
+      toast((VOICE_ERRORS[s.error] || VOICE_ERRORS.lost).replace('{name}', name), 'err');
+    }
+    voiceErr = s.error;
+    if (voiceShape() !== voiceKey) drawSide();
+    else side.paintSpeaking(s);
+  }
+  // Called inside the click (voice.join asks for the mic right there: Safari).
+  function joinVoice(c) {
+    if (st !== 'ready' || !chatMe() || !c || c.kind !== 'voice') return; // (guests never see voice rows)
+    const s = voice.state();
+    if (s.status !== 'idle' && s.channelId === c.id) return; // already in it: nothing to do
+    if (banned() || muted()) { toast(VOICE_ERRORS.blocked, 'err'); return; }
+    voiceTarget = { id: c.id, name: c.name };
+    voice.join({ id: c.id, name: c.name }); // (in another one: voice.join leaves it first)
+  }
+  // Banned or timed out: no voice (the database refuses a rejoin too).
+  function voiceGate() { if ((banned() || muted()) && voice.state().status !== 'idle') voice.leave('blocked'); }
+  function watchVoice(on) {
+    if (on && !voiceWatch && st === 'ready' && !paused) { try { voiceWatch = voice.watch(); } catch { voiceWatch = null; } }
+    else if (!on && voiceWatch) { try { voiceWatch(); } catch { /* ignore */ } voiceWatch = null; }
+  }
+  const offVoice = voice.onChange(onVoiceChange);
 
   // ---------- DMs ----------
   let dmLoad = null;
@@ -666,7 +751,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     viewVersion++;
     messages.repaint();
     drawMembers(); drawSide(); drawHead();
-    if (row.id === myId()) { setComposer(); armMuteTimer(); drawBanner(); }
+    if (row.id === myId()) { setComposer(); armMuteTimer(); drawBanner(); voiceGate(); }
     refreshProfileCard(next);
   }
 
@@ -818,6 +903,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     if (presenceH) { try { presenceH.stop(); } catch { /* ignore */ } presenceH = null; }
     clearInterval(muteTimer); muteTimer = 0;
     clearInterval(friendTimer); friendTimer = 0;
+    watchVoice(false);
     switchTyping(null);
     stopPolling();
     closeProfileCard(); closeMenu();
@@ -844,7 +930,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     if (st === 'ready') {
       Promise.resolve().then(() => data.unreadCounts()).then(applyUnread).catch(() => {});
       loadDMs();
-      Promise.resolve().then(() => (typeof data.listMembers === 'function' ? data.listMembers() : null)).then((l) => { if (Array.isArray(l)) { setMembersList(l); messages.repaint(); drawMembers(); setComposer(); } }).catch(() => {});
+      Promise.resolve().then(() => (typeof data.listMembers === 'function' ? data.listMembers() : null)).then((l) => { if (Array.isArray(l)) { setMembersList(l); messages.repaint(); drawMembers(); drawSide(); setComposer(); voiceGate(); } }).catch(() => {});
     }
   }
   // ---------- connection ----------
@@ -912,9 +998,10 @@ export function mountChatApp(root, { compact = false } = {}) {
 
   // ---------- pause (the overlay is closed): no Realtime, nothing polled here; stores, unsent messages and drafts stay ----------
   function goLive() {
-    for (const c of channels) subscribeTarget({ channel: c.id });
+    for (const c of channels) if (isText(c)) subscribeTarget({ channel: c.id });
     for (const d of dms) subscribeTarget({ dm: d.id });
     liveServer();
+    watchVoice(true); // (a call itself is not the app's: it goes on while the overlay is closed)
     if (st === 'ready') { clearInterval(friendTimer); friendTimer = setInterval(() => { if (!document.hidden) loadFriends(); }, 45000); }
     if (st === 'ready' && !presenceH && typeof data.presence === 'function') {
       try { presenceH = data.presence({ onSync: (x) => { online = new Set(idsOf(x)); drawMembers(); drawSide(); drawHead(); } }); } catch { presenceH = null; }
@@ -929,6 +1016,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     if (serverOff) { try { serverOff(); } catch { /* ignore */ } serverOff = null; }
     if (presenceH) { try { presenceH.stop(); } catch { /* ignore */ } presenceH = null; }
     clearInterval(friendTimer); friendTimer = 0;
+    watchVoice(false); // the roster stops (a call keeps its own channels: closing the overlay never hangs up)
     switchTyping(null);
     stopPolling();
     rt = 'connecting'; notLiveSince = 0;
@@ -982,13 +1070,22 @@ export function mountChatApp(root, { compact = false } = {}) {
         channel: (ev) => {
           if (!ev || !ev.row) return;
           let list = channels.slice();
-          if (ev.type === 'delete') list = list.filter((c) => c.id !== ev.row.id);
+          if (ev.type === 'delete') { list = list.filter((c) => c.id !== ev.row.id); voice.channelGone(ev.row.id); }
           else {
             const i = list.findIndex((c) => c.id === ev.row.id);
             if (i >= 0) list[i] = { ...list[i], ...ev.row }; else list.push(ev.row);
           }
-          if (st === 'guest') list = list.filter((c) => c.owner_only);
-          setChannels(list);
+          setChannels(visible(list));
+        },
+        category: (ev) => {
+          if (!ev || !ev.row || ev.row.id == null) return;
+          let list = categories.slice();
+          if (ev.type === 'delete') list = list.filter((k) => k.id !== ev.row.id); // (its channels arrive as updates, uncategorized)
+          else {
+            const i = list.findIndex((k) => k.id === ev.row.id);
+            if (i >= 0) list[i] = { ...list[i], ...ev.row }; else list.push(ev.row);
+          }
+          setCategories(list);
         },
         emoji: (ev) => applyEmojiChange(ev),
         dmMember: (ev) => {
@@ -1011,21 +1108,24 @@ export function mountChatApp(root, { compact = false } = {}) {
     started = mine;
     const uid = st === 'ready' ? myId() : '';
     if (lastUid !== null && uid !== lastUid) composer.clearDrafts(); // another account: its drafts and previews go
+    if (lastUid !== null && uid !== lastUid && voice.state().status !== 'idle') voice.leave(); // (that account's call)
     lastUid = uid;
     const dropped = messages.reset(uid); // unsent messages of this account stay (Retry / Discard); anyone else's are cancelled
     if (dropped) toast(dropped === 1 ? 'An unsent message was dropped because the account changed.' : dropped + ' unsent messages were dropped because the account changed.', 'err');
     unread.clear(); online = new Set(); blocked = new Set(); setMembersList([]);
     friendRows = []; faq = []; aiOn = false; extraPeople.clear();
-    channels = []; cur = null; dms = []; curDM = null; mode = 'server';
+    channels = []; categories = []; cur = null; dms = []; curDM = null; mode = 'server';
     loading = true;
     drawSide(); drawHead(); setComposer(); drawMembers();
     messages.waiting('skeleton');
     let list;
     try {
-      list = await data.listChannels();
+      let cats;
+      [list, cats] = await Promise.all([data.listChannels(), Promise.resolve().then(() => data.listCategories()).catch(() => [])]);
       if (g !== gen) return;
-      list = (Array.isArray(list) ? list : []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
-      channels = st === 'guest' ? list.filter((c) => c.owner_only) : list;
+      list = (Array.isArray(list) ? list : []).slice().sort(byPos);
+      channels = visible(list);
+      categories = (Array.isArray(cats) ? cats : []).filter((k) => k && k.id != null).sort(byPos);
       if (st === 'ready') {
         const [mem, blk, un, dl] = await Promise.all([
           Promise.resolve().then(() => (typeof data.listMembers === 'function' ? data.listMembers() : data.findProfiles(''))).catch(() => []),
@@ -1035,6 +1135,7 @@ export function mountChatApp(root, { compact = false } = {}) {
         ]);
         if (g !== gen) return;
         setMembersList(mem);
+        voiceGate();
         blocked = new Set(idsOf(blk));
         applyUnread(un);
         dms = (Array.isArray(dl) ? dl : []).filter((d) => d && d.id);
@@ -1073,7 +1174,7 @@ export function mountChatApp(root, { compact = false } = {}) {
       if (!dm) { toast('That conversation isn’t available'); return false; }
       await openDM(dm, true);
     } else {
-      const c = channels.find((x) => (target.channel != null && x.id === target.channel) || (target.channelName && x.name === target.channelName));
+      const c = channels.find((x) => isText(x) && ((target.channel != null && x.id === target.channel) || (target.channelName && x.name === target.channelName)));
       if (!c) return false;
       await openChannel(c, true);
     }
@@ -1088,6 +1189,7 @@ export function mountChatApp(root, { compact = false } = {}) {
     shell.hidden = off;
     root.classList.toggle('is-off', off);
     root.dataset.state = s;
+    if ((off || s === 'guest') && voice.state().status !== 'idle') voice.leave(); // signed out (or chat is off): no voice
     if (off) { stopLive(); started = ''; drawOff(); banner.hidden = true; if (!compact) document.title = BASE_TITLE; return; }
     drawBanner();
     if (s === 'ready' || s === 'guest') { start(); }
@@ -1143,6 +1245,8 @@ export function mountChatApp(root, { compact = false } = {}) {
       document.removeEventListener('visibilitychange', onVis);
       clearTimeout(dmReload);
       offEmoji();
+      offVoice();
+      if (chatState() !== 'ready' && voice.state().status !== 'idle') voice.leave(); // (the overlay drops the app only when chat goes off)
       root.replaceChildren();
     },
   };

@@ -1,6 +1,8 @@
-// Member list: online first (from presence), owner crown, mod shield, custom status, flair names and frames (still until
-// hovered). Click opens the profile card; right-click (staff) opens the member menu. Also lists the people in a DM.
+// Member list in Discord's sections (sidebarlogic.js memberSections: Owner, Mods, Bots, then Online and Offline, from
+// presence), owner crown, mod shield, custom status, flair names and frames (still until hovered). Click opens the profile
+// card; right-click (staff) opens the member menu. A DM lists its people flat.
 import { h } from '../../ui.js';
+import { memberSections } from '../sidebarlogic.js';
 import { icon, avatar, nameEl, nameOf, roleMark, roleOf, hotOnHover } from './common.js';
 
 const rank = (p) => ({ owner: 0, mod: 1 }[roleOf(p)] ?? 2);
@@ -45,10 +47,13 @@ export function mountMembers(el, { onBack, onPick, onMenu, showBan = () => false
       const kids = [];
       if (flat) kids.push(...members.slice().sort(byName).map((p) => rowFor(p, online.has(p.id))));
       else {
-        const on = members.filter((p) => online.has(p.id)).sort(byName);
-        const off = members.filter((p) => !online.has(p.id)).sort(byName);
-        if (on.length) kids.push(h('div', { class: 'cx-mem-sec' }, h('i', { class: 'cx-live-dot', 'aria-hidden': 'true' }), 'Online — ' + on.length), ...on.map((p) => rowFor(p, true)));
-        if (off.length) kids.push(h('div', { class: 'cx-mem-sec', text: 'Offline — ' + off.length }), ...off.map((p) => rowFor(p, false)));
+        // sections go by the role the badges show (a revoked or banned mod is not under Mods; a Bing Ball admin is)
+        const byId = new Map(members.map((p) => [p.id, p]));
+        const secs = memberSections(members.map((p) => ({ id: p.id, is_bot: p.is_bot, name: nameOf(p), username: p.username, role: roleOf(p) || 'member' })), online);
+        for (const s of secs) {
+          kids.push(h('div', { class: 'cx-mem-sec', dataset: { sec: s.key } }, s.key === 'online' ? h('i', { class: 'cx-live-dot', 'aria-hidden': 'true' }) : null, s.title + ' — ' + s.people.length),
+            ...s.people.map((x) => rowFor(byId.get(x.id), s.key !== 'offline')));
+        }
       }
       if (!kids.length) kids.push(h('p', { class: 'cx-mem-none', text: 'Nobody here yet.' }));
       list.replaceChildren(...kids);

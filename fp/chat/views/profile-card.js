@@ -135,7 +135,7 @@ export function closeProfileCard() { if (open) open.close(); }
 
 /**
  * Opens the card next to `anchor` (a bottom sheet on phones). cx: { me(), myId(), profile(id), online(), isBlocked(id),
- * isStaff(), message(profile) -> Promise, block(profile, on) -> Promise, editProfile(), memberMenu(anchor, profile) -> bool,
+ * isStaff(), message(profile) -> Promise, block(profile, on) -> Promise, editProfile(), memberMenu(anchor, profile, onError) -> bool,
  * friendState(id) -> 'none' | 'friends' | 'out' | 'in' (asked me), friend(profile, 'add' | 'accept' | 'remove') -> Promise,
  * grantBadge(profile, badge, on) -> Promise<string[]> (owner only: the new granted_badges, also merged into profile(id)) }
  */
@@ -225,7 +225,7 @@ export function openProfileCard(profile, anchor, cx) {
     box.append(...[msg, friendBtn(), blk].filter(Boolean)); // (no friend button when blocked: append(null) would print "null")
     if (cx.isStaff()) {
       const mod = h('button', { type: 'button', class: 'cx-iconbtn cx-pc-mod-btn', title: 'Moderate', 'aria-label': 'Moderate ' + nameOf(p), 'aria-haspopup': 'menu' }, icon('dots'));
-      mod.addEventListener('click', () => { if (!cx.memberMenu(mod, p)) errEl.textContent = 'There’s nothing you can change for ' + nameOf(p) + '.'; });
+      mod.addEventListener('click', () => { errEl.textContent = ''; if (!cx.memberMenu(mod, p, (t) => { errEl.textContent = t; })) errEl.textContent = 'There’s nothing you can change for ' + nameOf(p) + '.'; });
       box.append(mod);
     }
     const note = blocked ? h('p', { class: 'cx-pc-note', text: 'You blocked them. Their messages are hidden and they can’t DM you.' }) : null;

@@ -2,7 +2,8 @@
 // With chat not set up (empty config) nothing is shown or loaded. Once configured, the chat app itself is lazy-loaded
 // on first open; closing hides and pauses it (no Realtime connection while closed; unsent messages and drafts stay).
 // While closed, a poll every minute keeps the unread badge and pops up new DMs and @mentions (max one per 3 s), which
-// open the conversation.
+// open the conversation. Voice (voice.js) is not the app's: closing the panel never hangs up, and the button shows a green
+// speaker dot while connected (voice.js is only imported once the app has loaded: a call can only start there).
 import { h } from '../ui.js';
 import { CHAT } from './config.js';
 
@@ -12,6 +13,15 @@ function chatIcon() {
   s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true');
   for (const [k, v] of [['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', '2.2'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round']]) s.setAttribute(k, v);
   for (const d of ['M20 11.5a7.5 7.5 0 0 1-10.9 6.7L4 19.5l1.3-4.6A7.5 7.5 0 1 1 20 11.5z', 'M8.5 11.5h.01', 'M12 11.5h.01', 'M15.5 11.5h.01']) {
+    const p = document.createElementNS(SVG_NS, 'path'); p.setAttribute('d', d); s.append(p);
+  }
+  return s;
+}
+function speakerIcon() {
+  const s = document.createElementNS(SVG_NS, 'svg');
+  s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true');
+  for (const [k, v] of [['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', '2.6'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round']]) s.setAttribute(k, v);
+  for (const d of ['M4 9.5h3.5L12 5.5v13l-4.5-4H4z', 'M15.5 9a4 4 0 0 1 0 6']) {
     const p = document.createElementNS(SVG_NS, 'path'); p.setAttribute('d', d); s.append(p);
   }
   return s;
@@ -44,8 +54,10 @@ export function mountChatOverlay(bar) {
   let pending = null;   // target to open once the app has its channels
 
   const count = h('span', { class: 'fpco-count', hidden: true });
+  const vdot = h('span', { class: 'fpco-voice', hidden: true, title: 'In voice' }, speakerIcon());
   const btn = h('button', { type: 'button', class: 'tool fpco-btn', id: 'chat-open', title: 'Chat', 'aria-label': 'Chat', 'aria-expanded': 'false', 'aria-haspopup': 'dialog' },
-    chatIcon(), h('span', { class: 'label', text: 'Chat' }), count);
+    chatIcon(), h('span', { class: 'label', text: 'Chat' }), count, vdot);
+  let inVoice = false;
   slot.classList.add('fpco-slot');
   slot.replaceChildren(btn);
   btn.addEventListener('click', () => api.toggle());
@@ -66,11 +78,23 @@ export function mountChatOverlay(bar) {
   const counts = { unread: 0, mentions: 0 };
   let M = null, timer = 0, gen = 0, seen = null, chanName = new Map();
   function drawBadge() {
-    const b = isOpen ? { dot: false, text: '' } : M.unread.badge(counts);
+    const b = isOpen || !M ? { dot: false, text: '' } : M.unread.badge(counts);
     count.hidden = !b.dot;
     count.classList.toggle('dot', b.dot && !b.text);
     count.textContent = b.text;
-    btn.setAttribute('aria-label', 'Chat' + (b.text ? ', ' + b.text + ' mentions' : b.dot ? ', unread messages' : ''));
+    vdot.hidden = !inVoice;
+    btn.setAttribute('aria-label', 'Chat' + (b.text ? ', ' + b.text + ' mentions' : b.dot ? ', unread messages' : '') + (inVoice ? ', in voice' : ''));
+  }
+  // The green speaker dot: from the first app load on (voice.js is shared with the app: one module, one call).
+  let voiceOff = null;
+  function watchVoice() {
+    if (voiceOff) return;
+    voiceOff = () => {};
+    import('./voice.js').then(({ voice }) => {
+      const draw = () => { const on = voice.state().status === 'connected'; if (on !== inVoice) { inVoice = on; drawBadge(); } };
+      voiceOff = voice.onChange(draw);
+      draw();
+    }).catch(() => { voiceOff = null; });
   }
   const targetOf = (key) => (key.startsWith('d:') ? { dm: key.slice(2) } : { channel: Number(key.slice(2)) });
   async function refresh() {
@@ -178,6 +202,7 @@ export function mountChatOverlay(bar) {
     if (app) app.resume();
     else {
       const { mountChatApp } = await import('./app.js');
+      watchVoice();
       if (my !== epoch) return;
       if (!app) {
         host = h('div', { class: 'fpco-host' });
