@@ -2,7 +2,8 @@
 // carries who is where (presence on chat:voice, key = user id, meta { ch, mute, deaf, sess, at }) and the signaling
 // (broadcast on chat:voice:<id>: offer / answer / bye, payload { from, to, sdp, sess }). ICE is not trickled: each side
 // waits for gathering (ICE_WAIT_MS at most) and sends one SDP. The smaller user id offers. A failed connection gets one
-// ICE-restart offer from the offerer, then the peer is 'unreachable' until they leave or rejoin presence.
+// ICE-restart offer from the offerer (again after it stayed up STABLE_MS), then the peer is 'unreachable' until they
+// leave or rejoin presence.
 // A module-level singleton with its own Realtime channels (data.voiceChannel), so the chat app's pause (the in-game
 // overlay closing) never touches it. The mic is asked and the hidden <audio> elements are made inside join() (the click:
 // Safari). The app drives the rest: voice.leave('blocked') when I'm banned or timed out, voice.channelGone(id) when a
@@ -13,6 +14,7 @@ import { VOICE_MAX, ICE_WAIT_MS, KICK_MS, VOICE_ERRORS, isOfferer, rosterFromPre
 const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 const WAIT_MS = 10000; // join: presence sync, the kick list, the signaling channel; past this, 'lost'
 const PEER_MS = 20000; // a peer not connected this long counts as one failed attempt
+const STABLE_MS = 10000; // up this long, a later failure is a new connection's trouble: it gets its own retry
 const TICK_MS = 100;   // speaking detection
 
 // Browser and data.js defaults, each replaceable through voice._inject (node tests have no DOM or WebRTC).
@@ -36,8 +38,13 @@ const injected = {};
 const dep = (k) => (injected[k] != null ? injected[k] : real[k]());
 const now = () => dep('now')();
 const quiet = (fn) => { try { const r = fn(); if (r && typeof r.catch === 'function') r.catch(() => {}); } catch { /* best effort */ } };
-const sessId = () => (globalThis.crypto && globalThis.crypto.randomUUID ? globalThis.crypto.randomUUID()
-  : Math.random().toString(36).slice(2) + Date.now().toString(36));
+// Time-ordered and rising in this tab: a presence rejoin keeps `at`, and its new sess must win the `at` tie over the old
+// socket's meta the server may still hold (supersededBy / rosterFromPresence compare sess on a tie).
+let lastSess = 0;
+const sessId = () => {
+  lastSess = Math.max(Math.floor(now()), lastSess + 1);
+  return lastSess.toString(36).padStart(10, '0') + '-' + Math.random().toString(36).slice(2, 10).padEnd(8, '0');
+};
 const idleSpeak = () => ({ speaking: false, lastLoud: -Infinity });
 const micError = (e) => (/^(NotFoundError|DevicesNotFoundError|OverconstrainedError)$/.test(String(e && e.name)) ? 'nomic' : 'mic');
 
@@ -256,8 +263,8 @@ const live = (c, p) => call === c && !p.dead;
 function openPeer(c, id, sess) {
   let pc;
   try { const RTC = dep('RTCPeerConnection'); pc = new RTC({ iceServers: ICE_SERVERS }); } catch { return; }
-  const p = { id, sess, pc, state: 'connecting', speaking: false, speak: idleSpeak(), offerer: isOfferer(c.me, id), fails: 0,
-    audio: c.pool.pop() || null, an: null, lastOffer: null, timer: 0, q: Promise.resolve(), dead: false };
+  const p = { id, sess, pc, state: 'connecting', speaking: false, speak: idleSpeak(), offerer: isOfferer(c.me, id),
+    fails: 0, upAt: null, upMs: 0, audio: c.pool.pop() || null, an: null, lastOffer: null, timer: 0, q: Promise.resolve(), dead: false };
   c.peers.set(id, p);
   for (const t of c.stream.getTracks()) quiet(() => pc.addTrack(t, c.stream));
   pc.ontrack = (e) => onTrack(c, p, e);
@@ -339,12 +346,22 @@ function onSignal(c, ev, m) {
 function onConn(c, p) {
   if (!live(c, p)) return;
   const s = p.pc.connectionState;
-  if (s === 'connected') { clearTimeout(p.timer); if (p.state !== 'connected') { p.state = 'connected'; emit(); } }
-  else if (s === 'failed') failPeer(c, p);
+  if (s === 'connected') {
+    p.upAt = now();
+    clearTimeout(p.timer);
+    if (p.state !== 'connected') { p.state = 'connected'; emit(); }
+    return;
+  }
+  if (p.upAt != null) { p.upMs = now() - p.upAt; p.upAt = null; } // how long it stayed up
+  if (s === 'failed') failPeer(c, p);
 }
-function failPeer(c, p) { // 1st failure: the offerer restarts ICE once; 2nd: unreachable, no more tries on this connection
+// 1st failure: the offerer restarts ICE once; 2nd: unreachable, no more tries. "Once" is per established connection:
+// after STABLE_MS up, a new failure starts the count again (R6).
+function failPeer(c, p) {
   if (!live(c, p) || p.state === 'unreachable') return;
   clearTimeout(p.timer);
+  if (p.upMs >= STABLE_MS) p.fails = 0;
+  p.upMs = 0;
   if (++p.fails >= 2) { p.state = 'unreachable'; emit(); return; }
   p.state = 'connecting';
   if (p.offerer) negotiate(c, p, true);

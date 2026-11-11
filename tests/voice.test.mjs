@@ -12,7 +12,7 @@ globalThis.localStorage = fakeStorage();
 globalThis.sessionStorage = fakeStorage();
 globalThis.location = { search: '', hostname: 'test.invalid' };
 const data = await import('../fp/chat/data.js');
-const { KICK_MS, VOICE_MAX, ICE_WAIT_MS } = await import('../fp/chat/voicelogic.js');
+const { KICK_MS, VOICE_MAX, ICE_WAIT_MS, rosterFromPresence } = await import('../fp/chat/voicelogic.js');
 
 const ME = '55555555-0000-4000-8000-000000000005';
 const A = '11111111-0000-4000-8000-000000000001'; // smaller than me: A offers to me
@@ -689,6 +689,68 @@ test('a presence rejoin starts a new session (everyone reconnects to the new one
   assert.equal(env.sent(7, 'offer', C).length, 2);
   assert.equal(env.sent(7, 'offer', C)[1].payload.sess, again.sess);
   assert.equal(voice.state().status, 'connected');
+  voice.leave();
+});
+
+test('a presence rejoin while my old meta lingers: I stay, and everyone picks my new session', async () => {
+  const { voice, env } = await fresh();
+  env.presence = { [C]: [meta(7, -3000, 'sc')] };
+  await voice.join({ id: 7, name: 'lounge' });
+  await flush();
+  const pres = env.pres();
+  // after a network drop the server can keep the old socket's meta (same at, old sess) for tens of seconds
+  for (let i = 0; i < 20; i++) {
+    const old = pres.tracks.at(-1);
+    pres.opts.onStatus('CHANNEL_ERROR');
+    pres.opts.onStatus('SUBSCRIBED');
+    await flush();
+    const cur = pres.tracks.at(-1);
+    assert.notEqual(cur.sess, old.sess);
+    assert.equal(cur.at, old.at);
+    env.presence[ME] = [{ presence_ref: 'stale-' + i, ...old }];
+    env.sync();
+    await flush();
+    assert.equal(voice.state().status, 'connected', 'rejoin ' + i + ': not moved by my own stale meta');
+    assert.equal(voice.state().error, null);
+    // another client's view of the same presence: my new session, so my offers and answers are not stashed
+    assert.equal(rosterFromPresence(env.state()).get(7).find((x) => x.id === ME).sess, cur.sess, 'rejoin ' + i);
+    assert.equal(voice.roster().get(7).find((x) => x.id === ME).sess, cur.sess);
+    assert.equal(env.sent(7, 'offer', C).at(-1).payload.sess, cur.sess);
+  }
+  // a genuinely later join (a newer at) still supersedes, whatever its sess
+  env.presence[ME] = [meta(8, 5000, '0')];
+  env.sync();
+  await flush();
+  assert.equal(voice.state().status, 'idle');
+  assert.equal(voice.state().error, 'moved');
+});
+
+test('a connection that stayed up 10 s gets a fresh ICE-restart retry (R6)', async () => {
+  const { voice, env } = await fresh();
+  env.presence = { [C]: [meta(7, -3000, 'sc')] };
+  await voice.join({ id: 7, name: 'lounge' });
+  await flush();
+  const pcC = env.offerPc(C);
+  const offers = () => env.sent(7, 'offer', C).length;
+  pcC.set('failed'); // 1st failure: restart
+  await flush();
+  assert.equal(offers(), 2);
+  pcC.set('connected');
+  env.clock += 10000; // up for 10 s
+  pcC.set('failed'); // a new blip: a new connection's retry, not unreachable
+  await flush();
+  assert.equal(offers(), 3);
+  assert.equal(pcC.restarts, 2);
+  assert.equal(voice.state().peers.get(C).state, 'connecting');
+  // up only 3 s (then disconnected) before failing: that counts as the same trouble, so unreachable
+  pcC.set('connected');
+  env.clock += 3000;
+  pcC.set('disconnected');
+  env.clock += 20000;
+  pcC.set('failed');
+  await flush();
+  assert.equal(voice.state().peers.get(C).state, 'unreachable');
+  assert.equal(offers(), 3);
   voice.leave();
 });
 
