@@ -1462,3 +1462,36 @@ button.cx-cat:hover, button.cx-cat:focus-visible { color: var(--cx-text); }
 }
 :root[data-theme="aero"] .cx-rail-btn.server { background: radial-gradient(circle at 30% 25%, rgb(var(--lime-rgb) / 0.24), transparent 60%), radial-gradient(circle at 80% 85%, rgb(var(--cyan-rgb) / 0.22), transparent 60%), #10284e; }
 :root[data-theme="aero"] .cx-rail-btn.server:hover, :root[data-theme="aero"] .cx-rail-btn.server.on { background: radial-gradient(circle at 30% 25%, rgb(var(--lime-rgb) / 0.32), transparent 60%), radial-gradient(circle at 80% 85%, rgb(var(--cyan-rgb) / 0.3), transparent 60%), #10284e; }
+
+/* Deep Space (themes.css): the same two layers as star dust. ::before: tiny stars in five tile sizes (white, ice blue, a
+   few gold) with a faint ice-blue and amber glow and a dim band of dust, drifting on the same slow loop; ::after: the
+   vignette and a scrim toward black in place of the dots. The server icon's base turns black. DMs stay plain. No pink or
+   purple. */
+:root[data-theme="space"] .cx-app.server .cx-main::before {
+  background:
+    radial-gradient(circle at 23px 37px, rgba(255, 255, 255, 0.55) 0 0.7px, transparent 1.4px) 0 0 / 97px 89px,
+    radial-gradient(circle at 61px 13px, rgba(191, 227, 255, 0.5) 0 0.6px, transparent 1.3px) 0 0 / 131px 113px,
+    radial-gradient(circle at 101px 71px, rgba(255, 255, 255, 0.6) 0 0.9px, transparent 1.7px) 0 0 / 173px 157px,
+    radial-gradient(circle at 47px 131px, rgba(255, 217, 160, 0.5) 0 0.8px, transparent 1.5px) 0 0 / 211px 193px,
+    radial-gradient(circle at 151px 29px, rgba(210, 236, 255, 0.45) 0 1.1px, transparent 2px) 0 0 / 263px 239px,
+    radial-gradient(34% 30% at 24% 22%, rgb(var(--cyan-rgb) / 0.08), transparent 72%),
+    radial-gradient(30% 34% at 80% 72%, rgb(var(--lime-rgb) / 0.06), transparent 72%),
+    radial-gradient(70% 16% at 50% 48%, rgba(168, 188, 222, 0.05), transparent 72%);
+}
+:root[data-theme="space"] .cx-app.server .cx-main:not(.drop)::after {
+  background:
+    radial-gradient(120% 95% at 50% 45%, transparent 50%, rgba(0, 0, 0, 0.55) 100%),
+    linear-gradient(rgba(0, 0, 0, 0.26), rgba(0, 0, 0, 0.26));
+}
+:root[data-theme="space"] .cx-app.server .cx-srv::before {
+  background:
+    radial-gradient(circle at 19px 23px, rgba(255, 255, 255, 0.75) 0 0.7px, transparent 1.4px) 0 0 / 61px 47px,
+    radial-gradient(circle at 41px 9px, rgba(191, 227, 255, 0.65) 0 0.6px, transparent 1.3px) 0 0 / 89px 67px,
+    radial-gradient(circle at 13px 51px, rgba(255, 217, 160, 0.6) 0 0.8px, transparent 1.5px) 0 0 / 113px 79px,
+    radial-gradient(40% 70% at 18% 40%, rgb(var(--lime-rgb) / 0.14), transparent 72%),
+    radial-gradient(42% 75% at 86% 30%, rgb(var(--cyan-rgb) / 0.14), transparent 72%),
+    #08090d;
+}
+:root[data-theme="space"] .cx-app.server .cx-srv::after { background: linear-gradient(180deg, transparent 30%, rgba(0, 0, 0, 0.4)); }
+:root[data-theme="space"] .cx-rail-btn.server { background: radial-gradient(circle at 30% 25%, rgb(var(--lime-rgb) / 0.22), transparent 60%), radial-gradient(circle at 80% 85%, rgb(var(--cyan-rgb) / 0.2), transparent 60%), #05060a; }
+:root[data-theme="space"] .cx-rail-btn.server:hover, :root[data-theme="space"] .cx-rail-btn.server.on { background: radial-gradient(circle at 30% 25%, rgb(var(--lime-rgb) / 0.3), transparent 60%), radial-gradient(circle at 80% 85%, rgb(var(--cyan-rgb) / 0.28), transparent 60%), #05060a; }
