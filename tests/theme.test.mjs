@@ -18,12 +18,13 @@ test('THEMES order and names', () => {
   assert.equal(T.DEFAULT_THEME, 'neon');
   assert.ok(Object.isFrozen(T.THEMES));
   for (const t of T.THEMES) assert.equal(typeof t.ready, 'boolean', t.id);
-  assert.ok(isReady('neon') && isReady('aero'), 'neon and Night Aero ship');
+  assert.ok(isReady('neon') && isReady('aero') && isReady('space'), 'neon, Night Aero and Deep Space ship');
 });
 
 test('cleanTheme falls back to neon', () => {
   assert.equal(T.cleanTheme('aero'), 'aero');
-  assert.equal(T.cleanTheme('space'), isReady('space') ? 'space' : 'neon');
+  assert.equal(T.cleanTheme('space'), 'space');
+  assert.equal(T.cleanTheme('minimal'), isReady('minimal') ? 'minimal' : 'neon');
   assert.equal(T.cleanTheme('nope'), 'neon');
   assert.equal(T.cleanTheme(undefined), 'neon');
 });
@@ -141,8 +142,11 @@ test('applyTheme updates meta[name=theme-color]', () => {
     assert.equal(meta.attrs.content, T.THEME_COLORS.aero);
     T.setTheme('neon');
     assert.equal(meta.attrs.content, T.THEME_COLORS.neon);
-    T.applyTheme('space');                                  // not ready: neon, and neon's color
-    assert.equal(meta.attrs.content, T.THEME_COLORS[T.cleanTheme('space')]);
+    T.applyTheme('space');
+    assert.equal(attrs['data-theme'], 'space');
+    assert.equal(meta.attrs.content, T.THEME_COLORS.space);
+    T.applyTheme('minimal');                                // not ready yet: neon, and neon's color
+    assert.equal(meta.attrs.content, T.THEME_COLORS[T.cleanTheme('minimal')]);
     globalThis.document.querySelector = () => null;         // a page without the meta: no throw
     assert.doesNotThrow(() => T.applyTheme('aero'));
   } finally {

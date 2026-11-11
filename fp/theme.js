@@ -49,7 +49,7 @@ export function setAccent(id) {
 export const THEMES = Object.freeze([
   Object.freeze({ id: 'neon', name: 'Neon', ready: true }),
   Object.freeze({ id: 'aero', name: 'Night Aero', ready: true }),
-  Object.freeze({ id: 'space', name: 'Deep Space', ready: false }),
+  Object.freeze({ id: 'space', name: 'Deep Space', ready: true }),
   Object.freeze({ id: 'minimal', name: 'Minimal', ready: false }),
 ]);
 /** The themes people can pick (the picker shows these; the rest are still being built). */
