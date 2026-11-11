@@ -1,9 +1,10 @@
 // Five Nights at Bing's: the night itself. Rules live here; drawing is in art.js, sound in audio.js, words in lines.js.
-import * as Art from './art.js';
+import * as S3 from './scene3d.js';
+import { staticFx, feedFx } from './fx.js';
 import * as Au from './audio.js';
 import { CALLS, VOICE, NAMES, TIPS } from './lines.js';
 
-const W = 1280, H = 720, HOUR = 48, MAXPAN = Art.OFFICE_W - W;
+const W = 1280, H = 720, HOUR = 48;
 const $ = id => document.getElementById(id);
 const cv = $('cv'), c = cv.getContext('2d');
 const SS = Math.min(1.5, window.devicePixelRatio || 1);
@@ -12,7 +13,7 @@ const PX = "'Press Start 2P'";
 
 // ---------- save ----------
 const KEY = 'fnab.v1';
-const save = { night: 1, beat5: false, beat6: false, sound: true, subs: true, custom: { bing: 10, dylan: 10, gavin: 10, sal: 10, box: 10, tok: 10 } };
+const save = { tickets: 0, perks: {}, night: 1, beat5: false, beat6: false, sound: true, subs: true, custom: { bing: 10, dylan: 10, gavin: 10, sal: 10, box: 10, tok: 10 } };
 try { Object.assign(save, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { /* fresh save */ }
 function persist() { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (e) { /* private mode */ } }
 
@@ -61,10 +62,10 @@ function cue(s, cls = '', who = '', dur = 4) {
 }
 function clearSubs() { setMain(); while (subs.children.length > 1) subs.firstChild.remove(); }
 function voice(who, key) {
-  const arr = VOICE[who][key], s = arr[Math.random() * arr.length | 0];
+  const arr = VOICE[who][key], i = Math.random() * arr.length | 0, s = arr[i];
   cue('"' + s + '"', 'bot', NAMES[who], 4.5);
   Au.sfx.growl();
-  if (!g.call) Au.speak(s, { pitch: who === 'lana' ? 1.9 : who === 'laith' ? 1.5 : 0.1, rate: 0.8 });
+  if (!g.call) Au.playClip(`${who}_${key}_${i}`, null, () => Au.speak(s, { pitch: who === 'lana' ? 1.9 : who === 'laith' ? 1.5 : 0.1, rate: 0.8 }));
 }
 
 // ---------- a night ----------
@@ -72,18 +73,21 @@ function mk(id, lvl, every, side) { return { id, lvl, every, timer: every, pos: 
 function startNight(n, custom) {
   const L = custom || NIGHTS[n - 1];
   g = {
-    night: n, custom: !!custom, t: 0, hour: 0, power: 100, usage: 1,
+    night: n, custom: !!custom, t: 0, hour: 0, power: save.perks.battery ? 115 : 100, usage: 1,
     doorL: false, doorR: false, dl: 0, dr: 0, lightL: false, lightR: false, seal: false, sv: 0,
-    mon: false, monT: 0, cam: 'stage', glitch: 0, pan: MAXPAN / 2, panT: MAXPAN / 2,
+    mon: false, monT: 0, cam: 'stage', glitch: 0, pan: 0.5, panT: 0.5,
+    perk: { ...save.perks }, lureCd: 0, cranking: false, crankA: 0, crankTick: 0, cranked: false, pouring: false,
     bots: { dylan: mk('dylan', L.dylan, 4.9, 'L'), gavin: mk('gavin', L.gavin, 5.3, 'R'), bing: mk('bing', L.bing, 6.1, 'L') },
     tok: { lvl: L.tok, st: 0, timer: 5.6, arr: 0, in: false },
     sal: { lvl: L.sal, state: 'bar', thirst: 100, side: 'L', t: 0, T: 5 },
     box: { lvl: L.box, v: 100, wake: -1, windA: 0, tick: 0 },
     intruder: null, scareAt: 0, out: null, call: null, called: false, acting: false,
   };
+  save.perks = {}; persist();
   mode = 'intro'; intro = 0; paused = false; sc = null;
   clearSubs(); show(null); $('top').classList.add('on');
-  Au.init();
+  Au.init(); Au.suspend(false);
+  if (!custom && CALLS[n]) Au.preload(CALLS[n].map((_, i) => `c${n}_${i}`));
 }
 function loc(b) { const p = PATH[b.id][b.pos]; return p === 'H' ? (b.side === 'L' ? 'whall' : 'ehall') : p === 'D' ? 'door' + b.side : p; }
 function atDoor(side) {
@@ -146,15 +150,16 @@ function updateCall(dt) {
   const k = g.call; if (!k) return;
   if (k.ring > 0) { k.ring -= dt; return; }
   k.t += dt;
-  const doneLine = k.i < 0 || (k.speech ? (k.spoken || k.t > k.est * 1.6 + 2.5) : k.t >= k.est);
+  const doneLine = k.i < 0 || (k.speech ? ((k.spoken && k.t > 0.6) || k.t > k.est * 1.6 + 4) : k.t >= k.est);
   if (!doneLine) return;
   if (k.t < k.est * 0.5 && k.i >= 0) return; // sound was switched off mid-line: still give time to read
   k.i++;
   if (k.i >= k.lines.length) { g.call = null; setMain(); cue('[call ended]', '', '', 2); return; }
   const s = k.lines[k.i], evil = g.night === 5;
   setMain(evil ? '???' : 'PHONE GUY', s);
-  k.t = 0; k.est = s.length * 0.062 + 1; k.spoken = false; k.speech = Au.canSpeak();
-  if (k.speech) Au.speak(s, evil ? { pitch: 0.1, rate: 0.7 } : { pitch: 0.95, rate: 1.05 }, () => { k.spoken = true; });
+  k.t = 0; k.est = s.length * 0.062 + 1; k.spoken = false; k.speech = Au.canPlay();
+  const end = () => { k.spoken = true; };
+  if (k.speech) Au.playClip(`c${g.night}_${k.i}`, end, () => Au.speak(s, evil ? { pitch: 0.1, rate: 0.7 } : { pitch: 0.95, rate: 1.05 }, end));
 }
 
 function update(dt) {
@@ -179,13 +184,18 @@ function update(dt) {
   if (!g.called && g.t > 1.5 && !g.custom && CALLS[g.night]) { g.called = true; g.call = { lines: CALLS[g.night], i: -1, t: 0, est: 0, ring: 2.6 }; Au.sfx.ring(); setMain('', '[phone ringing]'); }
   updateCall(dt);
 
+  // the hand crank: free power, but it is loud
+  g.cranking = !g.mon && (held === 'crank' || !!keys.g);
+  const loud = g.cranking && !g.out ? 1.7 : 1;
+  if (g.cranking) { g.crankA += dt * 10; g.crankTick -= dt; if (g.crankTick <= 0) { g.crankTick = 0.16; Au.sfx.crank(); } if (!g.crankCue || g.t - g.crankCue > 6) cue('[the crank grinds loudly]', '', '', 2.5); g.crankCue = g.t; }
+  if (g.lureCd > 0) g.lureCd -= dt;
   // the music box and the twins
   const bx = g.box, onCam = id => g.mon && g.cam === id && !g.glitch;
   g.acting = !!((held === 'act' || keys.f) && g.mon);
   if (bx.wake < 0) {
     const winding = g.acting && onCam('prize');
     if (winding) { bx.v = Math.min(100, bx.v + 30 * dt); bx.windA += dt * 9; bx.tick -= dt; if (bx.tick <= 0) { bx.tick = 0.13; Au.sfx.blip(); } }
-    else bx.v = Math.max(0, bx.v - rate(bx.lvl) * dt);
+    else bx.v = Math.max(0, bx.v - rate(bx.lvl) * (g.perk.oil ? 0.75 : 1) * (loud > 1 ? 1.6 : 1) * dt);
     Au.musicBox(dt, bx.v, g.mon && g.cam === 'prize');
     if (bx.v <= 0 && bx.lvl > 0) {
       bx.wake = 15; bx.sec = 15; Au.sfx.wake(); cue('[the music box winds down and stops]', '', '', 5);
@@ -205,6 +215,10 @@ function update(dt) {
       else if (o.stage === 2) { cue('[silence]', '', '', 2); o.next = o.t + 2 + Math.random() * 3; }
       else return scare('bing', 'power');
     }
+    if (g.cranking) {
+      if (g.cranked) { if (!o.told) { o.told = true; cue('[the crank spins freely. the breaker is dead.]', '', '', 5); } }
+      else { o.charge = (o.charge || 0) + dt; if (o.charge >= 6) { g.out = null; g.power = 7; g.cranked = true; Au.sfx.click(); cue('[the generator catches. the lights come back on.]', '', '', 5); } }
+    }
     return;
   }
 
@@ -214,7 +228,7 @@ function update(dt) {
   if (s.state === 'bar' && s.lvl > 0) {
     pouring = g.acting && onCam('bar');
     if (pouring) { const was = s.thirst; s.thirst = Math.min(100, s.thirst + 30 * dt); if (was < 100 && s.thirst >= 100 && Math.random() < 0.5) voice('sal', 'pour'); }
-    else s.thirst = Math.max(0, s.thirst - rate(s.lvl) * dt);
+    else s.thirst = Math.max(0, s.thirst - rate(s.lvl) * (g.perk.keg ? 0.75 : 1) * dt);
     if (s.thirst <= 0) {
       s.state = 'run'; s.side = Math.random() < 0.5 ? 'L' : 'R'; s.T = s.t = Math.max(3.4, 6 - s.lvl * 0.14);
       Au.sfx.smash(); cue('[glass smashes at the bar]'); voice('sal', 'leave');
@@ -227,11 +241,11 @@ function update(dt) {
       else return scare('sal');
     }
   }
-  Au.loop('pour', pouring, 0.12);
+  g.pouring = pouring; Au.loop('pour', pouring, 0.12);
 
   // walkers
-  for (const k in g.bots) { const b = g.bots[k]; b.timer -= dt; if (b.timer <= 0) { b.timer = b.every; botStep(b); } }
-  g.tok.timer -= dt; if (g.tok.timer <= 0) { g.tok.timer = 5.6; tokStep(); }
+  for (const k in g.bots) { const b = g.bots[k]; b.timer -= dt * loud; if (b.timer <= 0) { b.timer = b.every; botStep(b); } }
+  g.tok.timer -= dt * loud; if (g.tok.timer <= 0) { g.tok.timer = 5.6; tokStep(); }
   const gv = g.bots.gavin, lean = !gv.in && gv.pos === 4 && g.doorR;
   if (lean && !gv.leaned) { gv.leaned = true; Au.sfx.bang('R', 2); cue('[something heavy leans on the right door]'); }
 
@@ -240,7 +254,8 @@ function update(dt) {
 
   // power
   g.usage = 1 + g.doorL + g.doorR + (g.lightL || g.lightR) + g.mon + g.seal + pouring;
-  g.power -= (0.085 + 0.105 * (g.usage - 1) + (lean ? 0.1 : 0)) * dt;
+  g.power -= (0.085 + 0.105 * (g.usage - 1) + (lean ? 0.1 : 0) - (g.cranking ? 0.65 : 0)) * dt;
+  g.power = Math.min(g.power, 115);
   if (g.power <= 0) { g.power = 0; powerOut(); return; }
   Au.loop('hum', true, 0.035); Au.loop('static', g.mon, g.glitch ? 0.16 : 0.04); Au.loop('buzz', g.lightL || g.lightR, 0.12);
 }
@@ -254,6 +269,23 @@ function monitor() {
   g.mon = !g.mon; Au.sfx.flip(); g.lightL = g.lightR = false;
   if (!g.mon && g.intruder) g.scareAt = Math.min(g.scareAt, g.t + 0.45);
 }
+const LURE = { stage: 1, arcade: 1, storage: 1, kitchen: 1, prize: 1 };
+function lure() {
+  if (!g.mon || g.out || g.lureCd > 0 || !LURE[g.cam]) return;
+  g.lureCd = 16; Au.sfx.lure(); cue(`[a jingle plays in ${CAMS.find(k => k.id === g.cam).name.toLowerCase()}]`);
+  if (g.box.wake < 0 && g.box.lvl > 0) g.box.v = Math.max(1, g.box.v - 8);
+  let moved = false;
+  for (const k in g.bots) { const b = g.bots[k], j = PATH[k].indexOf(g.cam), d = b.pos - j; if (b.in || j < 0 || d < 1 || d > 2) continue; if (Math.random() < (d === 1 ? 0.8 : 0.45)) { b.pos = j; b.arr = g.t; b.leaned = false; moved = true; } }
+  const night = g; setTimeout(() => { if (mode === 'play' && g === night) cue(moved ? '[footsteps head toward the sound]' : '[nothing answers the jingle]'); }, 1100);
+}
+function horn() {
+  if (!g.perk.horn || g.out) return;
+  g.perk.horn = false; Au.sfx.horn(); cue('[AIR HORN BLAST]', '', '', 3);
+  for (const k in g.bots) { const b = g.bots[k]; if (!b.in && b.pos === 4) { b.pos = 1; b.leaned = false; } }
+  if (g.sal.state === 'run') { g.sal.state = 'bar'; g.sal.thirst = 50; }
+  if (!g.tok.in) g.tok.st = 0;
+  if (g.box.wake < 0 && g.box.lvl > 0) g.box.v = Math.max(1, g.box.v - 20);
+}
 function setCam(id) { if (g.cam !== id) { g.cam = id; Au.sfx.blip(); g.glitch = Math.max(g.glitch, 0.12); } }
 function press(id) {
   if (mode !== 'play' || paused) return;
@@ -261,6 +293,7 @@ function press(id) {
   else if (id === 'lightL') light('L'); else if (id === 'lightR') light('R');
   else if (id === 'seal') seal(); else if (id === 'mon') monitor();
   else if (id === 'mute') { endCall(); cue('[call muted]', '', '', 2); }
+  else if (id === 'lure') lure(); else if (id === 'horn') horn();
   else if (id.startsWith('cam:')) setCam(id.slice(4));
 }
 function pt(e) { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H]; }
@@ -274,8 +307,8 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => {
   if (mode !== 'play' || !g || g.mon) return;
   const [x] = pt(e);
-  if (e.pointerType === 'mouse') g.panT = Math.max(0, Math.min(1, (x - 240) / (W - 480))) * MAXPAN;
-  else if (drag) g.panT = Math.max(0, Math.min(MAXPAN, drag.pan - (x - drag.x) * 1.6));
+  if (e.pointerType === 'mouse') g.panT = Math.max(0, Math.min(1, (x - 240) / (W - 480)));
+  else if (drag) g.panT = Math.max(0, Math.min(1, drag.pan - (x - drag.x) / 600));
 });
 const up = () => { held = null; drag = null; };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
@@ -287,25 +320,36 @@ addEventListener('keydown', e => {
   if (k === 'escape' && (mode === 'play' || mode === 'intro')) return pause(!paused);
   if (mode !== 'play' || paused || e.repeat) { if (k === ' ') e.preventDefault(); return; }
   Au.init();
-  if (k === 'f') keys.f = true;
+  if (k === 'f') keys.f = true; else if (k === 'g') keys.g = true; else if (k === 'l') lure(); else if (k === 'h') horn();
   else if (k === ' ' || k === 's') { e.preventDefault(); monitor(); }
   else if (k === 'a') door('L'); else if (k === 'd') door('R');
   else if (k === 'q') light('L'); else if (k === 'e') light('R');
   else if (k === 'w') seal();
-  else if (k === 'arrowleft') g.panT = 0; else if (k === 'arrowright') g.panT = MAXPAN;
+  else if (k === 'arrowleft') g.panT = 0; else if (k === 'arrowright') g.panT = 1;
   else if (k >= '1' && k <= '9' && g.mon) setCam(CAMS[+k - 1].id);
 });
-addEventListener('keyup', e => { if (e.key.toLowerCase() === 'f') keys.f = false; });
-addEventListener('blur', () => { keys.f = false; held = null; if (mode === 'play' && !paused && !window.__fnabNoPause) pause(true); });
+addEventListener('keyup', e => { const k = e.key.toLowerCase(); if (k === 'f' || k === 'g') keys[k] = false; });
+addEventListener('blur', () => { keys.f = keys.g = false; held = null; if (mode === 'play' && !paused && !window.__fnabNoPause) pause(true); });
 
 // ---------- drawing ----------
 function tx(s, x, y, size, col, align = 'left', font = PX) { c.font = `${size}px ${font}, monospace`; c.textAlign = align; c.textBaseline = 'middle'; c.fillStyle = col; c.fillText(s, x, y); }
 function box(x, y, w, h, col, r = 8) { c.fillStyle = col; c.beginPath(); c.roundRect(x, y, w, h, r); c.fill(); }
 function R(id, x, y, w, h) { regions.push({ id, x, y, w, h }); }
 
+function sceneState() {
+  const where = {}, s = g.sal;
+  for (const k in g.bots) where[k] = g.bots[k].in ? null : loc(g.bots[k]);
+  return {
+    dl: g.dl, dr: g.dr, sv: g.sv, doorL: g.doorL, doorR: g.doorR, lightL: g.lightL, lightR: g.lightR, seal: g.seal, where,
+    sal: { at: s.state === 'run' ? s.side : 'bar', k: 1 - s.t / s.T, thirst: s.thirst }, pour: g.pouring,
+    awake: g.box.wake >= 0, windA: g.box.windA, tok: g.tok.in ? 0 : g.tok.st, out: !!g.out, eyes: !!g.out && g.out.stage === 1,
+    call: !!g.call, intruder: !!g.intruder, crankA: g.crankA,
+  };
+}
+const yaw = () => (0.5 - g.pan) * 2 * S3.YAW;
 function drawCam() {
   const id = g.cam, cam = CAMS.find(k => k.id === id), s = g.sal, bx = g.box, blink = Math.sin(T * 8) > 0;
-  Art.drawRoom(c, id, T, { t: T, who: g.glitch ? [] : inRoom(id), thirst: s.thirst, pour: g.acting && id === 'bar' && s.state === 'bar', box: bx.v, awake: bx.wake >= 0, windA: bx.windA, tok: g.tok.in ? 0 : g.tok.st, seal: g.seal, glitch: g.glitch > 0 });
+  feedFx(c, T, g.glitch > 0);
   if (g.glitch > 0.15) tx('SIGNAL LOST', 640, 340, 30, '#fff', 'center');
   tx(`CAM ${cam.n}  ${cam.name}`, 30, 100, 18, '#e8f5e8');
   if (blink) { c.fillStyle = '#ff3b2f'; c.beginPath(); c.arc(40, 136, 8, 0, 7); c.fill(); } tx('REC', 58, 137, 14, '#e8f5e8');
@@ -333,27 +377,22 @@ function drawCam() {
     if (job.ok) { box(56, 570, 288, 66, g.acting ? job.col : 'rgba(40,60,50,.95)', 10); tx(job.btn, 200, 596, 14, g.acting ? '#111' : '#fff', 'center'); tx('or hold F', 200, 620, 9, g.acting ? '#111' : '#9ab', 'center'); R('act', 46, 560, 308, 86); }
     else tx(id === 'bar' ? 'HE IS COMING' : 'THEY ARE AWAKE', 200, 602, 15, blink ? '#ff3b2f' : '#fff', 'center');
   }
+  if (LURE[id]) { const rdy = g.lureCd <= 0; box(40, 444, 320, 46, rdy ? 'rgba(40,60,50,.95)' : 'rgba(0,0,0,.6)', 10); tx(rdy ? 'PLAY SOUND (L)' : `RECHARGING ${Math.ceil(g.lureCd)}`, 200, 468, 12, rdy ? '#fff' : '#889', 'center'); R('lure', 36, 438, 328, 58); }
 }
 
 function drawPlay() {
   subs.classList.toggle('cam', g.mon);
-  const o = g.out;
-  if (g.monT < 1) {
-    const aL = atDoor('L'), aR = atDoor('R');
-    const eyes = o && o.stage === 1 && Math.sin(T * 9) > -0.5;
-    Art.drawOffice(c, g.pan, {
-      t: T, dl: g.dl, dr: g.dr, doorL: g.doorL, doorR: g.doorR, lightL: g.lightL, lightR: g.lightR,
-      atL: eyes ? 'bing' : aL, atR: aR, eyesL: eyes || aL === 'bing', eyesR: aR === 'bing',
-      seal: g.seal, sv: g.sv, ventBot: g.tok.st === 3 && !g.tok.in, out: !!o, call: !!g.call,
-    });
-    if (o) { c.fillStyle = 'rgba(0,0,0,.86)'; c.fillRect(0, 0, W, H); if (eyes) { c.save(); c.beginPath(); c.rect(70 - g.pan, 150, 220, 490); c.clip(); Art.drawBot(c, 'bing', 180 - g.pan, 700, 1.35, { dark: 1, eyes: true }); c.restore(); } }
-    else {
-      if (g.intruder && Math.sin(T * 31) > 0.2) { c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(0, 0, W, H); }
-      const v = c.createRadialGradient(640, 380, 300, 640, 380, 900); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.8)'); c.fillStyle = v; c.fillRect(0, 0, W, H);
-      if (!g.mon) { const p = g.pan; R('doorL', 300 - p, 282, 100, 94); R('lightL', 300 - p, 376, 100, 96); R('doorR', 1360 - p, 282, 100, 94); R('lightR', 1360 - p, 376, 100, 96); R('seal', 983 - p, 0, 106, 140); }
-    }
+  const o = g.out, onCam = g.monT >= 0.5;
+  S3.render(onCam ? { type: 'cam', id: g.cam } : { type: 'office', yaw: yaw() }, sceneState(), T);
+  c.clearRect(0, 0, W, H);
+  if (onCam) { if (g.monT >= 1) drawCam(); else { const keep = regions; regions = []; drawCam(); regions = keep; } }
+  else {
+    const v = c.createRadialGradient(640, 380, 330, 640, 380, 900); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.7)'); c.fillStyle = v; c.fillRect(0, 0, W, H);
+    if (!g.mon) for (const b of S3.buttons()) { if (o && b.id !== 'crank') continue; R(b.id, b.x, b.y, b.w, b.h); }
+    if (o) { tx(g.cranked ? 'The breaker is dead.' : 'Generator dead. Hold the CRANK (G) to try a restart.', 640, H - 60, 13, '#cfd6d0', 'center'); if (o.charge && !g.cranked) { box(440, H - 40, 400, 16, '#111', 4); box(440, H - 40, 400 * Math.min(1, o.charge / 6), 16, '#e8b923', 4); } R('crank', 340, H - 90, 600, 90); }
   }
-  if (g.monT > 0) { c.save(); c.beginPath(); c.rect(0, H * (1 - g.monT), W, H); c.clip(); if (g.monT >= 1) drawCam(); else { const keep = regions; regions = []; drawCam(); regions = keep; } c.restore(); }
+  const fade = 1 - Math.abs(g.monT - 0.5) * 2;
+  if (g.monT > 0 && g.monT < 1) { c.fillStyle = `rgba(0,0,0,${fade * 0.9})`; c.fillRect(0, 0, W, H); staticFx(c, fade * 0.5, T); }
   // HUD
   const h = g.hour === 0 ? 12 : g.hour;
   tx(`${h} AM`, W - 24, 40, 30, '#fff', 'right'); tx(g.custom ? 'Custom Night' : `Night ${g.night}`, W - 24, 78, 13, '#cfd6d0', 'right');
@@ -366,6 +405,8 @@ function drawPlay() {
     tx(g.mon ? 'v  CLOSE CAMERAS  v' : '^  CAMERAS (SPACE)  ^', 640, H - 29, 12, '#fff', 'center');
     R('mon', 380, H - 62, 520, 62);
   }
+  if (g.perk.horn && !o) { box(20, 204, 190, 40, 'rgba(120,20,10,.75)', 8); tx('AIR HORN (H)', 115, 225, 11, '#fff', 'center'); R('horn', 14, 198, 202, 52); }
+  if (g.cranking && !o) tx('CRANKING  +POWER  (LOUD)', 640, H - 80, 12, '#e8b923', 'center');
   if (g.call) { box(20, 150, 190, 40, 'rgba(0,0,0,.6)', 8); tx('MUTE CALL', 115, 171, 12, '#fff', 'center'); R('mute', 14, 144, 202, 52); }
   if (g.box.wake >= 0) { const w = Math.sin(T * 12) > 0; box(380, 20, 520, 64, 'rgba(120,0,0,.75)', 10); tx(`THEY'RE AWAKE  0:${String(Math.ceil(g.box.wake)).padStart(2, '0')}`, 640, 53, 20, w ? '#fff' : '#ffb0a8', 'center'); }
 }
@@ -374,16 +415,16 @@ function frame(now) {
   const dt = Math.min(0.1, (now - (frame.last || now)) / 1000); frame.last = now; T += dt;
   c.setTransform(SS, 0, 0, SS, 0, 0);
   regions = [];
-  if (mode === 'menu') Art.drawTitle(c, T);
+  if (mode === 'menu' || mode === 'cert') { S3.render({ type: 'title' }, null, T); c.clearRect(0, 0, W, H); const gr = c.createLinearGradient(0, 0, 800, 0); gr.addColorStop(0, 'rgba(0,0,0,.9)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = gr; c.fillRect(0, 0, W, H); staticFx(c, 0.05, T); c.fillStyle = 'rgba(0,0,0,.25)'; for (let y = 0; y < H; y += 4) c.fillRect(0, y, W, 1); }
   else if (mode === 'intro') {
     if (!paused) intro += dt;
     c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
     tx('12:00 AM', 640, 320, 44, '#fff', 'center'); tx(g.custom ? 'Custom Night' : g.night === 6 ? 'Night 6: Overtime' : `Night ${g.night}`, 640, 390, 24, '#cfd6d0', 'center');
-    Art.staticFx(c, 0.08, T);
+    staticFx(c, 0.08, T);
     if (intro > 2.6) mode = 'play';
   } else if (mode === 'play') { if (!paused) update(dt); if (mode === 'play') drawPlay(); }
-  else if (mode === 'scare') { sc.t += dt; Art.drawScare(c, sc.who, sc.t); if (sc.t > 1.35) gameOver(); }
-  else if (mode === 'over') { c.fillStyle = '#000'; c.fillRect(0, 0, W, H); Art.staticFx(c, 0.22, T); }
+  else if (mode === 'scare') { sc.t += dt; S3.render({ type: 'scare', who: sc.who, t: sc.t, yaw: yaw() }, sceneState(), T); c.clearRect(0, 0, W, H); if (Math.sin(sc.t * 60) > 0.5) { c.fillStyle = 'rgba(255,0,0,.12)'; c.fillRect(0, 0, W, H); } staticFx(c, 0.07, T * 3); if (sc.t > 1.35) gameOver(); }
+  else if (mode === 'over') { c.fillStyle = '#000'; c.fillRect(0, 0, W, H); staticFx(c, 0.22, T); }
   else if (mode === 'dawn') {
     dawn += dt; c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
     const k = Math.max(0, Math.min(1, (dawn - 1.2) / 0.8));
@@ -405,15 +446,32 @@ function gameOver() {
 function nightWon() {
   const n = g.night;
   if (g.custom) return cert('Custom Night Cleared', 'Sean survived a night he built himself. Management is impressed, and a little worried.');
-  if (n < 5) { save.night = Math.max(save.night, n + 1); persist(); return startNight(n + 1); }
+  const won = 10 + n * 5 + Math.floor(Math.max(0, g.power) / 4); save.tickets += won;
+  if (n < 5) { save.night = Math.max(save.night, n + 1); persist(); return openShop(n + 1, `Night ${n} survived: +${won} tickets.`); }
   if (n === 5) { save.beat5 = true; save.night = 5; persist(); return cert('Employee of the Week', 'Awarded to SEAN for five nights at Bing\'s Arcade & Grill without being escorted off the premises. Night 6 and Custom Night are now open.'); }
   save.beat6 = true; persist(); cert('Promoted to Day Shift', 'SEAN worked the overtime shift nobody else would. He never has to see Bing after dark again. Probably.');
 }
+const ITEMS = [['battery', 'Spare Battery', 'start the shift with 115% power', 25], ['oil', 'Slow Spring', 'the music box unwinds 25% slower', 25], ['keg', 'Big Bottle', "Sal's bottle lasts 25% longer", 20], ['horn', 'Air Horn', 'press H once to blast everyone away from your doors', 30]];
+let shopNight = 1;
+function openShop(n, note) {
+  shopNight = n; mode = 'menu'; g = null; clearSubs(); subs.classList.remove('cam'); $('top').classList.remove('on');
+  const host = $('s-rows'); host.textContent = '';
+  $('s-tix').textContent = `${note ? note + ' ' : ''}You have ${save.tickets} tickets.`;
+  $('s-go').textContent = `Start Night ${n}`;
+  for (const [k, name, desc, cost] of ITEMS) {
+    const b = document.createElement('button'); b.className = 'mb'; const own = save.perks[k];
+    b.textContent = own ? `[READY] ${name} (click to return)` : `${name} - ${cost} tickets`;
+    const sm = document.createElement('small'); sm.textContent = '  ' + desc; b.appendChild(sm);
+    b.addEventListener('click', () => { if (own) { delete save.perks[k]; save.tickets += cost; } else if (save.tickets >= cost) { save.perks[k] = true; save.tickets -= cost; } else return; persist(); openShop(n, ''); });
+    host.appendChild(b);
+  }
+  show('shop');
+}
 function cert(title, body) { mode = 'cert'; $('w-title').textContent = title; $('w-text').textContent = body; show('win'); $('top').classList.remove('on'); }
 function menu() {
-  mode = 'menu'; g = null; paused = false; Au.hush(); Au.stopLoops();
+  mode = 'menu'; g = null; paused = false; Au.suspend(false); Au.hush(); Au.stopLoops();
   clearSubs(); subs.classList.remove('cam'); $('top').classList.remove('on');
-  $('m-night').textContent = `Night ${save.night}`;
+  $('m-night').textContent = `Night ${save.night}`; $('m-tix').textContent = `${save.tickets} tickets`;
   $('m-six').hidden = !save.beat5; $('m-custom').hidden = !save.beat5;
   show('menu'); labels();
 }
@@ -421,6 +479,7 @@ function pause(v) {
   paused = v; show(v ? 'pause' : null);
   if ('speechSynthesis' in window) v ? speechSynthesis.pause() : speechSynthesis.resume();
   if (v) Au.stopLoops();
+  Au.suspend(v);
 }
 function labels() {
   $('m-sound').textContent = `Sound: ${save.sound ? 'ON' : 'OFF'}`; $('m-subs').textContent = `Captions: ${save.subs ? 'ON' : 'OFF'}`;
@@ -434,6 +493,7 @@ const on = (id, fn) => $(id).addEventListener('click', e => { Au.init(); e.curre
 on('m-new', () => { save.night = 1; persist(); startNight(1); });
 on('m-cont', () => startNight(save.night));
 on('m-six', () => startNight(6));
+on('m-shop', () => openShop(save.night)); on('s-go', () => startNight(shopNight)); on('s-back', menu);
 on('m-help', () => show('help')); on('h-back', () => show('menu'));
 on('m-sound', toggleSound); on('m-subs', toggleSubs); on('t-sound', toggleSound); on('t-subs', toggleSubs);
 on('t-pause', () => { if (mode === 'play' || mode === 'intro') pause(!paused); });
@@ -456,11 +516,14 @@ on('c-go', () => { persist(); startNight(7, { ...save.custom }); });
 
 Au.setOn(save.sound);
 menu();
-requestAnimationFrame(frame);
+(document.fonts ? document.fonts.load('40px Bungee').catch(() => {}) : Promise.resolve()).then(() => {
+  try { S3.init($('gl')); requestAnimationFrame(frame); }
+  catch (e) { console.error(e); $('m-night').textContent = '3D graphics could not start on this device'; }
+});
 
 // Test hook: lets a script start nights and fast-forward time.
 window.__fnab = {
   get g() { return g; }, get sc() { return sc; }, get mode() { return mode; }, save, startNight, press, menu,
   ff(sec) { let n = 0; while (n < sec && mode === 'play') { update(0.05); n += 0.05; } return mode; },
-  play() { if (mode === 'intro') mode = 'play'; }, hold(v) { keys.f = v; },
+  play() { if (mode === 'intro') mode = 'play'; }, hold(v) { keys.f = v; }, crank(v) { keys.g = v; }, lure, horn, openShop,
 };

@@ -45,7 +45,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .cert h2 { font-size: 3.2cqw; color: #7a1f2b; } .cert p { color: #2a2018; margin: 1cqw auto 0; }
 #custom label { display: grid; grid-template-columns: 16cqw 30cqw 4cqw; align-items: center; gap: 1.5cqw; font-family: 'Press Start 2P'; font-size: 1.2cqw; }
 #custom input { accent-color: #9dff3a; }
-#help p { font-size: 1.5cqw; max-width: 80cqw; }
+#help p { font-size: 1.35cqw; max-width: 84cqw; } #help { gap: .8cqw; }
 #help b { color: #9dff3a; }
 #rot { display: none; position: fixed; inset: 0; background: #000; z-index: 9; place-items: center; text-align: center; font-family: 'Press Start 2P'; font-size: 14px; line-height: 2; padding: 20px; }
 @media (orientation: portrait) and (max-width: 700px) { #rot { display: grid; } }
@@ -53,6 +53,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 </head>
 <body>
 <div id="wrap"><div id="stage">
+  <canvas id="gl" width="1280" height="720"></canvas>
   <canvas id="cv" width="1280" height="720"></canvas>
   <div id="top">
     <button id="t-sound" title="Sound (M)">SND</button>
@@ -67,6 +68,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     <button class="mb" id="m-cont">Continue <small id="m-night">Night 1</small></button>
     <button class="mb" id="m-six" hidden>Night 6 <small>overtime</small></button>
     <button class="mb" id="m-custom" hidden>Custom Night</button>
+    <button class="mb" id="m-shop">Prize Counter <small id="m-tix"></small></button>
     <button class="mb" id="m-help">How to play</button>
     <div class="row">
       <button class="mb" id="m-sound">Sound: ON</button>
@@ -82,6 +84,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     <p><b>Music box:</b> on the Prize Corner camera hold WIND (or F). If it stops, Lana and Laith wake up and you have 15 seconds left.</p>
     <p><b>Sal:</b> on the Bar camera hold POUR (or F) to keep his bottle full. If it runs dry he runs at you: shut the door on his side.</p>
     <p><b>Vent:</b> W (or the blue button) seals the vent over the desk when Mr. Tokens crawls close.</p>
+    <p><b>New:</b> hold the <b>CRANK</b> on the desk (or G) to make power by hand. It is loud: everyone moves faster while you crank. Once a night it can restart a dead generator. On the cameras, <b>PLAY SOUND</b> (L) lures a robot back toward that room, but it bothers the twins.</p>
     <p>Every sound has a caption, so you can play with the sound off. M = sound, C = captions.</p>
     <button class="mb" id="h-back">Back</button>
   </div>
@@ -90,6 +93,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
     <h2>Custom Night</h2>
     <div id="c-rows" style="display:grid;gap:1cqw"></div>
     <div class="row"><button class="mb" id="c-go">Start</button><button class="mb" id="c-max">All 20</button><button class="mb" id="c-back">Back</button></div>
+  </div>
+
+  <div class="screen" id="shop" style="background:rgba(0,0,0,.86)">
+    <h2>Prize Counter</h2>
+    <p>Trade tickets for one-shift helpers. They are used up on your next shift. <b id="s-tix" style="color:#ffd23a"></b></p>
+    <div id="s-rows" style="display:grid;gap:.2cqw"></div>
+    <div class="row"><button class="mb" id="s-go">Start</button><button class="mb" id="s-back">Menu</button></div>
   </div>
 
   <div class="screen" id="pause" style="background:rgba(0,0,0,.8);align-items:center">
@@ -114,6 +124,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   </div>
 </div></div>
 <div id="rot">Turn your phone sideways<br />to start your shift.</div>
+<script type="importmap">{ "imports": { "three": "../../lib/three.module.min.js" } }</script>
 <script type="module" src="js/game.js"></script>
 </body>
 </html>
