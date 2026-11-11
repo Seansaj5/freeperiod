@@ -1495,3 +1495,9 @@ button.cx-cat:hover, button.cx-cat:focus-visible { color: var(--cx-text); }
 :root[data-theme="space"] .cx-app.server .cx-srv::after { background: linear-gradient(180deg, transparent 30%, rgba(0, 0, 0, 0.4)); }
 :root[data-theme="space"] .cx-rail-btn.server { background: radial-gradient(circle at 30% 25%, rgb(var(--lime-rgb) / 0.22), transparent 60%), radial-gradient(circle at 80% 85%, rgb(var(--cyan-rgb) / 0.2), transparent 60%), #05060a; }
 :root[data-theme="space"] .cx-rail-btn.server:hover, :root[data-theme="space"] .cx-rail-btn.server.on { background: radial-gradient(circle at 30% 25%, rgb(var(--lime-rgb) / 0.3), transparent 60%), radial-gradient(circle at 80% 85%, rgb(var(--cyan-rgb) / 0.28), transparent 60%), #05060a; }
+
+/* Minimal (themes.css): the server is plain too, no aurora, no motion: the same flat gray DMs use. */
+:root[data-theme="minimal"] .cx-app.server .cx-main::before, :root[data-theme="minimal"] .cx-app.server .cx-main::after,
+:root[data-theme="minimal"] .cx-app.server .cx-srv::before, :root[data-theme="minimal"] .cx-app.server .cx-srv::after { content: none; background: none; animation: none; }
+:root[data-theme="minimal"] .cx-app.server .cx-head { background: #313338; }
+:root[data-theme="minimal"] .cx-rail-btn.server { background: #1e1f22; }
