@@ -110,7 +110,7 @@ function sb() {
   return c;
 }
 const meNow = () => (seam && seam.me ? seam.me() : sessionMe());
-const myId = () => { const m = meNow(); return (m && m.id) || null; };
+export const myId = () => { const m = meNow(); return (m && m.id) || null; };
 const needMe = () => { const id = myId(); if (!id) throw fail('not_allowed'); return id; };
 const tkey = (t) => (t && t.dm ? 'd:' + t.dm : 'c:' + (t && t.channel));
 const keyOfRow = (m) => (m.dm_id ? 'd:' + m.dm_id : 'c:' + m.channel_id);
@@ -634,6 +634,60 @@ export function typing(target) {
       r.onTyping.delete(onMsg);
       releaseRoom(r);
     },
+  };
+}
+
+// ---------- realtime: voice (voice.js) ----------
+// The voice engine's own private channels, never shared with the chat app's rooms above (the app pauses those when the
+// in-game overlay closes; voice keeps going): chat:voice (presence, key = my user id) and chat:voice:<id> (broadcast
+// signaling). The last tracked payload is tracked again after every rejoin. onStatus: 'SUBSCRIBED', 'CHANNEL_ERROR',
+// 'TIMED_OUT', 'CLOSED' (a fresh channel follows in 2 s), or 'unauthorized' (refused: stopped for good).
+// onBroadcast(event, payload) for every broadcast event.
+export function voiceChannel(topic, { presenceKey = '', onSync, onBroadcast, onStatus } = {}) {
+  const c = sb();
+  const h = { ch: null, ready: false, dead: false, tracked: null };
+  const status = (s) => { if (onStatus) { try { onStatus(s); } catch (e) { console.error(e); } } };
+  const connect = () => (leaving.get(topic) || Promise.resolve()).then(() => {
+    if (h.dead) return;
+    const ch = c.channel(topic, { config: { private: true, broadcast: { self: false }, presence: { key: presenceKey } } });
+    h.ch = ch;
+    const mine = () => !h.dead && h.ch === ch;
+    if (onSync) ch.on('presence', { event: 'sync' }, () => { if (mine()) onSync(); });
+    if (onBroadcast) ch.on('broadcast', { event: '*' }, (msg) => { if (mine() && msg) onBroadcast(msg.event, msg.payload); });
+    ch.subscribe((s, err) => {
+      if (!mine()) return;
+      if (s === 'SUBSCRIBED') {
+        h.ready = true;
+        const before = h.tracked;
+        status(s); // first: the caller may track something newer here (then that one went out already)
+        if (h.tracked && h.tracked === before) ch.track(h.tracked).catch(() => {});
+        return;
+      }
+      h.ready = false;
+      if (s === 'CHANNEL_ERROR' && err && /unauthori[sz]ed|permission/i.test(String(err.message || err))) { stop(); status('unauthorized'); return; }
+      if (s === 'CLOSED') {
+        const p = c.removeChannel(ch).catch(() => {}).then(() => { if (leaving.get(topic) === p) leaving.delete(topic); });
+        leaving.set(topic, p);
+        setTimeout(() => { if (mine()) { h.ch = null; connect(); } }, 2000);
+      }
+      status(s);
+    });
+  });
+  function stop() {
+    if (h.dead) return;
+    h.dead = true;
+    h.ready = false;
+    if (!h.ch) return;
+    const p = c.removeChannel(h.ch).catch(() => {}).then(() => { if (leaving.get(topic) === p) leaving.delete(topic); });
+    leaving.set(topic, p);
+  }
+  connect();
+  return {
+    track(payload) { h.tracked = payload; return h.ready && !h.dead ? h.ch.track(payload) : Promise.resolve('later'); },
+    untrack() { h.tracked = null; return h.ready && !h.dead ? h.ch.untrack() : Promise.resolve('ok'); },
+    send(event, payload) { return h.ready && !h.dead ? h.ch.send({ type: 'broadcast', event, payload }) : Promise.resolve('not_joined'); },
+    presenceState() { return (h.ch && !h.dead && h.ch.presenceState()) || {}; },
+    stop,
   };
 }
 
