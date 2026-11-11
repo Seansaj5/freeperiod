@@ -1,7 +1,10 @@
-// What every hub page shares: the accent, the header (account chip, Messages in the nav, the clock, the glass that firms
+// What every hub page shares: the accent and theme (+ the palette and sound buttons), the header (account chip, Messages in the nav, the clock, the glass that firms
 // up on scroll, the Trophies dot), the ambient background, and on pages other than home a search box that opens the home
 // page filtered (./?q=...).
-import { applyAccent } from './theme.js';
+import { applyAccent, applyTheme, getSounds, setSounds, onPrefs } from './theme.js';
+import { h } from './ui.js';
+import { icon } from './icons.js';
+import { openThemeSheet } from './theme-sheet.js';
 import { mountAccount } from './account-ui.js';
 import { mountChatButton } from './chat/button.js';
 import { startAmbient } from './ambient.js';
@@ -18,9 +21,24 @@ function tick() {
   if (m) m.textContent = moodOf(d);
 }
 
+/** The palette button (opens the Themes sheet) and the speaker button (sounds on/off), left of the account chip. */
+function mountThemeButtons() {
+  const slot = $('account');
+  if (!slot || !slot.parentNode || document.querySelector('.fp-hdr-tools')) return;
+  const themeBtn = h('button', { type: 'button', class: 'fp-theme-btn', 'aria-label': 'Themes', title: 'Themes', onclick: openThemeSheet }, icon('palette'));
+  const sfxBtn = h('button', { type: 'button', class: 'fp-sfx-btn', 'aria-label': 'Sounds', title: 'Sounds', 'aria-pressed': 'true', onclick: () => setSounds(!getSounds()) },
+    icon('speaker', 'ic-on'), icon('speakerOff', 'ic-off'));
+  const sync = () => sfxBtn.setAttribute('aria-pressed', String(getSounds()));
+  sync();
+  onPrefs(sync);
+  slot.parentNode.insertBefore(h('div', { class: 'fp-hdr-tools' }, themeBtn, sfxBtn), slot);
+}
+
 /** search: 'home' (the page filters its own grid) or 'link' (Enter opens ./?q=). */
 export function mountShell({ search = 'link' } = {}) {
   applyAccent();
+  applyTheme();
+  mountThemeButtons();
   mountAccount($('account'));
   mountChatButton($('chat-btn')); // stays hidden (and loads nothing) until chat is set up
   tick();

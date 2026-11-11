@@ -1,0 +1,60 @@
+/* Site themes. Loads after style.css / ui.css / hub.css. Four token sets: neon (today's look, the default), aero (Night Aero),
+   space (Deep Space), minimal. A set applies to <html data-theme="x"> AND to any element that carries data-theme="x" (the
+   mini previews in the Themes sheet). Every theme restates every token, so a preview never inherits the page's values.
+   Tokens: --bg --bg-2 --panel --panel-2 --line --line-2 --text --soft --muted --lime (accent) --lime-rgb --cyan (second color)
+   --cyan-rgb --radius --shadow --font-ui --font-display --btn-bg --btn-text (plus --card, --lime-hi, --lime-lo).
+   Existing token names keep working. A data-accent chosen on <html> overrides only the accent (last block of this file).
+   Decorations (backgrounds, glass, bubbles, stars) come later and live under [data-theme="x"] selectors. */
+
+:root[data-theme="neon"], [data-theme="neon"] {
+  --bg: #05070c; --bg-2: #0a1220; --panel: #0c111c; --panel-2: #131a2a;
+  --line: rgba(255, 255, 255, 0.08); --line-2: rgba(255, 255, 255, 0.15);
+  --text: #eef2ff; --soft: #c3cbe0; --muted: #8b94ad;
+  --lime: #c6ff3d; --lime-rgb: 198 255 61; --cyan: #3de0ff; --cyan-rgb: 61 224 255;
+  --lime-hi: color-mix(in srgb, var(--lime) 72%, #fff); --lime-lo: color-mix(in srgb, var(--lime) 80%, var(--cyan));
+  --card: linear-gradient(180deg, #0f1522, #0a0e17);
+  --radius: 20px; --shadow: 0 12px 40px -24px #000;
+  --font-ui: 'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif; --font-display: 'Bungee', 'Outfit', sans-serif;
+  --btn-bg: var(--lime); --btn-text: #0a0f05;
+}
+:root[data-theme="aero"], [data-theme="aero"] {
+  --bg: #04122b; --bg-2: #0a2f5c; --panel: #0b2347; --panel-2: #11315f;
+  --line: rgba(140, 220, 255, 0.18); --line-2: rgba(160, 230, 255, 0.34);
+  --text: #eaf6ff; --soft: #bcd6ee; --muted: #86a8c8;
+  --lime: #4fd8ff; --lime-rgb: 79 216 255; --cyan: #7ea8ff; --cyan-rgb: 126 168 255;
+  --lime-hi: color-mix(in srgb, var(--lime) 72%, #fff); --lime-lo: color-mix(in srgb, var(--lime) 80%, var(--cyan));
+  --card: linear-gradient(180deg, #11315f, #0b2347);
+  --radius: 22px; --shadow: 0 14px 36px -18px rgba(0, 30, 80, 0.85);
+  --font-ui: 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif; --font-display: 'Nunito', system-ui, sans-serif;
+  --btn-bg: linear-gradient(180deg, #9aedff, #2fb0ea); --btn-text: #04223f;
+}
+:root[data-theme="space"], [data-theme="space"] {
+  --bg: #000000; --bg-2: #05060d; --panel: #07080f; --panel-2: #0d0f1a;
+  --line: rgba(150, 190, 255, 0.16); --line-2: rgba(170, 205, 255, 0.3);
+  --text: #f1f3fb; --soft: #c2c8dc; --muted: #8189a3;
+  --lime: #ffb84a; --lime-rgb: 255 184 74; --cyan: #8fd3ff; --cyan-rgb: 143 211 255;
+  --lime-hi: color-mix(in srgb, var(--lime) 72%, #fff); --lime-lo: color-mix(in srgb, var(--lime) 80%, var(--cyan));
+  --card: linear-gradient(180deg, #0a0c16, #05060d);
+  --radius: 14px; --shadow: 0 0 0 1px rgba(150, 190, 255, 0.1), 0 10px 40px -20px rgba(143, 211, 255, 0.35);
+  --font-ui: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif; --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --btn-bg: var(--lime); --btn-text: #1a0f00;
+}
+:root[data-theme="minimal"], [data-theme="minimal"] {
+  --bg: #0d0d0f; --bg-2: #0d0d0f; --panel: #121215; --panel-2: #18181c;
+  --line: #26262b; --line-2: #34343b;
+  --text: #ececee; --soft: #c4c4ca; --muted: #8a8a92;
+  --lime: #e8e8ea; --lime-rgb: 232 232 234; --cyan: #a0a0a8; --cyan-rgb: 160 160 168;
+  --lime-hi: color-mix(in srgb, var(--lime) 72%, #fff); --lime-lo: color-mix(in srgb, var(--lime) 80%, var(--cyan));
+  --card: #121215;
+  --radius: 8px; --shadow: none;
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; --font-display: 'Inter', system-ui, sans-serif;
+  --btn-bg: var(--lime); --btn-text: #0d0d0f;
+}
+:root[data-theme="minimal"] :focus-visible { outline-color: #c6ff3d; }
+
+/* A chosen accent overrides only the accent (and its second color), in every theme. Same values as style.css, restated here
+   because the theme blocks above come later and would otherwise win. */
+:root[data-accent="cyan"] { --lime: #3de0ff; --lime-rgb: 61 224 255; --cyan: #5dffc0; --cyan-rgb: 93 255 192; }
+:root[data-accent="pink"] { --lime: #ff6ad5; --lime-rgb: 255 106 213; --cyan: #3de0ff; --cyan-rgb: 61 224 255; }
+:root[data-accent="orange"] { --lime: #ffa23d; --lime-rgb: 255 162 61; --cyan: #ffd84a; --cyan-rgb: 255 216 74; }
+:root[data-accent="violet"] { --lime: #a98bff; --lime-rgb: 169 139 255; --cyan: #3de0ff; --cyan-rgb: 61 224 255; }

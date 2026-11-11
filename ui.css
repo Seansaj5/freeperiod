@@ -332,3 +332,63 @@ body:has(.cx-ed-foot) .fp-toasts { bottom: 96px; }
   .fp-streak { padding: 2px 6px 2px 5px; font-size: 12px; }
 }
 .st-nb { white-space: nowrap; color: var(--text); }
+
+/* ---------- header theme + sound buttons (fp/shell.js) ---------- */
+.fp-hdr-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+.fp-theme-btn, .fp-sfx-btn {
+  display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 50%; cursor: pointer; color: var(--muted);
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.fp-theme-btn:hover, .fp-sfx-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.07); border-color: var(--line-2); }
+.fp-theme-btn:focus-visible, .fp-sfx-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.fp-theme-btn .ic, .fp-sfx-btn .ic { width: 19px; height: 19px; }
+.fp-sfx-btn[aria-pressed="true"] { color: var(--lime); }
+.fp-sfx-btn .ic-off { display: none; }
+.fp-sfx-btn[aria-pressed="false"] .ic-on { display: none; }
+.fp-sfx-btn[aria-pressed="false"] .ic-off { display: block; }
+
+/* ---------- Themes sheet (fp/theme-sheet.js) ---------- */
+.fp-theme-sheet .fp-sheet-body { gap: 18px; }
+.fp-theme-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.fp-theme-pick {
+  display: grid; gap: 8px; padding: 8px; margin: 0; text-align: left; cursor: pointer; border-radius: 16px;
+  border: 2px solid var(--line); background: rgba(255, 255, 255, 0.02); transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.fp-theme-pick:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.fp-theme-pick[aria-pressed="true"] { border-color: var(--lime); box-shadow: 0 0 0 3px rgb(var(--lime-rgb) / 0.18); }
+.fp-theme-pick:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.fp-theme-name { font-weight: 700; font-size: 14.5px; padding: 0 4px 2px; }
+/* the preview: a tiny page drawn only with the tokens of its own data-theme */
+.fp-tp {
+  position: relative; display: grid; grid-template-rows: 12px 1fr; gap: 6px; height: 92px; padding: 8px; overflow: hidden;
+  border-radius: calc(var(--radius) * 0.55); border: 1px solid var(--line);
+  background: linear-gradient(160deg, var(--bg-2), var(--bg)); color: var(--text); font-family: var(--font-ui);
+}
+.fp-tp-bar { display: flex; align-items: center; gap: 4px; }
+.fp-tp-bar i { width: 7px; height: 7px; border-radius: 50%; background: var(--lime); }
+.fp-tp-bar b { flex: 1; height: 5px; border-radius: 3px; background: var(--line-2); }
+.fp-tp-card {
+  display: grid; align-content: space-between; padding: 7px; border-radius: calc(var(--radius) * 0.4);
+  background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.fp-tp-card span { font: 700 11px/1.1 var(--font-display); color: var(--text); }
+.fp-tp-card em { display: block; width: 46px; height: 14px; border-radius: 999px; background: var(--btn-bg); }
+.fp-theme-sec { display: grid; gap: 8px; }
+.fp-theme-sec h3 { margin: 0; font: 700 12px 'Outfit', sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.fp-theme-sheet .fp-swatches { gap: 10px; }
+.fp-pref { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; font-weight: 600; font-size: 14.5px; }
+.fp-pref small { display: block; margin-top: 2px; font-weight: 500; font-size: 12.5px; color: var(--muted); }
+.fp-switch {
+  position: relative; flex: none; width: 46px; height: 26px; padding: 0; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line-2); background: rgba(255, 255, 255, 0.08); transition: background 0.15s, border-color 0.15s;
+}
+.fp-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--text); transition: transform 0.15s var(--ease); }
+.fp-switch[aria-checked="true"] { background: rgb(var(--lime-rgb) / 0.35); border-color: var(--lime); }
+.fp-switch[aria-checked="true"]::after { transform: translateX(20px); background: var(--lime); }
+.fp-switch:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+@media (max-width: 420px) { .fp-theme-grid { gap: 8px; } .fp-tp { height: 78px; } }
+/* phones: the header row is full, so only the palette button stays (the Sounds switch is in the sheet) */
+@media (max-width: 760px) { .fp-hdr-tools { margin-left: auto; } .fp-hdr-tools + .account-slot { margin-left: 0; } .fp-sfx-btn { display: none; } .fp-theme-btn { width: 36px; height: 36px; } }
+.fp-me-theme-link { padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.fp-me-theme-link:hover { color: var(--lime); }
+.fp-me-theme-link:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: 6px; }

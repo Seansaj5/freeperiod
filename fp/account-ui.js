@@ -11,6 +11,7 @@ import { icon } from './icons.js';
 import { openInbox } from './inbox.js';
 import { getStreak, peekStreak, bestBadge, onStreak } from './streak.js';
 import { ACCENTS, getAccent, setAccent, onAccent } from './theme.js';
+import { openThemeSheet } from './theme-sheet.js';
 import { chatConfigured, chatKit } from './chat-profile.js';
 import { chipModel, statusPatch, unreadDMs, countLabel, STATUS_PRESETS, STATUS_EMOJI, STATUS_TEXT_MAX } from './account-model.js';
 import { TROPHIES } from './trophies.js';
@@ -247,7 +248,7 @@ export function mountAccount(el, { live = !!(document.body && document.body.clas
     const cur = getAccent();
     return h('div', { class: 'fp-me-theme' },
       h('span', { class: 'fp-me-ic', 'aria-hidden': 'true' }, icon('palette')),
-      h('span', { class: 'fp-me-label', id: 'fp-me-theme-l', text: 'Theme' }),
+      h('button', { type: 'button', class: 'fp-me-label fp-me-theme-link', id: 'fp-me-theme-l', title: 'All themes', onclick: () => { closeCard(); openThemeSheet(); } }, 'Theme'),
       h('div', { class: 'fp-swatches', role: 'radiogroup', 'aria-labelledby': 'fp-me-theme-l' }, ACCENTS.map((a) =>
         h('button', { type: 'button', class: 'fp-swatch' + (a.id === cur ? ' on' : ''), role: 'radio', 'aria-checked': a.id === cur ? 'true' : 'false',
           'aria-label': a.label, title: a.label, style: `--sw:${a.color};--sw2:${a.second}`,

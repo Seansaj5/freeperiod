@@ -1,6 +1,8 @@
 // Accent theme: five accents for the hub's chrome (buttons, glows, chips, the logo). Saved per device (fp.accent) and
 // put on <html data-accent> (style.css swaps --lime / --cyan and their rgb triplets). Game posters and each game's own
 // accent never change. fp/theme-boot.js applies the saved one before the first paint.
+// Also the whole-site theme (neon, aero, space, minimal: fp.theme -> <html data-theme>), the effects switch (fp.fx ->
+// <html data-fx>) and the sounds switch (fp.sfx). themes.css owns what each theme looks like.
 import * as store from './store.js';
 
 export const ACCENTS = Object.freeze([
@@ -18,7 +20,11 @@ export function cleanAccent(id) { return ACCENTS.some((a) => a.id === id) ? id :
 export function getAccent() { return cleanAccent(store.get(KEY)); }
 
 const listeners = new Set();
+const prefListeners = new Set();
 export function onAccent(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+/** Fires (no arguments) after any of theme / accent / effects / sounds changes, here or in another tab. */
+export function onPrefs(fn) { prefListeners.add(fn); return () => prefListeners.delete(fn); }
+function firePrefs() { for (const fn of [...prefListeners]) { try { fn(); } catch { /* ignore */ } } }
 
 /** Puts the accent on <html> (lime = no attribute, the stylesheet default). */
 export function applyAccent(id = getAccent()) {
@@ -32,7 +38,69 @@ export function setAccent(id) {
   if (a === DEFAULT_ACCENT) store.del(KEY); else store.set(KEY, a);
   applyAccent(a);
   for (const fn of [...listeners]) { try { fn(a); } catch { /* ignore */ } }
+  firePrefs();
   return a;
 }
+
+// ---------- whole-site theme ----------
+export const THEMES = Object.freeze([
+  Object.freeze({ id: 'neon', name: 'Neon' }),
+  Object.freeze({ id: 'aero', name: 'Night Aero' }),
+  Object.freeze({ id: 'space', name: 'Deep Space' }),
+  Object.freeze({ id: 'minimal', name: 'Minimal' }),
+]);
+export const DEFAULT_THEME = 'neon';
+const THEME_KEY = 'fp.theme', FX_KEY = 'fp.fx', SFX_KEY = 'fp.sfx';
+// Blocked storage: a write that fails is remembered for this page only.
+const session = {};
+function put(key, value, isDefault) {
+  const ok = value == null ? (store.del(key), true) : store.set(key, value);
+  if (ok && isDefault) store.del(key);
+  session[key] = ok ? undefined : value;
+}
+function read(key) { const v = store.get(key); return v != null ? v : session[key]; }
+
+/** A known theme id, or neon. */
+export function cleanTheme(id) { return THEMES.some((t) => t.id === id) ? id : DEFAULT_THEME; }
+export function getTheme() { return cleanTheme(read(THEME_KEY)); }
+/** Effects: an explicit fp.fx wins; otherwise on, except in Minimal. Changing the theme never writes fp.fx. */
+export function getEffects() {
+  const v = read(FX_KEY);
+  if (v === 'on') return true;
+  if (v === 'off') return false;
+  return getTheme() !== 'minimal';
+}
+export function getSounds() { return read(SFX_KEY) !== 'off'; }
+
+const themeListeners = new Set();
+export function onTheme(fn) { themeListeners.add(fn); return () => themeListeners.delete(fn); }
+
+/** Puts data-theme and data-fx on <html> (neon is a real attribute value, not the absence of one). */
+export function applyTheme(id = getTheme()) {
+  const t = cleanTheme(id), root = globalThis.document && document.documentElement;
+  if (!root) return t;
+  root.setAttribute('data-theme', t);
+  root.setAttribute('data-fx', getEffects() ? 'on' : 'off');
+  return t;
+}
+export function setTheme(id) {
+  const t = cleanTheme(id);
+  put(THEME_KEY, t, t === DEFAULT_THEME);
+  applyTheme(t);
+  for (const fn of [...themeListeners]) { try { fn(t); } catch { /* ignore */ } }
+  firePrefs();
+  return t;
+}
+export function setEffects(on) {
+  put(FX_KEY, on ? 'on' : 'off', false);
+  applyTheme();
+  firePrefs();
+  return !!on;
+}
+export function setSounds(on) {
+  put(SFX_KEY, on ? null : 'off', false);
+  firePrefs();
+  return !!on;
+}
 // Another tab picked an accent: follow it.
-try { if (typeof addEventListener === 'function') addEventListener('storage', (e) => { if (e.key === KEY || e.key === null) { const a = applyAccent(); for (const fn of [...listeners]) { try { fn(a); } catch { /* ignore */ } } } }); } catch { /* no window */ }
+try { if (typeof addEventListener === 'function') addEventListener('storage', (e) => { if (e.key === KEY || e.key === THEME_KEY || e.key === FX_KEY || e.key === SFX_KEY || e.key === null) { const a = applyAccent(); applyTheme(); for (const fn of [...listeners]) { try { fn(a); } catch { /* ignore */ } } for (const fn of [...themeListeners]) { try { fn(getTheme()); } catch { /* ignore */ } } firePrefs(); } }); } catch { /* no window */ }
