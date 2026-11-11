@@ -50,7 +50,7 @@ export const THEMES = Object.freeze([
   Object.freeze({ id: 'neon', name: 'Neon', ready: true }),
   Object.freeze({ id: 'aero', name: 'Night Aero', ready: true }),
   Object.freeze({ id: 'space', name: 'Deep Space', ready: true }),
-  Object.freeze({ id: 'minimal', name: 'Minimal', ready: false }),
+  Object.freeze({ id: 'minimal', name: 'Minimal', ready: true }),
 ]);
 /** The themes people can pick (the picker shows these; the rest are still being built). */
 export function readyThemes() { return THEMES.filter((t) => t.ready); }

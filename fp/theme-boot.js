@@ -9,7 +9,7 @@ try {
 try {
   var fpTheme = localStorage.getItem('fp.theme');
   var fpFx = localStorage.getItem('fp.fx');
-  var fpT = /^(aero|space)$/.test(fpTheme || '') ? fpTheme : 'neon';
+  var fpT = /^(aero|space|minimal)$/.test(fpTheme || '') ? fpTheme : 'neon';
   var fpTC = { neon: '#05070c', aero: '#16335e', space: '#000000', minimal: '#0d0d0f' };
   document.documentElement.setAttribute('data-theme', fpT);
   document.documentElement.setAttribute('data-fx', fpFx === 'on' || (fpFx !== 'off' && fpT !== 'minimal') ? 'on' : 'off');

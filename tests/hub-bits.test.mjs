@@ -74,6 +74,7 @@ test('ambient mode: by theme, nothing with Effects off, a still frame for Night 
   assert.equal(ambientMode({ theme: 'aero', fx: true, reduce: true }), 'aero-still');
   assert.equal(ambientMode({ theme: 'space', fx: true, reduce: false }), 'space');
   assert.equal(ambientMode({ theme: 'space', fx: true, reduce: true }), 'space-still');
+  for (const reduce of [false, true]) assert.equal(ambientMode({ theme: 'minimal', fx: true, reduce }), null, 'minimal draws nothing, even with Effects on');
   for (const theme of ['neon', 'aero', 'space', 'minimal']) {
     for (const reduce of [false, true]) assert.equal(ambientMode({ theme, fx: false, reduce }), null, theme);
   }

@@ -52,9 +52,9 @@ export function stepOrbs(orbs, dt, w, h) {
 }
 
 /** Which background runs: 'orbs', 'aero' / 'space' ('aero-still' / 'space-still' with reduced motion: one still frame) or
- *  null (nothing). Pure: tested. */
+ *  null (nothing; always for minimal). Pure: tested. */
 export function ambientMode({ theme, fx, reduce }) {
-  if (!fx) return null;
+  if (!fx || theme === 'minimal') return null;      // Minimal: no ambient background at all, whatever the Effects switch says
   if (theme === 'aero') return reduce ? 'aero-still' : 'aero';
   if (theme === 'space') return reduce ? 'space-still' : 'space';
   return reduce ? null : 'orbs';

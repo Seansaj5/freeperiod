@@ -18,7 +18,7 @@ test('THEMES order and names', () => {
   assert.equal(T.DEFAULT_THEME, 'neon');
   assert.ok(Object.isFrozen(T.THEMES));
   for (const t of T.THEMES) assert.equal(typeof t.ready, 'boolean', t.id);
-  assert.ok(isReady('neon') && isReady('aero') && isReady('space'), 'neon, Night Aero and Deep Space ship');
+  assert.ok(isReady('neon') && isReady('aero') && isReady('space') && isReady('minimal'), 'all four themes ship');
 });
 
 test('cleanTheme falls back to neon', () => {
