@@ -832,8 +832,10 @@
 :root[data-theme="minimal"] body { font-family: var(--font-ui); background: var(--bg); }
 
 /* no glow, no text glow, no drop shadows: a neon glow anywhere loses to this */
-:root[data-theme="minimal"] :is(*, *::before, *::after) { text-shadow: none !important; box-shadow: none !important; }
-:root[data-theme="minimal"] :is(.fp-me, .fp-sheet, .fp-toast, .tr-toast, .car-ctrl, .fp-menu, [role="menu"], [role="dialog"]) { box-shadow: var(--mn-elev) !important; }
+/* The chat app (.cx, its popups, pickers, sheets and the in-game overlay .fpco-*) keeps its own Discord look in every theme, so the kill skips it.
+   Any ring or active-state indicator that is made of a shadow must go in this exemption list. */
+:root[data-theme="minimal"] :is(*:not(:is(.cx, .cx *, .cx-host *, .cx-pop, .cx-pop *, .cx-menu, .cx-menu *, .cx-sheet, .cx-sheet *, [class*="cx-pk"], [class*="cx-pk"] *, [class*="fpco"], [class*="fpco"] *)), *:not(:is(.cx, .cx *, .cx-host *, .cx-pop, .cx-pop *, .cx-menu, .cx-menu *, .cx-sheet, .cx-sheet *, [class*="cx-pk"], [class*="cx-pk"] *, [class*="fpco"], [class*="fpco"] *))::before, *:not(:is(.cx, .cx *, .cx-host *, .cx-pop, .cx-pop *, .cx-menu, .cx-menu *, .cx-sheet, .cx-sheet *, [class*="cx-pk"], [class*="cx-pk"] *, [class*="fpco"], [class*="fpco"] *))::after) { text-shadow: none !important; box-shadow: none !important; }
+:root[data-theme="minimal"] :is(.fp-me, .fp-sheet:not(.cx-sheet), .fp-toast, .tr-toast, .car-ctrl, .fp-menu, [role="menu"], [role="dialog"]) { box-shadow: var(--mn-elev) !important; }
 :root[data-theme="minimal"] .cx-av-dot { box-shadow: 0 0 0 2px var(--bg) !important; }
 :root[data-theme="minimal"] :is(.hero h1, .hero .hero-title, .btn-play, .lb-hero h1, .page-head h1) { filter: none; }
 
@@ -906,7 +908,7 @@
 
 /* ---------- panels and cards: flat fills, hairline borders, 8 px corners ---------- */
 :root[data-theme="minimal"] :is(.hp, .lb-panel, .pf-sec, .pf-card, .fp-suggest, .tro-summary, .card, .tile, .tro-card, .tp-card, .lb-tab, .fn-tile, .st-card,
-  .page-note, .lb-pod, .lb-row, .tp-row, .fp-stat, .pf-stat, .tt-case, .fp-sec, .fp-item, .tro-stat, .hero, .fp-me, .fp-sheet, .fp-toast, .tr-toast, .live-strip-wrap) {
+  .page-note, .lb-pod, .lb-row, .tp-row, .fp-stat, .pf-stat, .tt-case, .fp-sec, .fp-item, .tro-stat, .hero, .fp-me, .fp-sheet:not(.cx-sheet), .fp-toast, .tr-toast, .live-strip-wrap) {
   background: var(--panel); border-color: var(--mn-line); border-radius: 8px;
 }
 :root[data-theme="minimal"] :is(.hp, .lb-panel, .pf-sec, .fp-suggest, .tro-summary) { padding: 24px; }
@@ -949,7 +951,7 @@
 :root[data-theme="minimal"] .spinner { border-color: var(--mn-line); border-top-color: var(--text); }
 :root[data-theme="minimal"] .fp-backdrop { background: rgba(0, 0, 0, 0.6); }
 :root[data-theme="minimal"] .fp-me { background: var(--panel); }
-:root[data-theme="minimal"] .fp-sheet { background: var(--panel); border-radius: 8px; }
+:root[data-theme="minimal"] .fp-sheet:not(.cx-sheet) { background: var(--panel); border-radius: 8px; }
 :root[data-theme="minimal"] :is(.tr-toast, .tr-toast.tier-silver, .tr-toast.tier-bronze) { background: var(--panel-2); border-color: var(--line-2); }
 
 /* ---------- hero: poster stays in color, a flat dark scrim keeps the words readable ---------- */
