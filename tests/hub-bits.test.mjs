@@ -72,6 +72,8 @@ test('ambient mode: by theme, nothing with Effects off, a still frame for Night 
   assert.equal(ambientMode({ theme: 'neon', fx: true, reduce: true }), null);
   assert.equal(ambientMode({ theme: 'aero', fx: true, reduce: false }), 'aero');
   assert.equal(ambientMode({ theme: 'aero', fx: true, reduce: true }), 'aero-still');
+  assert.equal(ambientMode({ theme: 'space', fx: true, reduce: false }), 'space');
+  assert.equal(ambientMode({ theme: 'space', fx: true, reduce: true }), 'space-still');
   for (const theme of ['neon', 'aero', 'space', 'minimal']) {
     for (const reduce of [false, true]) assert.equal(ambientMode({ theme, fx: false, reduce }), null, theme);
   }
@@ -100,6 +102,58 @@ test('Night Aero sky: stars and bubbles scale with the screen, bubbles float up 
   const d = `M${f(AERO_RIBBON[0][0])} ${f(AERO_RIBBON[0][1])}C${AERO_RIBBON.slice(1).map(([x, y]) => `${f(x)} ${f(y)}`).join(' ')}`;
   const svg = fs.readFileSync(new URL('../assets/aero-sky.svg', import.meta.url), 'utf8');
   assert.ok(svg.includes(`d="${d}" stroke="url(#lit)"`), d);
+});
+
+test('Deep Space dust: counts by screen, three layers far to near, seeded, wraps, near layers move more (parallax)', async () => {
+  const { makeDust, dustAt, makeMotes, nextShot, DUST_LAYERS } = await import('../fp/ambient.js');
+  assert.equal(makeDust(390, 844).length, 80);                           // fewer on a phone
+  assert.equal(makeDust(1440, 982).length, 253);
+  assert.equal(makeDust(3840, 2160).length, 260);                        // capped
+  assert.equal(makeDust(900, 600).length, 120);                          // floor on small windows
+  assert.deepEqual(makeDust(1440, 982), makeDust(1440, 982));            // seeded: a reload looks the same
+  const d = makeDust(1440, 982);
+  assert.deepEqual([...new Set(d.map((s) => s.layer))], [0, 1, 2]);      // sorted far -> near
+  assert.ok(d.filter((s) => s.layer === 0).length > d.filter((s) => s.layer === 2).length * 3, 'most dust is far away');
+  assert.ok(d.every((s) => s.x >= 0 && s.x < 1440 && s.y >= 0 && s.y < 982 && [0, 1, 2].includes(s.tint)));
+  assert.ok(d.some((s) => s.tint === 2) && d.filter((s) => s.tint === 2).length < d.length / 5, 'a few gold stars');
+  assert.ok(d.every((s) => (s.layer === 0) === (s.tw === 0)), 'only the near layers twinkle');
+  assert.ok(DUST_LAYERS.every((L, i) => !i || (L.drift > DUST_LAYERS[i - 1].drift && L.par > DUST_LAYERS[i - 1].par && L.look > DUST_LAYERS[i - 1].look)));
+  // at rest a star sits where it was made
+  const s0 = { layer: 0, x: 100, y: 200 }, s2 = { layer: 2, x: 100, y: 200 };
+  assert.deepEqual(dustAt(s0, 0, 0, [0, 0], 1440, 900), [100, 200]);
+  // scrolling 500 px moves the near star further up than the far one
+  const far = dustAt(s0, 0, 500, [0, 0], 1440, 900), near = dustAt(s2, 0, 500, [0, 0], 1440, 900);
+  assert.ok(200 - near[1] > 200 - far[1] && far[1] < 200, JSON.stringify([far, near]));
+  // so does the mouse, and time (the drift goes left)
+  assert.ok(dustAt(s2, 0, 0, [1, 0], 1440, 900)[0] < dustAt(s0, 0, 0, [1, 0], 1440, 900)[0]);
+  assert.ok(dustAt(s0, 10, 0, [0, 0], 1440, 900)[0] < 100);
+  // whatever happens it stays on the field (with a 10 px edge to wrap through)
+  for (const [t, sc] of [[0, 0], [1e4, 0], [0, 1e5], [-50, -300], [3333.3, 777]]) {
+    const [x, y] = dustAt(s2, t, sc, [-1, 1], 1440, 900);
+    assert.ok(x >= -10 && x < 1450 && y >= -10 && y < 910, JSON.stringify([t, sc, x, y]));
+  }
+  assert.equal(makeMotes(390, 844).length, 3);
+  assert.equal(makeMotes(1440, 900).length, 6);
+  assert.equal(makeMotes(1440, 900).filter((m) => m.gold).length, 1);
+  // shooting stars: 6 to 16 s apart, starting in the upper part of the screen, heading down and to the left
+  let x = 1; const rnd = () => { x = (x * 48271) % 2147483647; return x / 2147483647; };
+  for (let i = 0; i < 50; i++) {
+    const s = nextShot(100, rnd);
+    assert.ok(s.at >= 106 && s.at <= 116 && s.y <= 0.4 && Math.cos(s.ang) < 0 && Math.sin(s.ang) > 0, JSON.stringify(s));
+  }
+});
+
+test('Deep Space: the hero disk SVG uses only black, white, ice blue and gold (no pink or purple), and no filters', async () => {
+  const fs = await import('node:fs');
+  const svg = fs.readFileSync(new URL('../assets/space-disk.svg', import.meta.url), 'utf8');
+  assert.doesNotMatch(svg, /<filter|feGaussianBlur/);
+  const hues = [...new Set(svg.match(/#[0-9a-f]{6}\b/gi).map((c) => c.toLowerCase()))];
+  for (const c of hues) {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+    // pink / purple: blue well above green with red up too (or blue on top and green lowest)
+    assert.ok(!(b > g + 20 && r > g + 20), c + ' looks pink or purple');
+  }
+  assert.ok(svg.length < 70000, 'small: ' + svg.length);
 });
 
 test('chat-profile pickProfile: exact username, any case', async () => {

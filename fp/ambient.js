@@ -6,6 +6,10 @@
 // - aero (Night Aero): twinkling stars, a few glossy bubbles floating up, and a light that runs along the sky's main
 //   ribbon now and then (the ribbons themselves are assets/aero-sky.svg in .sky .g1). Sharp: device pixels, at most 1.5x.
 //   With reduced motion it draws one still frame (stars and bubbles, no light) and never animates.
+// - space (Deep Space): three layers of star dust drifting slowly, each at its own speed, and moving at its own speed
+//   when the page scrolls or the mouse moves (parallax: the near layer most); a few soft glows of dust, twinkling near
+//   stars, and now and then a shooting star. Black, white, ice blue and gold only. Same limits as aero (1.5x, 30 a
+//   second, paused while hidden, fewer stars on a phone); with reduced motion one still frame.
 import { onAccent, onPrefs, getTheme, getEffects } from './theme.js';
 
 const FPS = 30;
@@ -47,10 +51,12 @@ export function stepOrbs(orbs, dt, w, h) {
   return orbs;
 }
 
-/** Which background runs: 'orbs', 'aero', 'aero-still' (reduced motion: one still frame) or null (nothing). Pure: tested. */
+/** Which background runs: 'orbs', 'aero' / 'space' ('aero-still' / 'space-still' with reduced motion: one still frame) or
+ *  null (nothing). Pure: tested. */
 export function ambientMode({ theme, fx, reduce }) {
   if (!fx) return null;
   if (theme === 'aero') return reduce ? 'aero-still' : 'aero';
+  if (theme === 'space') return reduce ? 'space-still' : 'space';
   return reduce ? null : 'orbs';
 }
 
@@ -382,6 +388,202 @@ function startAero(parent, { still = false } = {}) {
   return { stop, canvas: cv };
 }
 
+// ---------- Deep Space ----------
+/** The three layers of star dust, far to near: their share of the stars, drift (CSS px a second), scroll parallax (px a
+ *  star moves per px scrolled), mouse parallax (px at the screen's edge), star radius and brightness ranges. */
+export const DUST_LAYERS = Object.freeze([
+  Object.freeze({ share: 0.62, drift: 1.6, par: 0.03, look: 6, r: [0.45, 0.85], a: [0.3, 0.65] }),
+  Object.freeze({ share: 0.27, drift: 4, par: 0.08, look: 14, r: [0.6, 1.15], a: [0.45, 0.85] }),
+  Object.freeze({ share: 0.11, drift: 9, par: 0.17, look: 30, r: [0.95, 1.8], a: [0.6, 0.95] }),
+]);
+const DUST_DIR = [-0.94, -0.34];      // the way the dust drifts: left and a little up
+const DUST_EDGE = 10;                  // px past each edge before a star wraps around (its glow never pops)
+
+/** Star dust in a field of w x fh CSS px (fh: the tallest the screen gets, so a phone's URL bar never moves anything): 80
+ *  stars on a phone, 120 to 260 on bigger screens, split over DUST_LAYERS and sorted far to near. Seeded: a reload looks
+ *  the same. tint 0 white, 1 ice blue, 2 gold. Pure: tested. */
+export function makeDust(w, fh, seed = 23) {
+  const rnd = seeded(seed);
+  const n = w < 700 ? 80 : Math.max(120, Math.min(260, Math.round((w * fh) / 5600)));
+  const out = [];
+  DUST_LAYERS.forEach((L, layer) => {
+    const k = layer === DUST_LAYERS.length - 1 ? n - out.length : Math.round(n * L.share);
+    for (let i = 0; i < k; i++) {
+      const t = rnd();
+      out.push({
+        layer, x: rnd() * w, y: rnd() * fh,
+        r: L.r[0] + rnd() * (L.r[1] - L.r[0]), a: L.a[0] + rnd() * (L.a[1] - L.a[0]),
+        tint: t < 0.1 ? 2 : t < 0.45 ? 1 : 0,
+        glint: layer === 2 && i % 4 === 0,
+        tw: layer ? 0.6 + rnd() * 1.6 : 0, ph: rnd() * TAU,      // the near layers twinkle
+      });
+    }
+  });
+  return out;
+}
+
+/** Where a star is at t seconds with the page scrolled `scroll` px and the mouse at look = [-1..1, -1..1] from the middle:
+ *  its layer's drift, scroll and mouse parallax, wrapped around a w x fh field (with DUST_EDGE to spare). Pure: tested. */
+export function dustAt(s, t, scroll, look, w, fh) {
+  const L = DUST_LAYERS[s.layer], e = DUST_EDGE, W = w + 2 * e, H = fh + 2 * e;
+  const x = s.x + DUST_DIR[0] * L.drift * t - look[0] * L.look;
+  const y = s.y + DUST_DIR[1] * L.drift * t - scroll * L.par - look[1] * L.look;
+  return [(((x + e) % W) + W) % W - e, (((y + e) % H) + H) % H - e];
+}
+
+/** Soft glows of dust behind the stars: 3 on a phone, 6 on bigger screens; mostly ice blue, one gold. They ride the far
+ *  layer. Seeded. */
+export function makeMotes(w, fh, seed = 29) {
+  const rnd = seeded(seed);
+  const n = w < 700 ? 3 : 6;
+  return Array.from({ length: n }, (_, i) => ({
+    layer: 0, x: rnd() * w, y: rnd() * fh, r: (w < 700 ? 110 : 160) + rnd() * 140,
+    a: 0.035 + rnd() * 0.025, gold: i === n - 1,
+  }));
+}
+
+/** The next shooting star after `now` seconds: when it starts (6 to 16 s later), where (as fractions of the screen, upper
+ *  part), its heading (down and to the left) and length. Pure: tested. */
+export function nextShot(now, rnd) {
+  return {
+    at: now + 6 + rnd() * 10,
+    x: 0.25 + rnd() * 0.8, y: 0.02 + rnd() * 0.38,
+    ang: Math.PI * (0.8 + rnd() * 0.12),      // radians from +x (screen y points down): left and down
+    len: 120 + rnd() * 90, dur: 0.7 + rnd() * 0.35, speed: 760 + rnd() * 340,
+  };
+}
+
+// a star in a tint: a white core in a small halo of its color
+function dustSprite(rgb, size = 32) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d'), m = size / 2;
+  const q = g.createRadialGradient(m, m, 0, m, m, m);
+  q.addColorStop(0, 'rgba(255,255,255,1)');
+  q.addColorStop(0.14, `rgba(${rgb},0.9)`);
+  q.addColorStop(0.4, `rgba(${rgb},0.2)`);
+  q.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = q; g.fillRect(0, 0, size, size);
+  return c;
+}
+const DUST_RGB = ['238,244,255', '170,218,255', '255,214,150'];
+
+function startSpace(parent, { still = false } = {}) {
+  const made = makeCanvas(parent);
+  if (!made) return null;
+  const { cv, ctx } = made;
+  const fine = mq('(hover: hover) and (pointer: fine)');
+  const rnd = seeded(31);
+  let W = 0, H = 0, FH = 0, dpr = 1, dust = [], motes = [], raf = 0, last = 0, acc = 0, stopped = false, clock = 0;
+  let shot = nextShot(-3, rnd);       // the first one comes 3 to 13 s after the page opens
+  const look = [0, 0], aim = [0, 0];
+  const sprites = DUST_RGB.map((c) => dustSprite(c)), glint = starSprite(true, 48);
+  const moteIce = sprite('#8fd3ff'), moteGold = sprite('#ffb84a');
+
+  function size() {
+    const w = innerWidth, h = innerHeight;
+    dpr = Math.min(globalThis.devicePixelRatio || 1, MAX_DPR);
+    cv.width = Math.max(1, Math.round(w * dpr)); cv.height = Math.max(1, Math.round(h * dpr));
+    // only a new width lays the dust out again; a phone's URL bar coming and going (a new height) does not
+    if (w !== W || !dust.length) {
+      FH = Math.max(h, Math.round((globalThis.screen && screen.height) || 0));
+      dust = makeDust(w, FH); motes = makeMotes(w, FH);
+    }
+    FH = Math.max(FH, h);
+    W = w; H = h;
+  }
+  function drawShot() {
+    const life = (clock - shot.at) / shot.dur;
+    if (life < 0) return;
+    if (life > 1) { shot = nextShot(clock, rnd); return; }
+    const dx = Math.cos(shot.ang), dy = Math.sin(shot.ang), run = shot.speed * shot.dur * life;
+    const hx = shot.x * W + dx * run, hy = shot.y * H + dy * run;
+    const tail = shot.len * Math.min(1, life * 3), tx = hx - dx * tail, ty = hy - dy * tail;
+    const fade = Math.min(1, life * 6, (1 - life) * 3);
+    const grad = ctx.createLinearGradient(tx, ty, hx, hy);
+    grad.addColorStop(0, 'rgba(170,218,255,0)');
+    grad.addColorStop(0.7, 'rgba(200,232,255,0.35)');
+    grad.addColorStop(1, 'rgba(255,255,255,0.95)');
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = grad; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
+    ctx.drawImage(glint, hx - 10, hy - 10, 20, 20);
+  }
+  function draw() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const t = still ? 0 : clock, scroll = still ? 0 : (globalThis.scrollY || 0);
+    ctx.globalCompositeOperation = 'lighter';
+    for (const m of motes) {
+      const [x, y] = dustAt(m, t, scroll, look, W, FH);
+      if (y - m.r > H) continue;
+      ctx.globalAlpha = m.a;
+      ctx.drawImage(m.gold ? moteGold : moteIce, x - m.r, y - m.r, m.r * 2, m.r * 2);
+    }
+    for (const s of dust) {
+      const [x, y] = dustAt(s, t, scroll, look, W, FH);
+      if (y > H + DUST_EDGE) continue;
+      const a = s.tw && !still ? s.a * (0.62 + 0.38 * Math.sin(clock * s.tw + s.ph)) : s.a;
+      ctx.globalAlpha = a;
+      if (!s.layer) {
+        // far: a tight dot, no halo
+        ctx.drawImage(sprites[s.tint], x - s.r * 2.2, y - s.r * 2.2, s.r * 4.4, s.r * 4.4);
+      } else {
+        const r = s.glint ? s.r * 7 : s.r * 4.6;
+        ctx.drawImage(s.glint ? glint : sprites[s.tint], x - r, y - r, r * 2, r * 2);
+      }
+    }
+    if (!still) drawShot();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  function frame(now) {
+    raf = 0;
+    if (stopped) return;
+    const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
+    last = now;
+    acc += dt;
+    schedule();
+    if (acc < 1 / FPS - 0.004) return;      // at most 30 draws a second
+    const step = acc; acc = 0;
+    clock += step;
+    const k = 1 - Math.pow(0.02, step);      // the mouse parallax eases in
+    look[0] += (aim[0] - look[0]) * k; look[1] += (aim[1] - look[1]) * k;
+    draw();
+  }
+  function schedule() { if (!still && !raf && !stopped && document.visibilityState !== 'hidden') raf = requestAnimationFrame(frame); }
+  const onVis = () => { if (document.visibilityState === 'hidden') { cancelAnimationFrame(raf); raf = 0; last = 0; } else schedule(); };
+  const onResize = () => { size(); if (still) draw(); };
+  const onMove = (e) => {
+    if (e.pointerType && e.pointerType !== 'mouse') return;
+    aim[0] = Math.max(-1, Math.min(1, (e.clientX / (W || 1)) * 2 - 1)); aim[1] = Math.max(-1, Math.min(1, (e.clientY / (H || 1)) * 2 - 1));
+  };
+  const onLeave = () => { aim[0] = 0; aim[1] = 0; };
+  function stop() {
+    if (stopped) return;
+    stopped = true;
+    cancelAnimationFrame(raf);
+    document.removeEventListener('visibilitychange', onVis);
+    removeEventListener('resize', onResize);
+    removeEventListener('pointermove', onMove);
+    document.documentElement.removeEventListener('pointerleave', onLeave);
+    cv.remove();
+  }
+
+  size();
+  addEventListener('resize', onResize, { passive: true });
+  if (still) draw();
+  else {
+    document.addEventListener('visibilitychange', onVis);
+    if (fine && fine.matches) {
+      addEventListener('pointermove', onMove, { passive: true });
+      document.documentElement.addEventListener('pointerleave', onLeave);
+    }
+    schedule();
+  }
+  return { stop, canvas: cv };
+}
+
 /**
  * Starts the background in `.sky` and keeps it in step with the theme, the Effects switch and reduced motion (a change
  * stops the old mode and starts the new one). Returns { stop, mode } or null when the page has no .sky.
@@ -398,6 +600,7 @@ export function startAmbient({ parent = document.querySelector('.sky') } = {}) {
     current = null;
     mode = next;
     if (next === 'orbs') current = startOrbs(parent);
+    else if (next === 'space' || next === 'space-still') current = startSpace(parent, { still: next === 'space-still' });
     else if (next) current = startAero(parent, { still: next === 'aero-still' });
   }
   const offPrefs = onPrefs(run);
