@@ -58,7 +58,8 @@ function ensureFlairCss() {
 
 export function mountChatApp(root, { compact = false } = {}) {
   ensureFlairCss();
-  root.classList.add('cx');
+  // .cx-app.server (the Free Period server: the animated background) or .cx-app.dms (DMs and friends: plain gray).
+  root.classList.add('cx', 'cx-app', 'server');
   if (compact) root.classList.add('compact');
   const offEl = h('div', { class: 'cx-off', hidden: true });
   const banner = h('div', { class: 'cx-banner', hidden: true, role: 'status' });
@@ -81,7 +82,7 @@ export function mountChatApp(root, { compact = false } = {}) {
   let st = null;               // chat state from client.js
   let conn = 'live';           // 'live' | 'reconnecting' | 'polling' (Realtime blocked: the open view is fetched every few s)
   let paused = false;          // the overlay is closed: no Realtime (see pauseLive)
-  let mode = 'server';         // rail: 'server' | 'dms'
+  let mode = 'server';         // rail: 'server' | 'dms' | 'friends' (drawSide mirrors it on the root: .server / .dms)
   let channels = [];
   let categories = [];
   let collapsed = readCollapsed(storage()); // category ids folded on this device
@@ -396,6 +397,8 @@ export function mountChatApp(root, { compact = false } = {}) {
       canManage: st === 'ready' && myRole() === 'owner', canTools: st === 'ready' && isStaff(), dmNodes,
       roster: guest() ? new Map() : voice.roster(), voice: guest() ? null : voice.state(), people: (id) => byId.get(id) || null, myId: myId() });
     rail.setActive(mode);
+    root.classList.toggle('server', mode === 'server');
+    root.classList.toggle('dms', mode !== 'server');
     const t = totals();
     rail.setBadges({ server: mode === 'server' ? { dot: false, text: '' } : badge(t), dms: badge({ unread: t.dms, mentions: t.dms }),
       friends: { dot: false, text: friendRows.filter((r) => r.incoming).length ? String(friendRows.filter((r) => r.incoming).length) : '' } });

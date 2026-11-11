@@ -4,21 +4,22 @@
 .fpco-btn { position: relative; }
 .fpco-btn svg { color: var(--cyan); }
 .fpco-btn[aria-expanded="true"] { background: rgba(61, 224, 255, 0.14); border-color: rgba(61, 224, 255, 0.5); }
+/* a mention count is Discord's red; the plain unread dot is lime */
 .fpco-count {
   position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
-  background: var(--lime); color: #0a0f05; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center;
+  background: #f23f43; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
   box-shadow: 0 0 0 2px #0a0d16;
 }
-.fpco-count.dot { top: -2px; right: -2px; min-width: 0; width: 11px; height: 11px; padding: 0; }
+.fpco-count.dot { top: -2px; right: -2px; min-width: 0; width: 11px; height: 11px; padding: 0; background: var(--lime); }
 .fpco-count[hidden] { display: none; }
-/* in voice: a green speaker dot (Task 5 restyles) */
-.fpco-voice { position: absolute; bottom: -5px; right: -5px; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--ok, #62ff8f); color: #06210f; box-shadow: 0 0 0 2px #0a0d16; }
-.fpco-voice svg { width: 10px; height: 10px; color: inherit; }
+/* in voice: Discord's green speaker dot */
+.fpco-voice { position: absolute; bottom: -5px; right: -5px; display: grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; background: #23a55a; color: #fff; box-shadow: 0 0 0 2px #0a0d16; }
+.fpco-btn .fpco-voice svg { width: 11px; height: 11px; color: inherit; }
 .fpco-voice[hidden] { display: none; }
 
 .fpco-panel {
   position: fixed; z-index: 30; top: 54px; right: 0; bottom: 0; width: 380px; max-width: 100%;
-  display: flex; flex-direction: column; background: #0c111b; border-left: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex; flex-direction: column; background: #313338; border-left: 1px solid rgba(0, 0, 0, 0.35);
   box-shadow: -18px 0 50px -20px rgba(0, 0, 0, 0.8);
   transform: translateX(104%); visibility: hidden; transition: transform 0.2s ease, visibility 0s linear 0.2s;
 }
@@ -26,7 +27,11 @@
 .fpco-panel.open { transform: none; visibility: visible; transition: transform 0.2s ease; }
 .fpco-panel:focus { outline: none; }
 .fpco-host { flex: 1; min-height: 0; display: flex; }
-.fpco-host > .cx { border-radius: 0; border: 0; box-shadow: none; flex: 1; min-height: 0; }
+/* the host is the app's root (mountChatApp(host)): square, edge to edge */
+.fpco-host.cx { border-radius: 0; border: 0; box-shadow: none; flex: 1; min-height: 0; }
+/* the server background, at half strength over the game */
+.fpco-host.cx-app.server .cx-main::before, .fpco-host.cx-app.server .cx-main:not(.drop)::after,
+.fpco-host.cx-app.server .cx-srv::before, .fpco-host.cx-app.server .cx-srv::after { opacity: 0.5; }
 @media (max-width: 599px) {
   .fpco-panel { width: 100%; border-left: 0; }
 }
@@ -37,11 +42,11 @@
 .fpco-toasts { position: fixed; z-index: 60; top: 64px; right: 12px; width: min(340px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .fpco-toast {
   pointer-events: auto; display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%; cursor: pointer;
-  padding: 10px 14px; border-radius: 12px; font: inherit; color: #e7ecf9; background: #141b2a;
-  border: 1px solid rgba(61, 224, 255, 0.45); box-shadow: 0 14px 34px -12px rgba(0, 0, 0, 0.85), 0 0 0 3px rgba(61, 224, 255, 0.08);
+  padding: 10px 14px; border-radius: 8px; font: inherit; font-family: 'Outfit', sans-serif; color: #dbdee1; background: #2b2d31;
+  border: 1px solid rgba(78, 80, 88, 0.6); border-left: 4px solid var(--lime); box-shadow: 0 14px 34px -12px rgba(0, 0, 0, 0.85);
   opacity: 0; transform: translateY(-8px); transition: opacity 0.2s, transform 0.2s;
 }
 .fpco-toast.in { opacity: 1; transform: none; }
-.fpco-toast strong { font-size: 13px; font-weight: 800; color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fpco-toast span { font-size: 14px; line-height: 1.35; color: #d9e0f0; overflow-wrap: anywhere; }
+.fpco-toast strong { font-size: 13px; font-weight: 700; color: #f2f3f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fpco-toast span { font-size: 14px; line-height: 1.35; color: #dbdee1; overflow-wrap: anywhere; }
 .fpco-toast:hover { border-color: var(--lime); }

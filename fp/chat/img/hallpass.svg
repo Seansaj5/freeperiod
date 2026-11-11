@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Hallpass</title>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#1d4a2a"/>
+      <stop offset="0.55" stop-color="#0f2a33"/>
+      <stop offset="1" stop-color="#070f1c"/>
+    </radialGradient>
+    <linearGradient id="ticket" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e2ff7a"/>
+      <stop offset="0.5" stop-color="#c6ff3d"/>
+      <stop offset="1" stop-color="#3de0ff"/>
+    </linearGradient>
+    <linearGradient id="visor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#14202e"/>
+      <stop offset="1" stop-color="#05090f"/>
+    </linearGradient>
+    <radialGradient id="eye" cx="50%" cy="45%" r="55%">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.35" stop-color="#9ff3ff"/>
+      <stop offset="1" stop-color="#3de0ff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
+      <path d="M16 0H0V16" fill="none" stroke="#c6ff3d" stroke-opacity="0.07" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="256" height="256" fill="url(#bg)"/>
+  <rect width="256" height="256" fill="url(#grid)"/>
+
+  <!-- antenna -->
+  <line x1="128" y1="62" x2="128" y2="38" stroke="#c6ff3d" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="128" cy="32" r="9" fill="#c6ff3d" filter="url(#glow)"/>
+
+  <!-- the hall pass ticket (notched sides) as the robot's head -->
+  <g transform="rotate(-6 128 140)" filter="url(#glow)">
+    <path fill="url(#ticket)" d="
+      M 58 66 H 198 a 14 14 0 0 1 14 14 V 112
+      a 16 16 0 0 0 0 32 V 196 a 14 14 0 0 1 -14 14 H 58 a 14 14 0 0 1 -14 -14 V 144
+      a 16 16 0 0 0 0 -32 V 80 a 14 14 0 0 1 14 -14 Z"/>
+  </g>
+  <g transform="rotate(-6 128 140)">
+    <!-- perforation -->
+    <line x1="60" y1="128" x2="196" y2="128" stroke="#0b2340" stroke-opacity="0.35" stroke-width="3" stroke-dasharray="6 7" stroke-linecap="round"/>
+    <!-- visor -->
+    <rect x="70" y="80" width="116" height="40" rx="20" fill="url(#visor)"/>
+    <circle cx="102" cy="100" r="15" fill="url(#eye)"/>
+    <circle cx="154" cy="100" r="15" fill="url(#eye)"/>
+    <circle cx="102" cy="100" r="5.5" fill="#ffffff"/>
+    <circle cx="154" cy="100" r="5.5" fill="#ffffff"/>
+    <!-- smile -->
+    <path d="M 104 152 Q 128 172 152 152" fill="none" stroke="#0b2340" stroke-width="7" stroke-linecap="round"/>
+    <!-- PASS label -->
+    <text x="128" y="196" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="22" letter-spacing="4" fill="#0b2340" fill-opacity="0.8">PASS</text>
+  </g>
+</svg>

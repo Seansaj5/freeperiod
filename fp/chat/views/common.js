@@ -131,6 +131,10 @@ function initials(p) {
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : n.slice(0, 2)).toUpperCase();
 }
 
+// Bots can't upload a picture (the storage upload needs a key the bot never holds): one without a picture shows the
+// bundled Hallpass art, resolved next to this module so it works from chat.html, play.html and the home page.
+const BOT_ART = new URL('../img/hallpass.svg', import.meta.url).href;
+
 // frame: false (none), 'hover' (still until hovered: message and member lists), 'auto' (animated: the profile card),
 // 'off' (always still). localSrc: a blob: URL of the person's own just-picked file (editor preview), never server content.
 export function avatar(p, { size = 40, status = null, cls = '', frame = false, localSrc = '' } = {}) {
@@ -145,6 +149,7 @@ export function avatar(p, { size = 40, status = null, cls = '', frame = false, l
   };
   if (localSrc && localSrc.startsWith('blob:')) put(localSrc);
   else if (p && p.avatar_path) mediaSrc({ bucket: 'public-media', path: p.avatar_path }).then((src) => { if (src) put(src); });
+  else if (p && p.is_bot && !localSrc) put(BOT_ART);
   if (frame && p && FRAMES.includes(p.frame)) mountFrame(el, p.frame, { size, motion: frame }); // handle lives on the .fp-frame node (stopFrames)
   if (status) el.append(h('span', { class: 'cx-av-dot ' + status }));
   return el;
