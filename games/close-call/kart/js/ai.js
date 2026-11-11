@@ -55,7 +55,7 @@ export function drive(k, race, dt, time) {
   const needA = Math.abs(cA) * sp / full, needB = Math.abs(cB) * sp / full, needN = Math.abs(cN) * sp / full;
   if (b.cool > 0) b.cool -= dt;
   if (!b.drifting) {
-    if (needA > 0.55 && needB > 0.4 && Math.sign(cA) === Math.sign(cB) && k.v > 15 && k.ground && !k.spinT && !k.stallT && !(b.cool > 0)) { b.drifting = -Math.sign(cA); b.dT = 0; b.against = 0; }
+    if (needA > 0.45 && needB > 0.35 && Math.sign(cA) === Math.sign(cB) && k.v > 15 && k.ground && !k.spinT && !k.stallT && !(b.cool > 0)) { b.drifting = -Math.sign(cA); b.dT = 0; b.against = 0; }
     inp.drift = false;
   }
   if (b.drifting) {
@@ -78,10 +78,10 @@ export function drive(k, race, dt, time) {
   // about to run into a wall (where it will be in a third of a second): steer away, and let go of a drift
   // that is carrying it there
   const rel = wrapA(k.yaw - Math.atan2(L.tx, L.tz)), dPred = L.d - Math.sin(rel) * k.v * 0.35;
-  const wallP = dPred < 0 ? L.el : L.er;
-  if (!L.gap && Math.abs(dPred) > wallP - 2.4 && k.v > 8) {
+  const wallP = dPred < 0 ? L.el : L.er, margin = (dPred < 0 ? L.rl : L.rr) ? 2.4 : 3.6; // a drop with no rail: keep further off
+  if (!L.gap && Math.abs(dPred) > wallP - margin && k.v > 8) {
     steer = -Math.sign(dPred);
-    if (b.drifting && b.drifting === Math.sign(dPred) && Math.abs(dPred) > wallP - 1.6) { b.drifting = 0; inp.drift = false; b.cool = 0.5; }
+    if (b.drifting && b.drifting === Math.sign(dPred) && Math.abs(dPred) > wallP - margin + 0.8) { b.drifting = 0; inp.drift = false; b.cool = 0.5; }
   }
   inp.steer = steer;
   // catch-up: a bit quicker when behind you, a bit slower when far ahead

@@ -12,6 +12,7 @@ import { account, initAccount, saved } from '../../js/account.js';
 import { BODIES, WHEELS, GLIDERS, PAINTS, PART_LISTS, STAT_NAMES, STARTER, UNLOCK_ORDER, COINS_PER_UNLOCK, statsOf, buildKart, buildPart, partById } from './parts.js';
 import { TRACKS, THEMES, trackById } from './tracks.js';
 import { Track } from './track.js';
+import { spaceSky } from './cosmic.js';
 import { Race, rivalBuilds, PAINT_NAMES } from './race.js';
 import { CLASSES, DRIFT_LV } from './kart.js';
 import { ITEMS } from './items.js';
@@ -69,7 +70,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: !hi, alpha: true, powerPre
 renderer.setPixelRatio(Math.min(devicePixelRatio, hi ? 1.5 : 1));
 renderer.setSize(innerWidth, innerHeight);
 document.body.prepend(renderer.domElement);
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 3000);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.25, 3000); // (a near plane this far out keeps far surfaces from flickering)
 let composer = null, renderPass = null;
 if (hi) {
   composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: renderer.getPixelRatio() >= 1.5 ? 0 : 4 }));
@@ -362,8 +363,8 @@ function paintSetup() {
   $('m-cls').style.display = k.mode === 'tt' ? 'none' : '';
   const cupBest = k.gp[k.cls];
   $('m-cup').classList.toggle('hidden', k.mode !== 'gp');
-  $('m-cup').innerHTML = `<span class="tro">${trophySvg(cupBest || 0)}</span><div><b>Turbo Cup · ${CLASSES[k.cls].name}</b>${cupBest ? `Best: ${cupBest}${ord(cupBest)} place trophy` : 'Three races in a row. Win points by place; most points takes the gold.'}</div>`;
-  $('m-tl').textContent = k.mode === 'gp' ? 'The three tracks' : 'Track';
+  $('m-cup').innerHTML = `<span class="tro">${trophySvg(cupBest || 0)}</span><div><b>Turbo Cup · ${CLASSES[k.cls].name}</b>${cupBest ? `Best: ${cupBest}${ord(cupBest)} place trophy` : `${TRACKS.length} races in a row. Win points by place; most points takes the gold.`}</div>`;
+  $('m-tl').textContent = k.mode === 'gp' ? `All ${TRACKS.length} tracks` : 'Track';
   const el = $('m-tracks');
   if (!el.children.length) {
     TRACKS.forEach((t) => {
@@ -499,10 +500,23 @@ async function buildWorld(t) {
   const th = THEMES[t.theme];
   world = new THREE.Scene();
   world.fog = new THREE.Fog(th.fog[0], th.fog[1], th.fog[2]);
-  world.add(skyMesh(th));
+  if (th.space) {
+    // deep space: the sky shader is too rich to run every frame, so it is drawn once into a cube and used as the
+    // background and the reflections
+    world.add(new THREE.Object3D()); // (children[0] is the sky slot that follows the camera)
+    const rt = new THREE.WebGLCubeRenderTarget(hi ? 1024 : 512, { type: hi ? THREE.HalfFloatType : THREE.UnsignedByteType });
+    if (!hi) rt.texture.colorSpace = THREE.SRGBColorSpace;
+    const cs = new THREE.Scene(); cs.add(spaceSky());
+    new THREE.CubeCamera(1, 100, rt).update(renderer, cs);
+    cs.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+    world.background = rt.texture; world.userData.skyRT = rt;
+    const pm = new THREE.PMREMGenerator(renderer); world.userData.env = pm.fromCubemap(rt.texture).texture; pm.dispose();
+  } else {
+    world.add(skyMesh(th));
+    world.userData.env = trackEnv(th);
+  }
   world.add(new THREE.HemisphereLight(th.hemi[0], th.hemi[1], th.hemi[2]));
   const sun = new THREE.DirectionalLight(th.sun[0], th.sun[1]); sun.position.set(...th.sunDir.map((x) => x * 100)); world.add(sun);
-  world.userData.env = trackEnv(th);
   loadBar(0.3);
   await frameWait();
   track = new Track(t, settings.quality);
@@ -568,7 +582,7 @@ async function loadRace() {
   mode = 'loading';
   const t = trackById(ev.tracks[ev.n]);
   $('liq-logo').querySelector('.t2').innerHTML = 'K<i>A</i>RTS';
-  loadBar(0, ev.mode === 'gp' ? `Turbo Cup · race ${ev.n + 1} of 3 · ${t.name}` : t.name);
+  loadBar(0, ev.mode === 'gp' ? `Turbo Cup · race ${ev.n + 1} of ${ev.tracks.length} · ${t.name}` : t.name);
   await liquid.fill(); logo(true);
   music.stop();
   disposeRace();
@@ -601,7 +615,7 @@ async function loadRace() {
   document.querySelector('.lap').classList.add('hidden');
   $('h-intro').classList.remove('hidden'); $('h-skip').classList.remove('hidden');
   $('h-introname').textContent = t.name;
-  $('h-introsub').textContent = ev.mode === 'gp' ? `TURBO CUP · RACE ${ev.n + 1}/3 · ${CLASSES[ev.cls].name.toUpperCase()}` : ev.mode === 'tt' ? 'TIME TRIAL' : `SINGLE RACE · ${CLASSES[ev.cls].name.toUpperCase()}`;
+  $('h-introsub').textContent = ev.mode === 'gp' ? `TURBO CUP · RACE ${ev.n + 1}/${ev.tracks.length} · ${CLASSES[ev.cls].name.toUpperCase()}` : ev.mode === 'tt' ? 'TIME TRIAL' : `SINGLE RACE · ${CLASSES[ev.cls].name.toUpperCase()}`;
   music.setFast(1); music.play(th.music);
   mode = 'intro';
   await liquid.drain();
@@ -610,7 +624,7 @@ async function loadRace() {
 function disposeRace() {
   if (race) { race.dispose(); race = null; }
   if (track) { track.dispose(); track = null; }
-  if (world) { world.userData.env?.dispose(); world.traverse((o) => { if (o.isMesh && o.material?.isShaderMaterial) { o.geometry.dispose(); o.material.dispose(); } }); world = null; }
+  if (world) { world.userData.env?.dispose(); world.userData.skyRT?.dispose(); world.traverse((o) => { if (o.isMesh && o.material?.isShaderMaterial) { o.geometry.dispose(); o.material.dispose(); } }); world = null; }
 }
 
 function raceHooks() {
@@ -729,10 +743,14 @@ function chase(dt, snap = false) {
   const out = -k.drift * 0.8 * (k.driftK || 0); // in a drift the camera drifts to the outside so you see the angle
   const tx = k.pos.x - fx * back - fz * out, tz = k.pos.z - fz * back + fx * out;
   const L = track.locate(tx, tz, k.hint, {}, 30);
+  // never behind a wall (it would block the view): slide the camera back inside the rail
+  const lim = track.wallAt(L) - 0.5;
+  let cx = tx, cz = tz;
+  if (!L.gap && lim < 1e3 && Math.abs(L.d) > lim) { const sg = Math.sign(L.d), over = Math.abs(L.d) - lim; cx += L.tz * sg * over; cz -= L.tx * sg * over; }
   let ty = k.pos.y + up;
   if (!L.gap) ty = Math.max(ty, L.y + L.ramp + 1.0);
-  if (snap) camPos.set(tx, ty, tz);
-  else { camPos.x = damp(camPos.x, tx, 12, dt); camPos.z = damp(camPos.z, tz, 12, dt); camPos.y = damp(camPos.y, ty, k.ground ? 8 : 4, dt); }
+  if (snap) camPos.set(cx, ty, cz);
+  else { camPos.x = damp(camPos.x, cx, 12, dt); camPos.z = damp(camPos.z, cz, 12, dt); camPos.y = damp(camPos.y, ty, k.ground ? 8 : 4, dt); }
   camera.position.copy(camPos);
   if (shake > 0) { camera.position.x += (Math.random() - 0.5) * shake * 0.4; camera.position.y += (Math.random() - 0.5) * shake * 0.3; shake = Math.max(0, shake - dt * 2); }
   camLook.set(k.pos.x + fx * 5, k.pos.y + 1.1, k.pos.z + fz * 5);
@@ -833,7 +851,7 @@ function showResults() {
   let gpDone = false, trophy = 0;
   if (ev.mode === 'gp') {
     rs.forEach((r, i) => { ev.points[race.karts.indexOf(r.k)] += POINTS[i] || 0; });
-    sub = `Turbo Cup · race ${ev.n + 1} of 3 · ${sub}`;
+    sub = `Turbo Cup · race ${ev.n + 1} of ${ev.tracks.length} · ${sub}`;
     gpDone = ev.n === ev.tracks.length - 1;
   }
   if (ev.mode === 'tt') {

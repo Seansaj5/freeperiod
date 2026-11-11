@@ -20,12 +20,21 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   `js/scenery.js`. Sounds are real CC0 recordings from Freesound in `games/close-call/sfx/`
   (credits in `sfx/CREDITS.md`; `sfx.json` lists the engine loops by RPM, the loops and the one-shots).
   Two lives mode (`js/wreck.js`): crash twice and the car blows up and flies; x1.5 cash, best run per route.
+  Game modes (main.js GAME_MODES): free drive, two lives, hardcore (one life, x2), time attack (checkpoints add time),
+  zen cruise (crashes keep the combo). Five maps (`js/maps.js`, `look` picks the scenery family; Alpine Pass and Storm
+  City are the newest) with weather (`js/weather.js`: rain, snow, fog, lightning; rain makes the road wet and both
+  cut grip) and road works on the shoulder (cones you can knock flying). Hitboxes are exact turned boxes
+  (`physics.js` boxGap, also used for near misses); traffic leans into lane changes and its box turns with it.
+  Settings can show the hitboxes, pick the weather and the camera.
   Accounts (`js/account.js`): the menu shows your Free Period sign-in and saves to it (on its own page the game
   syncs itself; inside `play.html` the hub does). The owner account gets every car and the Admin panel; online,
   the server checks the token with the account server before showing OWNER, and guests can't use the owner's names.
   Kart racing (`games/close-call/kart/`, the glowing KART RACE button on the menu): build a kart from a body, wheels and
-  a glider (`kart/js/parts.js`, stats and models), then Grand Prix (3 races, points, trophies), single race or time trial
-  on three tracks (`kart/js/tracks.js` layouts, `kart/js/track.js` builds them) against seven computer karts (`ai.js`).
+  a glider (`kart/js/parts.js`, stats and models), then Grand Prix (4 races, points, trophies), single race or time trial
+  on four tracks (`kart/js/tracks.js` layouts, `kart/js/track.js` builds them) against seven computer karts (`ai.js`).
+  Starlight Spectrum is a rainbow road in space (`kart/js/cosmic.js`: shader road, rails, arches, planets, the sky drawn
+  once into a cube map); `void` tracks have no ground off the road and `open` stretches with no rail. Kart models
+  (`parts.js`) are lofted hulls, lathe-turned tyres and curved cloth, kept clear of the wheels.
   Drifting with mini-turbos, jumps with tricks, glider ramps, dash pads, coins and items (`items.js`), all in `kart.js`
   and `race.js`. Coins unlock parts; the save is the `kart` field of `closecall.v1`, so it goes to the account too.
   It opens on a title screen (computer karts racing behind the logo, PRESS L + R = Q + E / LB + RB / click), then the
@@ -37,7 +46,9 @@ A game can be anything with a URL that allows being shown in a frame: a GitHub P
   (`kart/js/music.js`). Headless checks can set `__kart.test.fast` and `__kart.race.autoplay`.
 
 - **horror.exe** lives in `games/horror-exe/`: survivors vs EXE across five zones in two worlds (normal and corrupted,
-  swapped through rift portals), with zone tasks and a disguising EXE. The round rules,
+  swapped through rift portals), with zone tasks and a disguising EXE. People do tasks through minigame windows
+  (`js/tasks.js`: F near a task; the server checks reach and each game's shortest time, `TASK_MIN` in `shared/rules.js`);
+  bots still do them by standing next to them. Survivors are jointed avatars built in `js/avatar.js`. The round rules,
   map and bots are in `games/horror-exe/shared/` and run in the browser for solo games and on the server
   (`games/horror-exe/server/`, Render service `freeperiod-horror`) for online rooms.
   Test locally: `node games/horror-exe/server/index.js` (port 8790) and open `games/horror-exe/?server=ws://localhost:8790`.

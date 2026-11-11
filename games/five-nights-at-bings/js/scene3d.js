@@ -6,7 +6,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { TAU, add, B, sq, limbGeo, lathe, gSph, gCyl, gBox, tex, wallTex, tileTex, WOOD, GRIME, label, sign, beam, suit, paint, metal, plastic, glass, glow, setEnv, BLACK, ENDO, rand } from './kit.js';
+import { TAU, add, B, sq, limbGeo, lathe, gSph, gCyl, gBox, tex, wallTex, tileTex, WOOD, GRIME, label, sign, beam, suit, paint, metal, plastic, glass, glow, setEnv, setFur, BLACK, ENDO, rand, ptex, pbrMat, woodMat } from './kit.js';
+import { prop, setPropEnv } from './props.js';
 import { makeBot, makeHead, makeDoll, makeTokens, makeMusicBox, makeEndo, setPose, animate } from './models.js';
 
 let R, scene, cam, composer, bloom, fin, amb, key, quality = 2;
@@ -19,12 +20,12 @@ function shell(p, w, h, d, wallFn, floor, ceil, cx = 0, cz = 0) {
   const side = m => { const k = m.clone(); k.side = THREE.BackSide; return k; }, a = side(wallFn(d)), b = side(wallFn(w));
   const m = add(p, gBox(w, h, d), [a, a, side(ceil), side(floor), b, b], cx, h / 2, cz); m.userData.noShadow = true; return m;
 }
-const wallMat = (top, bottom, band = true) => len => paint(0xffffff, { map: wallTex(top, bottom, band, Math.max(1, Math.round(len / 4))), roughness: 0.85 });
-function floorMat(w, d, a = '#16181b', b = '#3b3e44', rough = 0.3) { const t = tileTex(a, b, 8); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / 4.8, d / 4.8); return new THREE.MeshStandardMaterial({ map: t, roughness: rough, metalness: 0.05 }); }
-const CEIL = paint(0x0b0d0f, { roughness: 1 });
+const wallMat = (top, bottom, band = true) => len => new THREE.MeshStandardMaterial({ map: wallTex(top, bottom, band, Math.max(1, Math.round(len / 4))), roughness: 1, normalMap: ptex('painted_plaster_wall_n', Math.max(1, len / 3), 1.2), roughnessMap: ptex('painted_plaster_wall_r', Math.max(1, len / 3), 1.2) });
+function floorMat(w, d, a = '#16181b', b = '#3b3e44', rough = 0.3) { const t = tileTex(a, b, 8); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / 4.8, d / 4.8); return new THREE.MeshStandardMaterial({ map: t, roughness: rough + 0.5, metalness: 0.05, normalMap: ptex('old_linoleum_flooring_01_n', w / 3, d / 3), roughnessMap: ptex('old_linoleum_flooring_01_r', w / 3, d / 3) }); }
+const CEIL = pbrMat('ceiling_interior', 4, 4, { color: 0x4a4d50 }, 'dn');
 // A ceiling lamp: housing, glowing face and a soft beam. Returns the parts that flicker with its light.
 function lampFix(p, x, y, z, color = 0xfff2d0, long = false) {
-  B(p, long ? 0.34 : 0.5, 0.07, long ? 1.4 : 0.5, paint(0x1a1c1f), x, y - 0.035, z);
+  if (long) prop(p, 'mounted_fluorescent_lights', x, y, z, Math.PI / 2, 1.5); else B(p, 0.5, 0.07, 0.5, paint(0x1a1c1f), x, y - 0.035, z);
   const g = glow(color, 2.2); add(p, gBox(long ? 0.2 : 0.36, 0.03, long ? 1.25 : 0.36), g, x, y - 0.075, z); g.userData.c = g.color.clone();
   return [g, beam(p, x, y - 0.08, z, long ? 1.1 : 1.3, y - 0.1, color, long ? 0.025 : 0.05)];
 }
@@ -61,7 +62,8 @@ function curtain(p, w, h, x, y, z, ry = 0, col = 0x8a1522) {
   for (let i = 0; i < a.count; i++) { const px = a.getX(i); a.setZ(i, Math.sin(px * 9) * 0.11 + Math.sin(px * 23 + 1) * 0.035); }
   geo.computeVertexNormals(); const m = add(p, geo, suit(col, { side: THREE.DoubleSide, bumpScale: 0.8 }), x, y, z); m.rotation.y = ry; return m;
 }
-function stool(p, x, z) { add(p, sq(0.2, 0.05, 0.2, 2.4, 16), suit(0x7a1f2b), x, 0.78, z); add(p, gCyl(0.03, 0.03, 0.74, 10), ENDO, x, 0.38, z); add(p, gCyl(0.2, 0.22, 0.03, 18), ENDO, x, 0.015, z); add(p, new THREE.TorusGeometry(0.15, 0.012, 6, 18), ENDO, x, 0.3, z).rotation.x = Math.PI / 2; }
+function stool(p, x, z) { return prop(p, 'bar_chair_round_01', x, 0, z, x, 1.03); }
+function stoolOld(p, x, z) { add(p, sq(0.2, 0.05, 0.2, 2.4, 16), suit(0x7a1f2b), x, 0.78, z); add(p, gCyl(0.03, 0.03, 0.74, 10), ENDO, x, 0.38, z); add(p, gCyl(0.2, 0.22, 0.03, 18), ENDO, x, 0.015, z); add(p, new THREE.TorusGeometry(0.15, 0.012, 6, 18), ENDO, x, 0.3, z).rotation.x = Math.PI / 2; }
 
 // ---------- the office and the halls ----------
 function buildOffice() {
@@ -97,7 +99,8 @@ function buildOffice() {
     for (const y of [3.05, 2.95]) { const p = add(g, gCyl(0.045, 0.045, 19.5, 8), steel, s * (6.5 - (y - 2.95) * 2), y, -6.2); p.rotation.x = Math.PI / 2; }
     sign(g, 0.7, 0.26, s * 5.4, 2.75, -15.98, 0, label('EXIT', '#b9ffc8', '#06200c', 0.75), true, 128);
     B(g, 1.7, 2.3, 0.08, paint(0x2a2f33, { roughness: 0.5 }), s * 5.4, 1.15, -15.97); B(g, 0.03, 2.3, 0.1, BLACK, s * 5.4, 1.15, -15.95);
-    const wf = new THREE.Group(); wf.position.set(s * 5.9, 0, -5.2); g.add(wf); for (const k of [-1, 1]) { const pl = sign(wf, 0.4, 0.62, 0, 0.3, k * 0.11, 0, label('WET\nFLOOR', '#111', '#f2c230', 0.26), false, 128); pl.rotation.x = -k * 0.32; pl.material.side = THREE.DoubleSide; }
+    prop(g, 'WetFloorSign_01', s * 5.9, 0, -5.6, s * 0.5, 1.1); prop(g, 'trashbag', s * 6.25, 0, -9.6, s, 1); prop(g, 'trashbag', s * 6.1, 0, -10.2, s * 2, 0.85); prop(g, 'korean_fire_extinguisher_01', s * 6.4, 0, -13.2, -s * 1.2, 1); prop(g, 'fire_alarm', s * 6.59, 1.9, -7.6, -s * Math.PI / 2, 1.6);
+    if (s > 0) { prop(g, 'plastic_monobloc_chair_01', 6.1, 0, -7.3, -1.9, 1); prop(g, 'cardboard_box_01', 6.2, 0, -12.0, 0.4, 1.1); } else { prop(g, 'ladder_sectioned_01', -6.45, 0, -11.9, Math.PI / 2, 1, { rx: 0, rz: 0.14 }); prop(g, 'wooden_crate_02', -6.2, 0, -14.4, 0.2, 0.8); }
     add(g, gCyl(0.04, 0.03, 0.1, 10), paint(0xc0392b), s * 4.6, 0.05, -9.3).rotation.z = 1.4;
   }
   // front wall
@@ -126,12 +129,17 @@ function buildOffice() {
   add(P.lamp, gCyl(0.008, 0.008, 0.55, 6), BLACK, 0, -0.27, 0); add(P.lamp, lathe([[0.03, 0], [0.06, -0.03], [0.34, -0.2], [0.35, -0.22]], 24), new THREE.MeshStandardMaterial({ color: 0x1f4a3a, roughness: 0.4, side: THREE.DoubleSide }), 0, -0.52, 0).userData.noShadow = true;
   P.lampGlow = glow(0xfff0c8, 3); add(P.lamp, gSph(0.06, 12), P.lampGlow, 0, -0.68, 0); P.lampBeam = beam(P.lamp, 0, -0.7, 0, 1.9, 2.4, 0xfff0c8, 0.02);
   // desk
-  const wood = new THREE.MeshStandardMaterial({ map: WOOD, roughness: 0.55 }), beige = plastic(0x4a4a44, { roughness: 0.5 });
-  B(g, 3.9, 0.07, 1.05, wood, 0, 0.8, 0.5); for (const s of [-1, 1]) { B(g, 0.85, 0.76, 0.95, wood, s * 1.5, 0.38, 0.5); for (let i = 0; i < 3; i++) { B(g, 0.7, 0.2, 0.02, paint(0x4a2f1b, { roughness: 0.5 }), s * 1.5, 0.14 + i * 0.24, 0.985); add(g, gCyl(0.012, 0.012, 0.14, 6), ENDO, s * 1.5, 0.14 + i * 0.24, 1.0).rotation.z = Math.PI / 2; } }
-  B(g, 2.2, 0.6, 0.05, paint(0x241a12), 0, 0.46, 0.1);
+  const wood = woodMat({ roughness: 0.9 });
+  for (const sx of [-1, 1]) prop(g, 'metal_office_desk', sx * 1.06, 0, 0.5, 0, 1.06, { tint: 0.28 });
   P.staticTex = tex(64, 48, (c, w, h) => { const im = c.createImageData(w, h); for (let i = 0; i < im.data.length; i += 4) { const v = rand() * 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; } c.putImageData(im, 0, 0); }, { repeat: [1, 1] }); P.staticTex.magFilter = THREE.NearestFilter;
-  const crt = (x, y, z, w, ry) => { const m = new THREE.Group(); m.position.set(x, y, z); m.rotation.y = ry; g.add(m); add(m, sq(w / 2, w * 0.4, w * 0.42, 7, 18), beige); add(m, sq(w * 0.44, w * 0.33, 0.02, 6, 12), BLACK, 0, 0.01, w * 0.42); const gm = new THREE.MeshBasicMaterial({ map: P.staticTex }); const s = add(m, new THREE.PlaneGeometry(w * 0.8, w * 0.6), gm, 0, 0.01, w * 0.42 + 0.024); s.userData.noShadow = true; add(m, gSph(0.012, 6), glow(0x3ddc5a, 2), w * 0.4, -w * 0.33, w * 0.43); return gm; };
-  P.crts = [crt(-1.3, 1.1, 0.35, 0.68, 0.25), crt(-1.22, 1.6, 0.3, 0.5, 0.35), crt(1.62, 1.04, 0.3, 0.5, -0.45)];
+  const tv = (id, x, y, z, ry, sc, w, h, d, sx = -0.07) => { const hd = prop(g, id, x, y, z, ry, sc); const gm = new THREE.MeshBasicMaterial({ map: P.staticTex }); const scr = add(hd, new THREE.PlaneGeometry(w * 0.6, h * 0.58), gm, w * sx, h * 0.52, d / 2 + 0.004); scr.userData.noShadow = true; return gm; };
+  P.crts = [tv('Television_01', -1.3, 0.836, 0.35, 0.25, 1.15, 0.6, 0.457, 0.471), tv('television_02', -1.24, 1.362, 0.3, 0.38, 1.1, 0.4, 0.411, 0.35), tv('Television_01', 1.62, 0.836, 0.3, -0.45, 0.95, 0.6, 0.457, 0.471)];
+  // real props around the office
+  prop(g, 'boombox', -1.78, 0.836, 0.82, 0.6, 0.62); prop(g, 'desk_lamp_arm_01', -0.62, 0.9, 0.2, 0.7, 0.7);
+  prop(g, 'security_camera_01', -3.55, 2.85, -2.75, 0.7, 1.2); prop(g, 'fire_alarm', 3.5, 1.95, -2.985, 0, 1.6);
+  prop(g, 'utility_box_01', -3.62, 0, -2.6, 0, 1); prop(g, 'korean_fire_extinguisher_01', -3.0, 0, -2.75, 0.4, 1); prop(g, 'power_box_01', 3.93, 2.25, -2.3, -Math.PI / 2, 1);
+  prop(g, 'portable_generator', 2.75, 0, 0.9, -0.7, 1); tube(g, [[2.5, 0.3, 0.8], [2.2, 0.05, 0.6], [1.6, 0.05, 0.2], [1.2, 0.5, 0.1], [1.05, 0.86, 0.22]], 0.012, BLACK);
+  prop(g, 'cardboard_box_01', 3.0, 0, -2.5, 0.3, 1.1); prop(g, 'cardboard_box_01', 3.45, 0, -2.2, -0.5, 1); prop(g, 'cardboard_box_01', 3.05, 0.37, -2.5, 0.9, 0.9); prop(g, 'SchoolChair_01', -2.8, 0, 1.5, 2.3, 1); prop(g, 'trashbag', 3.5, 0, -1.6, 1, 1);
   B(g, 0.5, 0.03, 0.18, dark, -0.55, 0.85, 0.82).rotation.y = 0.15; for (let i = 0; i < 4; i++) { const pp = B(g, 0.21, 0.003, 0.3, paint(0xe9e6da), -0.1 + i * 0.16, 0.838 + i * 0.002, 0.8 - (i % 2) * 0.1); pp.rotation.y = i * 0.7 - 0.6; }
   add(g, sq(0.14, 0.035, 0.1, 5, 12), dark, 0.62, 0.87, 0.72); add(g, limbGeo(0.03, 0.03, 0.24, 8), plastic(0x14171a), 0.5, 0.93, 0.72).rotation.z = -Math.PI / 2; P.phone = add(g, gSph(0.014, 8), glow(0x3a0d0a), 0.7, 0.905, 0.76).material;
   add(g, lathe([[0, 0], [0.042, 0], [0.055, 0.17], [0, 0.17]], 14), paint(0xc0392b, { roughness: 0.4 }), 1.25, 0.835, 0.78); add(g, gCyl(0.006, 0.006, 0.22, 6), paint(0xf4f4e8), 1.26, 1.0, 0.78).rotation.z = 0.25;
@@ -152,10 +160,10 @@ function buildOffice() {
 
 function set(id, ox, def, build) { const g = new THREE.Group(); g.position.set(ox, 0, 0); scene.add(g); ROOM[id] = { ...def, ox, fx: [] }; build(g, ROOM[id].fx); }
 function buildSets() {
-  const wood = new THREE.MeshStandardMaterial({ map: WOOD, roughness: 0.5 }), dark = paint(0x14171a, { roughness: 0.6 }), steel = metal(0x7b838a, 0.35), chrome = metal(0xc8ccd0, 0.15);
+  const wood = woodMat({ roughness: 0.9 }), dark = paint(0x14171a, { roughness: 0.6 }), steel = metal(0x7b838a, 0.35), chrome = metal(0xc8ccd0, 0.15);
   set('stage', 100, { cam: [3.9, 3.0, 4.6], look: [0, 1.75, -3], amb: 0.1, key: [0.5, 4.7, 2.2, 0, 1.4, -3, 0xfff0d8, 420, 0.72, 0.5, 14], fills: [[-4.5, 3.4, -0.5, 0x7a5cff, 40, 10], [4.5, 3.4, -0.5, 0x3ad7ff, 30, 10], [0, 1.2, 0.2, 0xffb060, 8, 6]], spots: { bing: [0, 0.6, -3, 0], dylan: [-2.9, 0.6, -2.8, 0.25], gavin: [3.1, 0.6, -2.8, -0.25] }, pose: 'stage' }, (g, fx) => {
     shell(g, 14, 5, 10, wallMat('#2c1c50', '#170e2c'), floorMat(14, 10, '#16121f', '#3d3550'), CEIL);
-    B(g, 10.6, 0.55, 3.7, wood, 0, 0.275, -3.1); B(g, 10.7, 0.08, 3.8, paint(0x2a1a10, { roughness: 0.4 }), 0, 0.58, -3.1); B(g, 3, 0.28, 0.5, wood, 0, 0.14, -1.0);
+    B(g, 10.6, 0.55, 3.7, wood, 0, 0.275, -3.1); B(g, 10.7, 0.08, 3.8, pbrMat('wood_floor_worn', 5, 2, { color: 0x9a8a7a }), 0, 0.58, -3.1); B(g, 3, 0.28, 0.5, wood, 0, 0.14, -1.0);
     for (let i = 0; i < 17; i++) add(g, gSph(0.045, 8), glow(0xffd98a, 1.6), -5.1 + i * 0.64, 0.42, -1.22);
     sign(g, 10, 4.3, 0, 2.85, -4.96, 0, (c, w, h) => { const gr = c.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#140b2a'); gr.addColorStop(1, '#3a1d5a'); c.fillStyle = gr; c.fillRect(0, 0, w, h); for (let i = 0; i < 70; i++) { c.fillStyle = `rgba(255,${200 + rand() * 55},${90 + rand() * 120},${0.4 + rand() * 0.6})`; c.beginPath(); c.arc(rand() * w, rand() * h, 1 + rand() * 3, 0, 7); c.fill(); } c.textAlign = 'center'; c.shadowColor = '#9dff3a'; c.shadowBlur = 26; c.fillStyle = '#d9ffa8'; c.font = `${h * 0.3}px Bungee`; c.fillText("BING'S", w / 2, h * 0.36); c.shadowBlur = 0; c.fillStyle = '#f4f4e8'; c.font = `${h * 0.085}px Bungee`; c.fillText('ARCADE & GRILL', w / 2, h * 0.5); }, false);
     curtain(g, 2.6, 5, -5.9, 2.5, -1.25); curtain(g, 2.6, 5, 5.9, 2.5, -1.25); curtain(g, 14, 0.95, 0, 4.55, -1.15, 0, 0x6a0f1a);
@@ -164,11 +172,14 @@ function buildSets() {
     for (const s of [-1, 1]) { B(g, 0.9, 1.5, 0.8, dark, s * 4.6, 1.33, -2.0); for (const y of [1.0, 1.65]) add(g, gCyl(0.28, 0.28, 0.02, 20), paint(0x2a2d31, { roughness: 0.4 }), s * 4.6, y, -1.59).rotation.x = Math.PI / 2; }
     for (let i = 0; i < 16; i++) { const t = new THREE.Shape(); t.moveTo(-0.16, 0); t.lineTo(0.16, 0); t.lineTo(0, -0.34); const x = -6.4 + i * 0.85; const f = add(g, new THREE.ShapeGeometry(t), paint([0xe23d3d, 0xffd23a, 0x3ad7ff, 0x9dff3a][i % 4], { side: THREE.DoubleSide }), x, 4.2 - Math.sin(i / 15 * Math.PI) * 0.5, 1.6); f.userData.noShadow = true; }
     for (const [x, z] of [[-3.4, 2.6], [1.0, 3.2]]) { add(g, gCyl(0.75, 0.75, 0.04, 28), paint(0xf1ead8), x, 0.76, z); add(g, gCyl(0.76, 0.8, 0.3, 28, 1), suit(0xf1ead8), x, 0.62, z); add(g, gCyl(0.06, 0.06, 0.74, 10), dark, x, 0.37, z); for (let k = 0; k < 4; k++) { const a = k * 1.6 + x; add(g, new THREE.ConeGeometry(0.09, 0.24, 14), plastic([0xe23d3d, 0x3ad7ff, 0xffd23a, 0x9dff3a][k]), x + Math.cos(a) * 0.45, 0.9, z + Math.sin(a) * 0.45); add(g, gCyl(0.13, 0.13, 0.012, 16), plastic(0xffffff), x + Math.cos(a + 0.8) * 0.5, 0.79, z + Math.sin(a + 0.8) * 0.5); } }
+    for (const [x, z, n] of [[-3.4, 2.6, 4], [1.0, 3.2, 3]]) for (let k = 0; k < n; k++) { const a = k * (6.283 / n) + x; prop(g, 'dining_chair_02', x + Math.cos(a) * 1.15, 0, z + Math.sin(a) * 1.15, -a - Math.PI / 2, 1); }
+    prop(g, 'strawberry_chocolate_cake', -3.4, 0.782, 2.6, 0.4, 1.7); prop(g, 'strawberry_chocolate_cake', 1.0, 0.782, 3.2, 1.4, 1.5);
     [[-6.2, 2.3, 0.6, 0xe23d3d], [-5.9, 2.7, 0.9, 0xffd23a], [-6.4, 2.9, 1.0, 0x3ad7ff], [6.2, 2.4, 0.4, 0x9dff3a], [6.0, 2.8, 0.8, 0xe23d3d]].forEach(b => balloon(g, ...b));
   });
   set('arcade', 200, { cam: [4.9, 2.9, 4.2], look: [-0.3, 1.2, -2.6], amb: 0.07, key: [1, 3.8, 1.5, -0.5, 0.8, -2.5, 0x9fb4ff, 260, 0.85, 0.6, 13, 1], fills: [[-5, 1.6, -3.8, 0x3ad7ff, 16, 7], [4, 1.6, -3.8, 0xff7ad0, 14, 7], [-6.4, 1.5, 0.5, 0xffd23a, 10, 6]], spots: { dylan: [-2.6, 0, -0.6, 0.6], gavin: [2.6, 0, -1.8, 0.2], bing: [-0.2, 0, -3.3, 0.4] }, pose: 'idle' }, (g, fx) => {
     const carpet = tex(256, 256, (c, w, h) => { c.fillStyle = '#0e0b24'; c.fillRect(0, 0, w, h); const cols = ['#ff3da5', '#3ad7ff', '#ffd23a', '#9dff3a', '#a05cff']; for (let i = 0; i < 70; i++) { c.strokeStyle = c.fillStyle = cols[i % 5]; c.lineWidth = 3; const x = rand() * w, y = rand() * h, k = i % 4; c.beginPath(); if (k === 0) { c.moveTo(x, y); c.lineTo(x + 14, y + 4); c.lineTo(x + 5, y + 15); c.closePath(); c.stroke(); } else if (k === 1) { c.arc(x, y, 3, 0, 7); c.fill(); } else if (k === 2) { c.moveTo(x, y); c.bezierCurveTo(x + 8, y - 12, x + 14, y + 12, x + 24, y); c.stroke(); } else c.strokeRect(x, y, 9, 9); } }, { repeat: [4, 3] });
-    shell(g, 16, 4, 12, wallMat('#1a2344', '#0e1328', false), new THREE.MeshStandardMaterial({ map: carpet, roughness: 0.95 }), CEIL);
+    shell(g, 16, 4, 12, wallMat('#1a2344', '#0e1328', false), new THREE.MeshStandardMaterial({ map: carpet, roughness: 1, normalMap: ptex('dirty_carpet_n', 6, 4.5) }), CEIL);
+    prop(g, 'Sofa_01', 7.3, 0, -1.2, -Math.PI / 2, 1.15); prop(g, 'Television_01', 5.2, 0.5, -1.2, Math.PI / 2, 1.1); prop(g, 'wooden_crate_02', 5.2, 0, -1.2, Math.PI / 2, 1.05); prop(g, 'gaming_console', 5.75, 0, -0.9, 1.9, 1.2); prop(g, 'metal_trash_can', -7.2, 0, 4.6, 0.3, 0.75); prop(g, 'plastic_monobloc_chair_01', 6.6, 0, 0.6, -2.2, 1);
     const names = ['ZAP!', 'MOON MAZE', 'BING BALL', 'ROBO RUN', 'STAR HOP', 'TURBO', 'CLOSE CALL', 'GHOST GRID', 'PIXEL PIT'];
     for (let i = 0; i < 6; i++) cabinet(g, -6 + i * 2.4, -5.45, 0, (i * 0.17 + 0.05) % 1, names[i], i % 4);
     for (let i = 0; i < 3; i++) cabinet(g, -7.45, -2.2 + i * 2.2, Math.PI / 2, (0.6 + i * 0.13) % 1, names[6 + i], (i + 2) % 4);
@@ -179,8 +190,9 @@ function buildSets() {
     for (let i = 0; i < 8; i++) { const st = add(g, new THREE.OctahedronGeometry(0.12), plastic([0xffd23a, 0x3ad7ff, 0xff3da5][i % 3]), -6 + i * 1.7, 3.3 - (i % 2) * 0.3, 2 - (i % 3)); st.scale.y = 1.4; add(g, gCyl(0.004, 0.004, 0.7, 4), paint(0x888888), -6 + i * 1.7, 3.75 - (i % 2) * 0.15, 2 - (i % 3)); }
   });
   set('bar', 300, { cam: [2.3, 2.35, 3.0], look: [0, 1.5, -1.2], amb: 0.07, key: [0.6, 3.7, 3.2, 0, 1.3, -1.2, 0xffd9a8, 260, 0.75, 0.55, 12], fills: [[0, 2.6, -3.7, 0xffa030, 22, 6, 1], [-2.6, 2.3, 0.2, 0xffc070, 12, 5], [2.6, 2.3, 0.2, 0xffc070, 12, 5]], spots: { sal: [0, 0, -1.25, 0] }, pose: 'bar' }, (g, fx) => {
-    shell(g, 10, 4, 9, () => new THREE.MeshStandardMaterial({ map: WOOD, color: 0x8a6a50, roughness: 0.7 }), floorMat(10, 9, '#15100c', '#3a2a1c', 0.35), CEIL);
-    B(g, 7.2, 1.08, 0.8, wood, 0, 0.54, 0); B(g, 7.5, 0.07, 1.05, new THREE.MeshPhysicalMaterial({ map: WOOD, color: 0xb98a5a, roughness: 0.25, clearcoat: 1 }), 0, 1.12, 0); add(g, gCyl(0.03, 0.03, 7.3, 10), metal(0xd9a13a, 0.25), 0, 0.22, 0.52).rotation.z = Math.PI / 2;
+    shell(g, 10, 4, 9, () => new THREE.MeshStandardMaterial({ map: WOOD, color: 0x8a6a50, roughness: 0.7 }), pbrMat('wood_floor_worn', 5, 4.5, { color: 0x8a7a6a }), CEIL);
+    prop(g, 'CashRegister_01', -2.95, 1.155, 0.05, 0.25, 0.75); prop(g, 'wine_bottles_01', -2.2, 1.155, -0.2, 0.2, 1); prop(g, 'wine_barrel_01', -4.3, 0, -2.6, 0.4, 1); prop(g, 'wine_barrel_01', -4.3, 0, -1.6, 1.4, 1); prop(g, 'wine_barrel_01', -4.3, 0.88, -2.1, 2.2, 0.9); prop(g, 'wooden_crate_02', 4.2, 0, -3.0, 0.3, 1); prop(g, 'wine_bottles_01', 3.9, 0.47, -3.0, 0.3, 0.9);
+    B(g, 7.2, 1.08, 0.8, wood, 0, 0.54, 0); B(g, 7.5, 0.07, 1.05, woodMat({ color: 0xd9b48a, roughness: 0.45 }, 4, 1), 0, 1.12, 0); add(g, gCyl(0.03, 0.03, 7.3, 10), metal(0xd9a13a, 0.25), 0, 0.22, 0.52).rotation.z = Math.PI / 2;
     B(g, 6.6, 2.6, 0.3, paint(0x2a1a10, { map: WOOD }), 0, 1.5, -4.3);
     const shapes = [[[0, 0], [0.055, 0], [0.058, 0.2], [0.02, 0.3], [0.02, 0.4], [0, 0.4]], [[0, 0], [0.07, 0], [0.07, 0.16], [0.025, 0.24], [0.022, 0.36], [0, 0.36]], [[0, 0], [0.045, 0], [0.05, 0.28], [0.018, 0.36], [0.018, 0.46], [0, 0.46]]];
     for (let r = 0; r < 3; r++) { B(g, 6.2, 0.05, 0.34, wood, 0, 1.25 + r * 0.62, -4.05); add(g, gBox(6.1, 0.02, 0.02), glow(0xffa030, 2.2), 0, 1.22 + r * 0.62, -3.9); for (let i = 0; i < 14; i++) { const col = new THREE.Color().setHSL(((i * 47 + r * 90) % 360) / 360, 0.6, 0.3); add(g, lathe(shapes[(i + r) % 3], 12), glass(col, 0.82), -2.85 + i * 0.44 + (r % 2) * 0.1, 1.275 + r * 0.62, -4.05); } }
@@ -192,7 +204,7 @@ function buildSets() {
     for (const x of [-2.6, -0.9, 0.9, 2.6]) stool(g, x, 1.15);
     P.shards = new THREE.Group(); for (let i = 0; i < 12; i++) { const s = add(P.shards, new THREE.TetrahedronGeometry(0.03 + (i % 3) * 0.02), glass(0x2a7a44, 0.7), -0.5 + (i * 0.37) % 1, 1.17, -0.3 + (i * 0.13) % 0.5); s.rotation.set(i, i * 2, i * 3); } const pud = add(P.shards, gCyl(0.4, 0.4, 0.004, 24), new THREE.MeshPhysicalMaterial({ color: 0xa87020, roughness: 0.05, transparent: true, opacity: 0.6 }), 0, 1.158, -0.05); pud.scale.z = 0.5; g.add(P.shards);
   });
-  set('prize', 400, { cam: [1.7, 2.6, 4.3], look: [-0.5, 1.1, -1.2], amb: 0.07, key: [-1.2, 3.8, 1.8, -1.6, 0.5, -0.4, 0xfff0d0, 120, 0.62, 0.6, 12], fills: [[2.5, 3.2, 1, 0x8fd8ee, 26, 9, 1], [0, 2.2, -3.5, 0x3ad7ff, 14, 6], [-4, 1.5, -2, 0xff7ad0, 8, 5]], spots: { bing: [2.9, 0, 0.3, -0.35] }, pose: 'idle' }, (g, fx) => {
+  set('prize', 400, { cam: [1.7, 2.6, 4.3], look: [-0.5, 1.1, -1.2], amb: 0.07, key: [-1.2, 3.8, 1.8, -1.6, 0.5, -0.4, 0xfff0d0, 120, 0.62, 0.6, 12], fills: [[2.5, 3.2, 1.6, 0x8fd8ee, 16, 9, 1], [0, 2.2, -3.5, 0x3ad7ff, 14, 6], [-4, 1.5, -2, 0xff7ad0, 8, 5]], spots: { bing: [2.9, 0, 0.3, -0.35] }, pose: 'idle' }, (g, fx) => {
     shell(g, 11, 4, 9, wallMat('#1f3a40', '#12252a'), floorMat(11, 9), CEIL);
     for (let r = 0; r < 2; r++) { B(g, 9.4, 0.06, 0.5, wood, 0, 1.75 + r * 0.95, -4.2); for (let i = 0; i < 9; i++) plush(g, -4.2 + i * 1.05, 1.78 + r * 0.95, -4.2, new THREE.Color().setHSL(((i * 61 + r * 140) % 360) / 360, 0.6, 0.42), 1.05 + ((i + r) % 3) * 0.12); }
     B(g, 8, 0.35, 0.8, paint(0x1c7f76), 0, 0.175, -2.9); add(g, gBox(8, 0.6, 0.8), glass(0xbfe8ff, 0.18), 0, 0.65, -2.9); B(g, 8.1, 0.05, 0.9, metal(0xf2c230, 0.3), 0, 0.97, -2.9);
@@ -201,6 +213,8 @@ function buildSets() {
     const roll = tex(64, 16, c => { c.fillStyle = '#f2c230'; c.fillRect(0, 0, 64, 16); c.fillStyle = '#7a1f2b'; for (let i = 0; i < 4; i++) c.fillRect(i * 16 + 15, 0, 1, 16); c.font = '7px monospace'; for (let i = 0; i < 4; i++) c.fillText('ONE', i * 16 + 1, 11); }, { repeat: [10, 1] });
     const gar = add(g, new THREE.PlaneGeometry(9, 0.16, 40, 1), new THREE.MeshStandardMaterial({ map: roll, side: THREE.DoubleSide }), 0, 3.0, -3.6); const ga = gar.geometry.attributes.position; for (let i = 0; i < ga.count; i++) ga.setY(i, ga.getY(i) - Math.abs(Math.sin(ga.getX(i) * 1.05)) * 0.4);
     add(g, gCyl(0.75, 0.8, 0.3, 28), suit(0x7a1f2b), -1.6, 0.15, -0.4); add(g, gCyl(0.78, 0.78, 0.03, 28), metal(0xf2c230, 0.3), -1.6, 0.31, -0.4);
+    prop(g, 'wooden_display_shelves_01', 5.2, 0, -0.8, 0, 1.15); prop(g, 'wooden_display_shelves_01', 5.2, 0, 0.9, 0, 1.15); prop(g, 'treasure_chest', 4.1, 0, 2.6, -2.3, 0.9); prop(g, 'CashRegister_01', 3.2, 0.995, -2.9, 0, 0.75);
+    prop(g, 'rubber_duck_toy', -3.2, 0.995, -2.85, 0.4, 0.7); prop(g, 'rubber_duck_toy', -2.7, 0.995, -2.95, -0.5, 0.55); prop(g, 'garden_gnome', -0.6, 0.995, -2.9, 0.2, 0.8); prop(g, 'garden_gnome', 0.1, 0.995, -2.95, -0.3, 0.65);
     P.box = makeMusicBox(); P.box.position.set(-1.6, 0.32, -0.4); P.box.rotation.y = 0.35; g.add(P.box);
     fx.push(beam(g, -1.3, 3.9, 1.2, 1.2, 3.6, 0xfff0d0, 0.05)); const bc = g.children[g.children.length - 1]; bc.position.set(-1.45, 2.1, 0.4); bc.rotation.x = -0.45;
     const cm = new THREE.Group(); cm.position.set(-4.5, 0, -1.6); cm.rotation.y = 0.5; g.add(cm); B(cm, 1, 0.9, 1, paint(0xc0392b, { roughness: 0.4 }), 0, 0.45, 0); add(cm, gBox(0.96, 1.1, 0.96), glass(0xcfeaff, 0.16), 0, 1.45, 0); B(cm, 1, 0.14, 1, paint(0xc0392b), 0, 2.07, 0); sign(cm, 0.9, 0.2, 0, 2.07, 0.505, 0, label('GRAB-A-PAL', '#fff', '#7a1522', 0.6), true, 256);
@@ -209,11 +223,13 @@ function buildSets() {
     [[4.6, 2.2, -3.2, 0xffd23a], [4.9, 2.6, -2.9, 0xe23d3d], [4.4, 2.8, -2.7, 0x3ad7ff]].forEach(b => balloon(g, ...b));
   });
   set('storage', 500, { cam: [2.7, 2.5, 3.4], look: [0, 1.25, -0.6], amb: 0.03, key: t => [Math.sin(t * 1.7) * 0.9, 2.42, 0, Math.sin(t * 1.7) * 1.9, 0, 0, 0xffe2a0, 190, 1.05, 0.7, 9], fills: [[-2, 1, 2.5, 0x334a66, 5, 6], [2.2, 1.9, 2.8, 0xffd9a0, 9, 6]], spots: { dylan: [0.4, 0, 0.5, 0.55] }, pose: 'idle' }, g => {
-    shell(g, 8, 3.4, 8, wallMat('#2a2620', '#1a1712', false), new THREE.MeshStandardMaterial({ color: 0x2a2824, map: GRIME, roughness: 0.9 }), CEIL);
+    shell(g, 8, 3.4, 8, wallMat('#2a2620', '#1a1712', false), pbrMat('concrete_floor_worn_001', 3, 3, { color: 0x8a8a86 }), CEIL);
     const boxT = tex(128, 128, (c, w, h) => { c.fillStyle = '#9a7648'; c.fillRect(0, 0, w, h); c.fillStyle = '#c9b48a'; c.fillRect(0, h * 0.44, w, h * 0.12); c.strokeStyle = 'rgba(0,0,0,.3)'; c.strokeRect(2, 2, w - 4, h - 4); c.fillStyle = 'rgba(0,0,0,.5)'; c.font = '14px monospace'; c.fillText('PARTS', 12, 30); });
     const boxM = new THREE.MeshStandardMaterial({ map: boxT, roughness: 0.9 });
-    for (const x of [-3.75, -0.35]) for (const z of [-3.75, -3.25]) B(g, 0.05, 2.8, 0.05, ENDO, x, 1.4, z);
-    for (let r = 0; r < 3; r++) { B(g, 3.5, 0.04, 0.6, steel, -2.05, 0.7 + r * 0.85, -3.5); for (let i = 0; i < 4; i++) { const h = 0.4 + ((i + r) % 3) * 0.12, b = B(g, 0.66, h, 0.5, boxM, -3.3 + i * 0.83, 0.72 + r * 0.85 + h / 2, -3.5); b.rotation.y = ((i * 7 + r) % 5 - 2) * 0.06; } }
+    prop(g, 'steel_frame_shelves_03', -2.1, 0, -3.5, 0, 1.15);
+    for (const [x, y, z, r, sc] of [[-3.3, 0, -2.4, 0.3, 1.2], [-2.7, 0, -2.3, -0.4, 1], [-3.25, 0.41, -2.4, 1.0, 0.95], [-1.0, 0, -2.5, 0.8, 1.3], [-3.4, 0, 0.2, 0.2, 1.1]]) prop(g, 'cardboard_box_01', x, y, z, r, sc);
+    prop(g, 'wooden_crate_02', -3.3, 0, -1.2, 1.5, 1); prop(g, 'hand_truck', 3.4, 0, 1.4, -1.2, 1); prop(g, 'ladder_sectioned_01', 3.82, 0, -1.4, -Math.PI / 2, 1, { rz: 0.16 }); prop(g, 'old_tyre', 3.3, 0.33, 2.9, 0.5, 1.1); prop(g, 'old_tyre', 2.7, 0.09, 3.2, 0, 1.1, { rx: Math.PI / 2 });
+    prop(g, 'tool_cart', -1.6, 0, 2.9, 2.9, 0.9); prop(g, 'metal_tool_chest', 3.0, 0.94, -3.25, -0.2, 0.8); prop(g, 'trashbag', -3.2, 0, 3.2, 0, 1.1); prop(g, 'trashbag', -2.6, 0, 3.4, 2, 0.9);
     B(g, 3.2, 0.07, 0.9, wood, 2.1, 0.9, -3.3); for (const x of [0.7, 3.5]) B(g, 0.08, 0.9, 0.8, wood, x, 0.45, -3.3);
     ['bing', 'dylan', 'gavin'].forEach((w, i) => { const h = makeHead(w, true); h.scale.setScalar(0.88); h.position.set(1.05 + i * 1.02, 0.94, -3.3); h.rotation.set(i === 1 ? 0.25 : 0, (i - 1) * -0.35, i === 2 ? 0.3 : 0); h.userData.jaw.rotation.x = 0.3 + i * 0.15; g.add(h); });
     const e = makeEndo(); e.position.set(-2.9, 0, 1.2); e.rotation.y = 1.1; g.add(e);
@@ -222,8 +238,9 @@ function buildSets() {
     sign(g, 1.6, 0.7, 3.2, 0.45, -0.4, -1.2, label("BING'S", '#7dcb35', '#1a1030', 0.6), false, 256).rotation.z = 0.12;
     for (let i = 0; i < 3; i++) add(g, gCyl(0.11, 0.11, 0.24, 14), paint([0x9a9a9a, 0x7dcb35, 0x2f62cc][i], { roughness: 0.4 }), 2.6 + (i % 2) * 0.26, 0.12 + (i === 2 ? 0.24 : 0), 2.4 + (i === 1 ? 0.2 : 0));
   });
-  set('kitchen', 600, { cam: [3.3, 2.7, 3.6], look: [-0.3, 1.25, -0.6], amb: 0.07, key: [0.8, 3.5, 2.2, -0.4, 1, -0.4, 0xdff0ff, 250, 0.85, 0.6, 12, 1], fills: [[-3.3, 1.2, -2.5, 0xff6a1e, 22, 5, 1], [2.5, 2.5, -2.5, 0xbfe0ff, 10, 6]], spots: { gavin: [-0.4, 0, -0.1, 0.55] }, pose: 'idle' }, (g, fx) => {
-    const tw = len => { const t = tileTex('#aeb8b2', '#9eaaa4', 8, '#4a524c'); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(len / 2.4, 1.5); return new THREE.MeshStandardMaterial({ map: t, roughness: 0.35 }); };
+  set('kitchen', 600, { cam: [3.3, 2.7, 3.6], look: [-0.3, 1.25, -0.6], amb: 0.07, key: [0.8, 3.5, 2.2, -0.4, 1, -0.4, 0xdff0ff, 120, 0.85, 0.6, 12, 1], fills: [[-3.3, 1.2, -2.5, 0xff6a1e, 22, 5, 1], [2.5, 2.5, -2.5, 0xbfe0ff, 10, 6]], spots: { gavin: [-0.4, 0, -0.1, 0.55] }, pose: 'idle' }, (g, fx) => {
+    const tw = len => { const t = tileTex('#aeb8b2', '#9eaaa4', 8, '#4a524c'); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(len / 2.4, 1.5); return new THREE.MeshStandardMaterial({ map: t, roughness: 0.4 }); };
+    prop(g, 'electric_stove', -2.05, 0, -3.42, 0, 1.05); prop(g, 'brass_pot_01', -2.12, 0.905, -3.5, 0.5, 0.8); prop(g, 'vintage_microwave', 3.0, 0.95, -3.5, -0.2, 0.5); prop(g, 'brass_pan_01', 0.9, 0.95, -3.3, 0.9, 1); prop(g, 'wooden_cutting_board', -0.4, 0.95, 2.2, 0.3, 1.1); prop(g, 'brass_pot_01', -1.1, 0.95, 2.3, 0, 1); prop(g, 'industrial_storage_cart', 3.7, 0, 1.6, 0.35, 0.8); prop(g, 'trashbag', 4.4, 0, 3.2, 1, 1.1); prop(g, 'metal_trash_can', -4.3, 0, 2.5, Math.PI / 2, 0.75);
     shell(g, 10, 3.6, 8, tw, floorMat(10, 8, '#101214', '#b9b4a6', 0.25), CEIL);
     const ss = metal(0x9aa2a8, 0.28);
     B(g, 5.4, 0.9, 0.85, ss, 1.0, 0.45, -3.5); B(g, 5.5, 0.05, 0.95, metal(0xb9c0c6, 0.2), 1.0, 0.925, -3.5);
@@ -247,9 +264,9 @@ function buildSets() {
     P.ventFan = new THREE.Group(); P.ventFan.position.set(0, 0.65, -14.2); g.add(P.ventFan); for (let i = 0; i < 5; i++) { const b = add(P.ventFan, sq(0.28, 0.13, 0.01, 2.2, 10), BLACK); b.geometry.translate(0.3, 0, 0); b.rotation.z = i * TAU / 5; } add(P.ventFan, gCyl(0.1, 0.1, 0.06, 12), BLACK).rotation.x = Math.PI / 2;
     P.tokens = makeTokens(); g.add(P.tokens);
   });
-  ROOM.whall = { ox: 0, cam: [-5.4, 2.6, -5.0], look: [-5.4, 1.2, -11], amb: 0.03, key: [-5.4, 3.1, -8, -5.4, 0, -8.3, 0xeaf2ff, 60, 1.15, 0.7, 9, 1], fills: [[-5.4, 2.9, -3.5, 0xeaf2ff, 14, 6], [-5.4, 2.9, -12.5, 0xeaf2ff, 14, 6, 1], [-5.4, 2.5, -15.6, 0x7dffa0, 4, 4]], spots: { dylan: [-5.6, 0, -8.2, 0], bing: [-5.2, 0, -10.6, 0] }, pose: 'idle', fx: [P.hallFx.L[2], P.hallFx.L[3]] };
-  ROOM.ehall = { ox: 0, cam: [5.4, 2.6, -5.0], look: [5.4, 1.2, -11], amb: 0.03, key: [5.4, 3.1, -8, 5.4, 0, -8.3, 0xfff0d0, 60, 1.15, 0.7, 9, 1], fills: [[5.4, 2.9, -3.5, 0xfff0d0, 14, 6], [5.4, 2.9, -12.5, 0xfff0d0, 14, 6, 1], [5.4, 2.5, -15.6, 0x7dffa0, 4, 4]], spots: { gavin: [5.6, 0, -8.2, 0], bing: [5.2, 0, -10.6, 0] }, pose: 'idle', fx: [P.hallFx.R[2], P.hallFx.R[3]] };
-  set('title', 800, { cam: [-0.5, 1.7, 2.7], look: [-0.75, 1.72, 0], amb: 0.015, sway: 0, key: [-1.6, 0.5, 1.8, 0, 1.8, 0, 0xc8ffa0, 60, 0.8, 0.7, 8, 1], fills: [[1.6, 2.8, -0.4, 0x3ad7ff, 16, 5], [-1.4, 2.6, -0.8, 0xff4030, 6, 5]], spots: {} }, g => { curtain(g, 9, 5, 0, 2.5, -1.6); B(g, 9, 0.1, 6, wood, 0, -0.05, 0); });
+  ROOM.whall = { ox: 0, cam: [-5.4, 2.6, -5.0], look: [-5.4, 1.2, -11], amb: 0.03, key: [-5.4, 3.1, -8, -5.4, 0, -8.3, 0xeaf2ff, 26, 1.15, 0.7, 9, 1], fills: [[-5.4, 2.9, -3.5, 0xeaf2ff, 18, 7], [-5.4, 2.9, -12.5, 0xeaf2ff, 18, 7, 1], [-5.4, 2.5, -15.6, 0x7dffa0, 4, 4]], spots: { dylan: [-5.6, 0, -8.2, 0], bing: [-5.2, 0, -10.6, 0] }, pose: 'idle', fx: [P.hallFx.L[2], P.hallFx.L[3]] };
+  ROOM.ehall = { ox: 0, cam: [5.4, 2.6, -5.0], look: [5.4, 1.2, -11], amb: 0.03, key: [5.4, 3.1, -8, 5.4, 0, -8.3, 0xfff0d0, 26, 1.15, 0.7, 9, 1], fills: [[5.4, 2.9, -3.5, 0xfff0d0, 18, 7], [5.4, 2.9, -12.5, 0xfff0d0, 18, 7, 1], [5.4, 2.5, -15.6, 0x7dffa0, 4, 4]], spots: { gavin: [5.6, 0, -8.2, 0], bing: [5.2, 0, -10.6, 0] }, pose: 'idle', fx: [P.hallFx.R[2], P.hallFx.R[3]] };
+  set('title', 800, { cam: [-0.5, 1.7, 2.7], look: [-0.75, 1.72, 0], amb: 0.015, sway: 0, key: [-1.8, 1.0, 2.4, 0, 1.7, 0, 0xfff0d8, 85, 0.8, 0.7, 8, 1], fills: [[1.8, 2.8, -0.3, 0x3ad7ff, 26, 5], [-1.4, 2.6, -0.8, 0xff4030, 10, 5], [0.2, 0.4, 1.6, 0xffd9a0, 4, 4]], spots: {} }, g => { curtain(g, 9, 5, 0, 2.5, -1.6); B(g, 9, 0.1, 6, wood, 0, -0.05, 0); });
   P.scareDoll = makeDoll(); P.scareDoll.scale.setScalar(2.3); P.scareDoll.visible = false; scene.add(P.scareDoll);
   P.scareTok = makeTokens(); scene.add(P.scareTok);
 }
@@ -289,11 +306,11 @@ export function init(canvas) {
   for (let i = 0; i < 3; i++) { const l = new THREE.PointLight(0xffffff, 0, 10, 2); scene.add(l); fills.push(l); }
   // a tiny studio for reflections on metal, glass and eyes
   const es = new THREE.Scene(); es.background = new THREE.Color(0x020203); add(es, gBox(4, 0.1, 4), glow(0xfff0d8, 3), 0, 4, 0); add(es, gBox(0.1, 3, 5), glow(0x3ad7ff, 1.2), -5, 0, 0); add(es, gBox(0.1, 3, 5), glow(0xffa040, 1.2), 5, 0, 0); add(es, gBox(5, 2, 0.1), glow(0x556677, 1), 0, 0, 5);
-  const pm = new THREE.PMREMGenerator(R); setEnv(pm.fromScene(es, 0.04).texture); pm.dispose();
+  const pm = new THREE.PMREMGenerator(R), envT = pm.fromScene(es, 0.04).texture; setEnv(envT); setPropEnv(envT); pm.dispose();
   for (const who of ['bing', 'dylan', 'gavin', 'sal']) { bots[who] = makeBot(who); scene.add(bots[who]); }
   buildOffice(); buildSets();
   scene.traverse(o => { if (!o.isMesh) return; const m = Array.isArray(o.material) ? o.material[0] : o.material; const flat = m.isMeshBasicMaterial || m.transparent || o.userData.noShadow; o.castShadow = !flat; o.receiveShadow = !m.isMeshBasicMaterial; });
-  composer = new EffectComposer(R); composer.setPixelRatio(pr); composer.setSize(1280, 720);
+  composer = new EffectComposer(R, new THREE.WebGLRenderTarget(1280, 720, { type: THREE.HalfFloatType, samples: 4 })); composer.setPixelRatio(pr); composer.setSize(1280, 720);
   composer.addPass(new RenderPass(scene, cam)); bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), 0.4, 0.6, 1.25); composer.addPass(bloom); composer.addPass(new OutputPass()); fin = new ShaderPass(FINAL); composer.addPass(fin);
 }
 const flick = (t, s = 0) => (Math.sin(t * 17 + s) > 0.2 || Math.sin(t * 3.1 + s) > 0) ? 1 : 0.2;
@@ -360,7 +377,7 @@ export function render(view, s, t) {
     stand(m, 800 + (tw ? (Math.random() - 0.5) * 0.04 : 0), 0, 0, 0.2, 'stage', t, { glow: true, jaw: tw ? 0.45 : undefined, shake: tw ? 0.3 : 0 });
     light(room, t, 800); U.warp.value = 0.1; U.glitch.value = tw ? 0.4 : 0; U.cam.value = tw ? 1 : 0;
   } else if (view.type === 'cam') {
-    light(room, t, room.ox, 2.1); amb.intensity = room.amb * 1.6; U.cam.value = 1; U.warp.value = WARP_CAM; U.glitch.value = view.glitch ? 1 : 0;
+    light(room, t, room.ox, 1.8); amb.intensity = room.amb * 1.6; U.cam.value = 1; U.warp.value = WARP_CAM; U.glitch.value = view.glitch ? 1 : 0;
   } else if (view.type === 'office') {
     const o = s.out, f = s.intruder ? (Math.sin(t * 31) > 0.2 ? 0.1 : 1) : 0.94 + 0.06 * Math.sin(t * 47);
     if (o) {
@@ -370,7 +387,7 @@ export function render(view, s, t) {
     } else {
       P.lampGlow.color.setRGB(3 * f, 2.8 * f, 2.3 * f); P.lampBeam.opacity = 0.02 * f;
       const lx = Math.sin(t * 0.8) * 0.02;
-      light({ amb: 0.05, key: [lx, 2.5, 0.6, lx * 30, 0, 0.6, 0xfff0c8, 120 * f, 0.95, 0.7, 7], fills: [[0, 2.6, -1.7, 0xbfd6ff, 15 * f, 5.4], s.lightL ? [-4.4, 2.15, 0.2, 0xf2f6dc, 14 * flick(t * 2.3), 4.2] : [-1.2, 1.3, 1.0, 0x4dffa0, 1.5, 2.5], s.lightR ? [4.4, 2.15, 0.2, 0xf2f6dc, 14 * flick(t * 2.3), 4.2] : null] }, t, 0);
+      light({ amb: 0.05, key: [lx, 2.5, 0.6, lx * 30, 0, 0.6, 0xfff0c8, 120 * f, 0.95, 0.7, 7], fills: [[0, 2.6, -1.7, 0xbfd6ff, 15 * f, 5.4], s.lightL ? [-4.4, 2.15, 0.2, 0xf2f6dc, 8 * flick(t * 2.3), 4.6] : [-1.2, 1.3, 1.0, 0x4dffa0, 1.5, 2.5], s.lightR ? [4.4, 2.15, 0.2, 0xf2f6dc, 8 * flick(t * 2.3), 4.6] : null] }, t, 0);
     }
   } else { // jumpscare, in the office
     const k = Math.min(1, view.t / 0.16), e = 1 - Math.pow(1 - k, 3), dist = 2.8 - (view.who === 'benton' ? 1.5 : 1.75) * e, dx = -Math.sin(view.yaw), dz = -Math.cos(view.yaw);
@@ -385,7 +402,7 @@ export function render(view, s, t) {
   if (quality > 0) composer.render(); else R.render(scene, cam);
   // drop quality on slow machines so the game stays playable
   const now = performance.now(), dt = now - last; last = now;
-  if (dt < 250) { slow = dt > 36 ? slow + dt : Math.max(0, slow - dt * 0.5); if (slow > 3500 && quality > 0) { quality--; slow = 0; if (quality === 1) { R.setPixelRatio(1); composer.setPixelRatio(1); bloom.enabled = false; key.shadow.mapSize.set(512, 512); if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; } } else { key.castShadow = false; } } }
+  if (dt < 250) { slow = dt > 36 ? slow + dt : Math.max(0, slow - dt * 0.5); if (slow > 3500 && quality > 0) { quality--; slow = 0; if (quality === 1) { R.setPixelRatio(1); composer.setPixelRatio(1); bloom.enabled = false; setFur(false); key.shadow.mapSize.set(512, 512); if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; } } else { key.castShadow = false; } } }
 }
 export const getQuality = () => quality;
 // Where the office's 3D buttons are on the 1280x720 screen right now (call after render). Follows the lens warp.

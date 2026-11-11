@@ -232,6 +232,24 @@
       background: repeating-linear-gradient(180deg, rgba(8, 8, 12, 0.96) 0 22px, rgba(8, 8, 12, 0) 22px 34px), radial-gradient(ellipse at center, rgba(0,0,0,0) 30%, rgba(0,0,0,0.85) 75%);
       -webkit-mask: linear-gradient(90deg, #000 0 22%, transparent 22% 78%, #000 78%), linear-gradient(180deg, #000 0 26%, transparent 26% 70%, #000 70%);
       -webkit-mask-composite: source-over; mask-composite: add; }
+    /* task minigame windows */
+    .task { position: fixed; inset: 0; z-index: 24; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.38); pointer-events: auto; }
+    .task .panel.win { width: min(600px, 94vw, calc((100vh - 150px) * 1.6 + 44px)); padding: 40px 14px 12px; border-radius: 6px; border: 3px solid #4a0c14; box-shadow: 6px 6px 0 #000; backdrop-filter: none; -webkit-backdrop-filter: none; }
+    .task.w1 .panel.win { border-color: #6a0a18; background: repeating-linear-gradient(to bottom, rgba(255, 40, 50, 0.06) 0 1px, rgba(0, 0, 0, 0) 1px 3px), rgba(18, 2, 6, 0.96); }
+    .task canvas { display: block; width: 100%; aspect-ratio: 320 / 200; image-rendering: pixelated; border: 2px solid #000; background: #000; cursor: pointer; touch-action: none; }
+    .task .tname { font: 11px var(--pix); color: var(--gold); margin: 0 0 8px; letter-spacing: 0.04em; }
+    .task .thint { font: 600 13px 'Outfit', sans-serif; color: var(--muted); margin-top: 8px; min-height: 18px; }
+    .task .tbar { height: 8px; margin-top: 8px; background: #200409; border: 2px solid #000; }
+    .task .tbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #7dffb0, #3ae07a); transition: width 0.15s; }
+    .task .tx { position: absolute; right: 4px; top: 3px; width: 26px; height: 24px; z-index: 2; background: transparent; border: 0; cursor: pointer; }
+    .task.danger { background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.2) 40%, rgba(160, 0, 16, 0.55)); animation: taskPulse 0.5s ease-in-out infinite alternate; }
+    .task.danger .panel.win { border-color: #ff2a3a; }
+    .task.danger .tname::after { content: '  · SOMETHING IS CLOSE'; color: #ff4a5a; }
+    @keyframes taskPulse { from { box-shadow: inset 0 0 40px rgba(255, 0, 30, 0.3); } to { box-shadow: inset 0 0 120px rgba(255, 0, 30, 0.7); } }
+    .task.ok .panel.win { border-color: #3ae07a; box-shadow: 0 0 0 3px #3ae07a, 6px 6px 0 #000; }
+    .task.bad .panel.win { border-color: #ff2a3a; animation: taskShake 0.25s steps(3); }
+    @keyframes taskShake { 0% { transform: translate(6px, -4px); } 50% { transform: translate(-6px, 4px); } 100% { transform: none; } }
+    @media (max-height: 520px) { .task .panel.win { padding: 34px 10px 8px; } .task .thint { display: none; } }
     .qte { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse, rgba(60, 0, 6, 0.7), rgba(5, 0, 2, 0.96)); }
     .qte canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.32; filter: contrast(1.3) saturate(1.4); animation: qteFace 0.12s steps(2) infinite; }
     @keyframes qteFace { 50% { transform: translate(6px, -3px) scale(1.02); opacity: 0.4; } }
@@ -370,7 +388,7 @@
       var lines = ['FREE PERIOD SYSTEM BIOS  v1.994', '(C) 1994 FREE PERIOD', '', 'MEMORY TEST ......... 4096K OK', 'VIDEO ............... 16-BIT COLOR', 'SOUND ............... FM SYNTH OK', 'CARTRIDGE ........... DREAMY HILLS', '', 'LOADING DREAMY_HILLS.EXE'];
       var log = el('bootLog'), i = 0;
       var typer = setInterval(function () { if (i >= lines.length) { clearInterval(typer); B.linesDone = true; el('bootRow').classList.remove('hidden'); return; } log.textContent += lines[i++] + '\n'; }, 85);
-      var EXPECT = 27;
+      var EXPECT = 29;
       try { new PerformanceObserver(function () { var n = performance.getEntriesByType('resource').filter(function (e) { return /\.js(\?|$)/.test(e.name); }).length; B.set(Math.min(0.55, 0.03 + (0.52 * n) / EXPECT), n && B.target < 0.56 ? 'LOADING CODE ' + n + '/' + Math.max(n, EXPECT) : ''); }).observe({ type: 'resource', buffered: true }); } catch (e) {}
       (function tick() {
         if (B.finished) return;
@@ -468,6 +486,16 @@
   </div>
   <div class="intro hidden" id="intro"><div class="box" id="introBox"></div></div>
   <div class="lockerview hidden" id="lockerView"></div>
+  <div class="task hidden" id="task">
+    <div class="panel win" id="taskWin" data-title="TASK.EXE">
+      <button class="tx" id="taskX" aria-label="Close"></button>
+      <div class="tname" id="taskName">TASK</div>
+      <canvas id="taskCv" width="320" height="200"></canvas>
+      <div class="tbar"><i id="taskBar"></i></div>
+      <div class="thint" id="taskHint"></div>
+    </div>
+  </div>
+
   <div class="qte hidden" id="qte">
     <canvas id="qteFace"></canvas>
     <div class="qte-in">

@@ -27,15 +27,15 @@ const NIGHTS = [
   { bing: 14, dylan: 16, gavin: 15, sal: 17, box: 18, tok: 14 },
 ];
 const CAMS = [
-  { id: 'stage', n: 1, name: 'SHOW STAGE', x: 165, y: 14 },
-  { id: 'arcade', n: 2, name: 'ARCADE FLOOR', x: 165, y: 72 },
-  { id: 'bar', n: 3, name: 'THE BAR', x: 40, y: 72 },
-  { id: 'prize', n: 4, name: 'PRIZE CORNER', x: 290, y: 72 },
-  { id: 'storage', n: 5, name: 'STORAGE', x: 40, y: 134 },
-  { id: 'kitchen', n: 6, name: 'KITCHEN', x: 290, y: 134 },
-  { id: 'whall', n: 7, name: 'WEST HALL', x: 80, y: 196 },
-  { id: 'ehall', n: 8, name: 'EAST HALL', x: 250, y: 196 },
-  { id: 'vent', n: 9, name: 'VENT', x: 165, y: 134 },
+  { id: 'stage', n: 1, name: 'SHOW STAGE', r: [138, 8, 134, 46] },
+  { id: 'arcade', n: 2, name: 'ARCADE FLOOR', r: [118, 60, 174, 58] },
+  { id: 'bar', n: 3, name: 'THE BAR', r: [16, 60, 96, 58] },
+  { id: 'prize', n: 4, name: 'PRIZE CORNER', r: [298, 60, 96, 58] },
+  { id: 'storage', n: 5, name: 'STORAGE', r: [16, 124, 96, 52] },
+  { id: 'kitchen', n: 6, name: 'KITCHEN', r: [298, 124, 96, 52] },
+  { id: 'whall', n: 7, name: 'WEST HALL', r: [118, 124, 40, 124] },
+  { id: 'ehall', n: 8, name: 'EAST HALL', r: [252, 124, 40, 124] },
+  { id: 'vent', n: 9, name: 'VENT', r: [164, 124, 82, 26] },
 ];
 const PATH = { dylan: ['stage', 'arcade', 'storage', 'H', 'D'], gavin: ['stage', 'arcade', 'kitchen', 'H', 'D'], bing: ['stage', 'arcade', 'prize', 'H', 'D'] };
 const rate = lvl => lvl > 0 ? 0.5 + lvl * 0.13 : 0;
@@ -353,20 +353,20 @@ function drawCam() {
   if (g.glitch > 0.15) tx('SIGNAL LOST', 640, 340, 30, '#fff', 'center');
   tx(`CAM ${cam.n}  ${cam.name}`, 30, 100, 18, '#e8f5e8');
   if (blink) { c.fillStyle = '#ff3b2f'; c.beginPath(); c.arc(40, 136, 8, 0, 7); c.fill(); } tx('REC', 58, 137, 14, '#e8f5e8');
-  // map
+  // map: a floor plan of the building; each room is a button
   const mx = 850, my = 400;
-  box(mx, my, 410, 262, 'rgba(0,0,0,.6)', 12);
-  c.strokeStyle = 'rgba(160,255,200,.25)'; c.lineWidth = 3; c.beginPath();
-  for (const [a, b] of [['stage', 'arcade'], ['arcade', 'bar'], ['arcade', 'prize'], ['arcade', 'vent'], ['bar', 'storage'], ['prize', 'kitchen'], ['storage', 'whall'], ['kitchen', 'ehall']]) { const A = CAMS.find(k => k.id === a), B = CAMS.find(k => k.id === b); c.moveTo(mx + A.x + 40, my + A.y + 22); c.lineTo(mx + B.x + 40, my + B.y + 22); }
-  c.stroke();
+  box(mx, my, 410, 262, 'rgba(0,0,0,.62)', 12);
+  c.lineWidth = 2;
   for (const k of CAMS) {
-    const on = k.id === id, warn = (k.id === 'bar' && s.lvl > 0 && (s.thirst < 30 || s.state === 'run')) || (k.id === 'prize' && bx.v < 30);
-    box(mx + k.x, my + k.y, 80, 44, on ? '#9dff3a' : warn && blink ? '#ff3b2f' : 'rgba(30,45,38,.95)', 6);
-    tx(`CAM${k.n}`, mx + k.x + 40, my + k.y + 23, 11, on ? '#07140a' : '#cfe8d4', 'center');
-    if (warn) tx('!', mx + k.x + 74, my + k.y + 4, 16, '#ffd23a', 'center');
-    R('cam:' + k.id, mx + k.x - 4, my + k.y - 6, 88, 56);
+    const [rx, ry, rw, rh] = k.r, on = k.id === id, warn = (k.id === 'bar' && s.lvl > 0 && (s.thirst < 30 || s.state === 'run')) || (k.id === 'prize' && bx.v < 30);
+    c.fillStyle = on ? '#9dff3a' : warn && blink ? '#ff3b2f' : 'rgba(26,40,34,.95)'; c.fillRect(mx + rx, my + ry, rw, rh);
+    c.strokeStyle = on ? '#eaffc8' : 'rgba(160,255,200,.55)'; c.strokeRect(mx + rx + 1, my + ry + 1, rw - 2, rh - 2);
+    tx(`CAM${k.n}`, mx + rx + rw / 2, my + ry + rh / 2 + 1, rw < 50 ? 8 : 10, on ? '#07140a' : '#cfe8d4', 'center');
+    if (warn) tx('!', mx + rx + rw - 8, my + ry + 10, 14, '#ffd23a', 'center');
+    R('cam:' + k.id, mx + rx, my + ry, rw, rh);
   }
-  box(mx + 175, my + 226, 60, 26, 'rgba(255,255,255,.12)', 4); tx('YOU', mx + 205, my + 240, 10, '#fff', 'center');
+  c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(mx + 164, my + 196, 82, 52); c.strokeStyle = '#fff'; c.strokeRect(mx + 165, my + 197, 80, 50); tx('YOU', mx + 205, my + 223, 10, '#fff', 'center');
+  c.fillStyle = '#e23d3d'; c.fillRect(mx + 158, my + 214, 6, 18); c.fillRect(mx + 246, my + 214, 6, 18);
   // the two jobs you do from the cameras
   const job = id === 'bar' && s.lvl > 0 ? { label: "SAL'S BOTTLE", v: s.thirst, btn: 'HOLD TO POUR', col: '#ffb020', ok: s.state === 'bar' }
     : id === 'prize' ? { label: 'MUSIC BOX', v: bx.v, btn: 'HOLD TO WIND', col: '#3ad7ff', ok: bx.wake < 0 } : null;

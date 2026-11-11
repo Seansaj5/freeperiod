@@ -494,7 +494,7 @@ export function carGeometry(b, { detail = true, bakeWheels = false } = {}) {
     endStrip(B, sh, -1, 0, hw * 0.78, b.clear + 0.01, b.clear + 0.15, PLASTIC, TRIM, 0.01);
     for (const x of [-0.5, -0.17, 0.17, 0.5]) B.box(x * hw * 1.3, b.clear + 0.07, -hl + 0.06, 0.025, 0.13, 0.36, PLASTIC, TRIM);
   }
-  const exX = { dual: [-0.6, 0.6], quad: [-0.68, -0.5, 0.5, 0.68], center: [-0.07, 0.07], single: [0.55], twin: [0.42, 0.56], quadc: [-0.2, -0.07, 0.07, 0.2], hex: [0] }[b.exhaust ?? 'single'];
+  const exX = { dual: [-0.6, 0.6], quad: [-0.68, -0.5, 0.5, 0.68], center: [-0.07, 0.07], single: [0.55], twin: [0.42, 0.56], quadc: [-0.2, -0.07, 0.07, 0.2], hex: [0], none: [] }[b.exhaust ?? 'single'];
   const exN = b.exSides ?? (detail ? 12 : 8);
   const exhausts = [], exR = b.exR ?? 0.042, exY = b.exY ?? b.clear + 0.1;
   for (const f of exX) {
@@ -542,6 +542,21 @@ export function carGeometry(b, { detail = true, bakeWheels = false } = {}) {
     B.hexa([[-0.012, y0 - 0.04, z0], [0.012, y0 - 0.04, z0], [0.012, y1 - 0.06, z1], [-0.012, y1 - 0.06, z1], [-0.012, y0 + 0.14, z0 + 0.1], [0.012, y0 + 0.14, z0 + 0.1], [0.012, y1 + 0.02, z1], [-0.012, y1 + 0.02, z1]], WHITE, PAINT);
   }
   if (b.intakes) sidePatch(B, sh, b.intakes[0], b.intakes[1], b.clear + 0.2, sh.top((b.intakes[0] + b.intakes[1]) / 2) - 0.1, PLASTIC, TRIM, 0.008, 0.6);
+  if (b.blade && b.intakes) sidePatch(B, sh, b.intakes[1], b.intakes[1] + 0.05, b.clear + 0.12, sh.top(b.intakes[1]) - 0.08, b.blade, TRIM, 0.01); // side blade
+  if (detail && b.cab && !b.noDoors) {
+    // door shut lines, handles, and a trim line along the bottom of the side windows
+    const cab = b.cab, R = (b.wheel * 1.12 + 0.06) / L, tf = Math.min(cab.f0 - 0.006, b.axle[1] - R);
+    const doors = cab.b != null ? [[cab.b + 0.008, tf], [Math.max(b.axle[0] + R, cab.b - 0.24), cab.b - 0.008]] : [[Math.max(b.axle[0] + R, tf - 1.22 / L), tf]];
+    const seam = 0x0b0d11, y0 = b.clear + 0.2;
+    for (const [t0, t1] of doors) {
+      for (const t of [t0, t1]) sideStrip(B, sh, [[t, y0], [t, sh.top(t) - 0.025]], 0.008, seam, TRIM, 0.004);
+      sideStrip(B, sh, [[t0, y0], [t1, y0]], 0.008, seam, TRIM, 0.004);
+      const th = t0 + 0.03, yh = sh.top(th) - 0.12;
+      sidePatch(B, sh, th, th + 0.045, yh, yh + 0.028, b.chromeHandles ? 0xc8ccd4 : 0x1a1d22, b.chromeHandles ? METAL : TRIM, 0.012);
+    }
+    const tb0 = Math.max(cab.r0, doors[doors.length - 1][0]), tb1 = cab.f0 - 0.004;
+    if (tb1 > tb0) sideStrip(B, sh, [[tb0, sh.top(tb0) - 0.006], [(tb0 + tb1) / 2, sh.top((tb0 + tb1) / 2) - 0.006], [tb1, sh.top(tb1) - 0.006]], 0.016, b.beltChrome ? 0xc8ccd4 : 0x15171b, b.beltChrome ? METAL : TRIM, 0.006);
+  }
   if (b.skirt) sidePatch(B, sh, b.axle[0] + 0.07, b.axle[1] - 0.07, b.clear + 0.005, b.clear + 0.085, b.skirt === true ? PLASTIC : b.skirt, TRIM, 0.014);
   if (b.stripe) { // twin racing stripes over the hood and roof (not the glass)
     const n = 60, col = new THREE.Color(b.stripe), cab = b.cab;
@@ -573,6 +588,12 @@ export function carGeometry(b, { detail = true, bakeWheels = false } = {}) {
     }
     if (wg.light) tail.box(0, y + 0.02, z - ch / 2 - 0.03, half * 1.5, 0.018, 0.012, TAIL, 0);
   }
+  if (b.policeBar) { // roof bar (its red and blue lamps are drawn and flashed by world.js)
+    const z = tZ((b.cab.r1 + b.cab.f1) / 2);
+    B.box(0, b.cab.h + 0.06, z, 1.12, 0.1, 0.3, DARK, TRIM);
+    for (const sx of [-1, 1]) B.box(sx * 0.42, b.cab.h + 0.015, z, 0.08, 0.05, 0.22, DARK, TRIM);
+  }
+  if (b.band) sidePatch(B, sh, 0.12, 0.88, b.clear + 0.32, b.clear + 0.5, b.band, TRIM, 0.01);
   if (b.roofSign) { // taxi
     const z = tZ((b.cab.r1 + b.cab.f1) / 2);
     head.box(0, b.cab.h + 0.13, z, 0.6, 0.15, 0.2, 0xfff1a8, 0);
@@ -583,6 +604,7 @@ export function carGeometry(b, { detail = true, bakeWheels = false } = {}) {
   const tw = b.tyre ?? Math.min(0.32, 0.17 + wr * 0.32);
   const wx = b.track ?? Math.min(sh.planW(b.axle[0]), sh.planW(b.axle[1])) - tw / 2 - 0.02;
   if (b.caliper) for (const az of axZ) for (const sx of [-1, 1]) B.box(sx * (wx + tw / 2 - 0.115), wr * 1.36, az - wr * 0.26, 0.05, wr * 0.42, wr * 0.34, b.caliper, TRIM);
+  if (detail) for (const az of axZ) for (const sx of [-1, 1]) B.lathe(sx * (wx + tw / 2 - 0.14), wr, az, 'x', [[wr * 0.5, -0.012], [wr * 0.5, 0.012]], 18, 0x8a8f99, METAL, true); // brake discs
   const wb = wheelBuilder(wr, tw, b.rim ?? {}, detail);
   const at = [];
   axZ.forEach((az, i) => { for (const sx of [-1, 1]) at.push([sx * wx, wr, az, i === axZ.length - 1]); });
@@ -618,6 +640,12 @@ const TRAFFIC = {
   van: { L: 5.2, W: 1.98, clear: 0.2, wheel: 0.35, axle: [0.16, 0.82], top: [[0, 1.0], [0.05, 1.04], [0.6, 1.04], [0.88, 1.0], [1, 0.84]],
     nose: 0.16, tail: 0.06, cab: { r0: 0.01, r1: 0.03, f1: 0.8, f0: 0.9, h: 2.08, w: 0.92, gw: 0.9, b: 0.62 }, sill: PLASTIC, pillar: DARK, rim: { disc: true, color: 0x7d838d },
     hly: [0.7, 0.8], tly: [0.6, 0.94], tlx: [0.8, 0.95] },
+  // a low sports coupe (fast lanes, loves to overtake)
+  sport: { L: 4.5, W: 1.92, clear: 0.11, wheel: 0.34, axle: [0.18, 0.8], nose: 0.28, noseLen: 0.12, tail: 0.14, fender: [0.1, 0.06], flare: [0.02, 0.05], hoodCrown: 0, chin: 0.07,
+    top: [[0, 0.84], [0.04, 0.88], [0.25, 0.86], [0.5, 0.76], [0.75, 0.68], [0.92, 0.6], [1, 0.5]], cab: { r0: 0.22, r1: 0.4, f1: 0.58, f0: 0.74, h: 1.2, w: 0.66, gw: 0.8, fast: 0.6 },
+    sill: PLASTIC, splitter: true, diffuser: true, wing: { h: 0.1, t: 0.045, chord: 0.26, color: 0x15171b }, hly: [0.5, 0.56], tailBar: true, tlx: [0.4, 0.9], tly: [0.66, 0.73], rim: { spokes: 5, sw: 0.07, color: 0x2a2d33 }, exhaust: 'dual' },
+  // highway patrol: a sedan with a light bar (lit by world.js) and a blue band down the sides
+  police: { ...SEDAN, L: 4.8, W: 1.84, policeBar: true, band: 0x1d3f9a, rim: { spokes: 6, color: 0x2a2d33 }, grille: [0.5, 0.2, 0.5] },
   pickup: { L: 5.3, W: 1.98, clear: 0.28, wheel: 0.39, axle: [0.17, 0.79], top: [[0, 1.1], [0.04, 1.14], [0.55, 1.14], [0.85, 1.12], [1, 1.0]],
     nose: 0.1, tail: 0.04, chin: 0.05, lift: 0.08, hoodCrown: 0, cab: { r0: 0.4, r1: 0.42, f1: 0.62, f0: 0.74, h: 1.86, w: 0.86, b: 0.52 }, sill: PLASTIC, pillar: DARK, bed: true,
     grille: [0.6, 0.58, 0.86], hly: [0.88, 0.98], hlx: [0.62, 0.92], tly: [0.78, 1.06], tlx: [0.86, 0.97], rim: { spokes: 6, color: 0xb0b5be } },
@@ -628,7 +656,33 @@ export function trafficGeometry(kind) {
   if (TRAFFIC[kind]) return carGeometry(TRAFFIC[kind], { detail: false, bakeWheels: true });
   const B = new Builder(), head = new Builder(), tail = new Builder();
   let hl, hw, tailX, tailY;
-  if (kind === 'truck') {
+  if (kind === 'moto') return motoGeometry();
+  if (kind === 'semi') {
+    // tractor unit up front pulling a long box trailer
+    hl = 8.3; hw = 1.27;
+    const cab = { L: 2.7, W: 2.48, clear: 0.45, wheel: 0.52, axle: [0.5], top: [[0, 2.0], [0.5, 2.0], [0.8, 1.9], [1, 1.42]], nose: 0.06, tail: 0, chin: 0.02, lift: 0, arch: 0.07, hoodCrown: 0.01,
+      cab: { r0: 0, r1: 0.02, f1: 0.6, f0: 0.84, h: 3.15, w: 0.94, gw: 0.94 }, step: 0.18 };
+    B.off = [0, 0, hl - 1.35];
+    const sh = loftBody(B, cab);
+    endStrip(head, sh, 1, 0.64, 1.04, 0.86, 1.0, HEAD, 0, 0.012);
+    endStrip(B, sh, 1, 0, 0.62, 0.6, 1.35, 0xb8bcc6, METAL, 0.01); // chrome grille
+    B.off = [0, 0, 0];
+    B.box(0, 3.35, hl - 1.7, 2.3, 0.5, 1.0, WHITE, PAINT); // roof fairing
+    for (const sx of [-1, 1]) { B.box(sx * 1.05, 3.0, hl - 2.75, 0.14, 2.2, 0.14, 0xb8bcc6, METAL); B.box(sx * 1.05, 4.2, hl - 2.75, 0.1, 0.25, 0.1, 0x2a2e36, TRIM); } // exhaust stacks
+    for (const sx of [-1, 1]) B.box(sx * 1.0, 0.75, hl - 3.3, 0.5, 0.48, 1.1, 0xb8bcc6, METAL); // fuel tanks
+    B.box(0, 2.6, -1.4, 2.52, 2.9, 13.0, 0xe9ecf1, TRIM); // trailer box
+    for (let z = -7.6; z <= 4.8; z += 0.9) for (const sx of [-1, 1]) B.box(sx * 1.265, 2.6, z, 0.02, 2.85, 0.07, 0xc5c9d1, TRIM);
+    for (const sx of [-1, 1]) B.box(sx * 1.267, 1.25, -1.4, 0.012, 0.08, 12.6, 0xd03040, TRIM); // reflective tape
+    B.box(0, 0.95, -1.4, 2.2, 0.3, 13.0, PLASTIC, TRIM); // trailer chassis + skirt
+    for (const sx of [-1, 1]) B.box(sx * 1.15, 0.8, -1.0, 0.04, 0.5, 6.0, 0x2a2e36, TRIM); // side skirts
+    B.box(0, 0.72, -hl + 0.05, 2.36, 0.14, 0.1, 0x8a8f99, METAL);
+    const wb = wheelBuilder(0.52, 0.34, { disc: true, color: 0xb6bac2, size: 0.6 }, false);
+    for (const z of [hl - 1.35, hl - 4.2, hl - 5.5, -hl + 1.6, -hl + 2.9]) for (const sx of [-1, 1]) bake(B, wb, sx * 1.02, 0.52, z);
+    tail.box(-1.0, 1.0, -hl - 0.01, 0.26, 0.3, 0.04, TAIL, 0); tail.box(1.0, 1.0, -hl - 0.01, 0.26, 0.3, 0.04, TAIL, 0);
+    for (const x of [-1.05, -0.5, 0, 0.5, 1.05]) tail.box(x, 4.03, -hl - 0.01, 0.12, 0.05, 0.04, AMBER, 0);
+    for (let z = -7; z <= 4; z += 2.2) for (const sx of [-1, 1]) tail.box(sx * 1.27, 3.95, z, 0.03, 0.05, 0.12, AMBER, 0);
+    tailX = 1.0; tailY = 1.0;
+  } else if (kind === 'truck') {
     // box truck: cab up front, cargo box behind
     hl = 4.6; hw = 1.2;
     const cab = { L: 2.5, W: 2.36, clear: 0.42, wheel: 0.5, axle: [0.54], top: [[0, 1.95], [0.5, 1.95], [0.8, 1.85], [1, 1.38]], nose: 0.06, tail: 0, chin: 0.02, lift: 0, arch: 0.07, hoodCrown: 0.01,
@@ -669,6 +723,40 @@ export function trafficGeometry(kind) {
   return {
     parts: B.geometries(), head: head.geometry(), tail: tail.geometry(),
     headGlow: flareQuads(1, [-0.85, 0.85], 0.9, 0.6, 0xffe6b8, hl), tailGlow: flareQuads(-1, [-tailX, tailX], tailY, 0.5, 0xff2a3a, hl),
+    wheel: null, exhausts: [], hl, hw,
+  };
+}
+
+/** A sports bike with its rider (helmet in the paint colour), 2.2 m long. */
+function motoGeometry() {
+  const B = new Builder(), head = new Builder(), tail = new Builder(), hl = 1.1, hw = 0.42;
+  const wb = wheelBuilder(0.31, 0.16, { spokes: 5, sw: 0.05, color: 0x2a2d33, size: 0.7 }, false);
+  bake(B, wb, 0, 0.31, 0.72); bake(B, wb, 0, 0.31, -0.72);
+  const P = (x, y, z) => [x, y, z];
+  // frame and fairing
+  B.hexa([P(-0.16, 0.42, 0.25), P(0.16, 0.42, 0.25), P(0.12, 0.62, 0.95), P(-0.12, 0.62, 0.95), P(-0.17, 0.9, 0.2), P(0.17, 0.9, 0.2), P(0.11, 1.1, 0.78), P(-0.11, 1.1, 0.78)], WHITE, PAINT); // front fairing
+  B.hexa([P(-0.15, 0.82, -0.05), P(0.15, 0.82, -0.05), P(0.15, 0.85, 0.32), P(-0.15, 0.85, 0.32), P(-0.13, 1.02, -0.02), P(0.13, 1.02, -0.02), P(0.12, 1.02, 0.28), P(-0.12, 1.02, 0.28)], WHITE, PAINT); // tank
+  B.hexa([P(-0.12, 0.8, -0.75), P(0.12, 0.8, -0.75), P(0.14, 0.82, -0.05), P(-0.14, 0.82, -0.05), P(-0.08, 0.95, -0.85), P(0.08, 0.95, -0.85), P(0.12, 0.92, -0.05), P(-0.12, 0.92, -0.05)], WHITE, PAINT); // tail
+  B.box(0, 0.93, -0.32, 0.24, 0.05, 0.5, 0x15161a, TRIM); // seat
+  B.box(0, 0.5, -0.05, 0.3, 0.32, 0.5, 0x3a3e46, METAL); // engine
+  B.box(0.1, 0.55, -0.62, 0.08, 0.08, 0.5, 0xb8bcc6, METAL); // exhaust
+  B.box(0, 0.62, 0.62, 0.05, 0.6, 0.06, 0x8a8f99, METAL); B.box(0, 0.5, -0.45, 0.06, 0.06, 0.6, 0x2a2e36, TRIM); // fork, swingarm
+  B.box(0, 1.16, 0.62, 0.26, 0.12, 0.04, 0x26344a, GLASS); // screen
+  // rider: legs, torso leaning over the tank, arms to the bars, helmet
+  const L = 0x1a1b20;
+  for (const sx of [-1, 1]) {
+    B.hexa([P(sx * 0.1, 0.9, -0.3), P(sx * 0.22, 0.9, -0.3), P(sx * 0.22, 0.9, 0.0), P(sx * 0.1, 0.9, 0.0), P(sx * 0.1, 1.04, -0.32), P(sx * 0.22, 1.04, -0.32), P(sx * 0.22, 1.04, 0.05), P(sx * 0.1, 1.04, 0.05)], L, TRIM); // thigh
+    B.box(sx * 0.2, 0.7, -0.1, 0.1, 0.32, 0.12, L, TRIM); // shin
+    B.hexa([P(sx * 0.12, 1.3, 0.12), P(sx * 0.2, 1.3, 0.12), P(sx * 0.2, 1.08, 0.6), P(sx * 0.12, 1.08, 0.6), P(sx * 0.12, 1.36, 0.14), P(sx * 0.2, 1.36, 0.14), P(sx * 0.2, 1.14, 0.6), P(sx * 0.12, 1.14, 0.6)], L, TRIM); // arm
+  }
+  B.hexa([P(-0.2, 0.98, -0.25), P(0.2, 0.98, -0.25), P(0.18, 1.18, 0.3), P(-0.18, 1.18, 0.3), P(-0.2, 1.26, -0.32), P(0.2, 1.26, -0.32), P(0.17, 1.42, 0.22), P(-0.17, 1.42, 0.22)], 0x22262e, TRIM); // torso
+  B.lathe(0, 1.47, 0.36, 'z', [[0.001, 0.15], [0.1, 0.13], [0.145, 0.04], [0.14, -0.05], [0.11, -0.12], [0.001, -0.13]], 12, WHITE, PAINT); // helmet
+  B.box(0, 1.47, 0.48, 0.2, 0.08, 0.06, 0x111317, GLASS); // visor
+  head.box(0, 0.86, 1.0, 0.16, 0.08, 0.03, HEAD, 0);
+  tail.box(0, 0.9, -0.87, 0.14, 0.05, 0.03, TAIL, 0);
+  return {
+    parts: B.geometries(), head: head.geometry(), tail: tail.geometry(),
+    headGlow: flareQuads(1, [0], 0.86, 0.45, 0xffe6b8, hl), tailGlow: flareQuads(-1, [0], 0.9, 0.3, 0xff2a3a, hl),
     wheel: null, exhausts: [], hl, hw,
   };
 }

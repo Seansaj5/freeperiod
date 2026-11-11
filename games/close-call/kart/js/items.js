@@ -70,7 +70,7 @@ export class Items {
       }
     }
     const cg = new THREE.CylinderGeometry(0.42, 0.42, 0.1, 18); cg.rotateX(Math.PI / 2);
-    this.coin = new THREE.InstancedMesh(cg, new THREE.MeshStandardMaterial({ color: 0xffc21a, metalness: 1, roughness: 0.25, emissive: 0x4a2a00, envMap: env, envMapIntensity: 1.6 }), Math.max(1, this.coins.length));
+    this.coin = new THREE.InstancedMesh(cg, new THREE.MeshStandardMaterial({ color: 0xffc21a, metalness: 1, roughness: 0.22, emissive: 0x8a5200, emissiveIntensity: 0.9, envMap: env, envMapIntensity: 1.6 }), Math.max(1, this.coins.length));
     this.coin.frustumCulled = false;
     this.group.add(this.coin);
     // ---- things in play
@@ -195,7 +195,7 @@ export class Items {
           if (dot > 0) { s.vx -= 2 * dot * nx; s.vz -= 2 * dot * nz; s.bounces++; }
           s.x -= nx * (Math.abs(L.d) - edge); s.z -= nz * (Math.abs(L.d) - edge);
         }
-        if (L.gap) s.life = Math.min(s.life, 0.01);
+        if (!t.solidAt(L)) s.life = Math.min(s.life, 0.01); // over the gap or off the edge: gone
         s.mesh.position.set(s.x, L.y + L.ramp + 0.55 + Math.abs(Math.sin(time * 9 + i)) * 0.4, s.z);
         s.mesh.rotation.x += dt * 14;
       } else if (s.kind === 'rocket') {

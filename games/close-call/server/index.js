@@ -34,7 +34,7 @@ function makeCode() {
   }
 }
 
-const MAPS = ['city', 'coast', 'canyon'];
+const MAPS = ['city', 'coast', 'canyon', 'alpine', 'storm'];
 const cleanMap = (m) => (MAPS.includes(m) ? m : 'city');
 const cleanLanes = (l) => ([2, 3, 4].includes(l) ? l : 4);
 

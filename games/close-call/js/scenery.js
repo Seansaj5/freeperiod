@@ -2,6 +2,7 @@
 //   city   - elevated deck on pillars, towers with lit windows, neon billboards, sign gantries, skyline
 //   coast  - sea with the setting sun on it, cliffs and hills, palm trees, suspension bridges, islands
 //   canyon - red rock walls, mesas, cacti, boulders and reflector posts, under a starry sky
+//   alpine - snowy mountain walls and valleys, pine forest, rocks and snow poles, jagged peaks far off
 // Terrain is built per chunk as strips beside the road; props are instanced (gfx.js Pool).
 import * as THREE from 'three';
 import { CHUNK, Pool, triMesh, mergeGeos, radialTexture } from './gfx.js';
@@ -26,8 +27,10 @@ export class Scenery {
     this.mats = [];
     this.texs = [];
     this.time = 0;
-    if (m.id === 'city') this.buildCity();
-    else if (m.id === 'coast') this.buildCoast();
+    const look = (this.look = m.look || m.id);
+    if (look === 'city') this.buildCity();
+    else if (look === 'coast') this.buildCoast();
+    else if (look === 'alpine') this.buildAlpine();
     else this.buildCanyon();
   }
 
@@ -60,8 +63,9 @@ export class Scenery {
   }
 
   fillChunk(i, slot, s0, s1, base, meshes, feats) {
-    if (this.m.id === 'city') this.cityChunk(i, slot, s0, s1, base, meshes);
-    else if (this.m.id === 'coast') this.coastChunk(i, slot, s0, s1, base, meshes, feats);
+    if (this.look === 'city') this.cityChunk(i, slot, s0, s1, base, meshes);
+    else if (this.look === 'coast') this.coastChunk(i, slot, s0, s1, base, meshes, feats);
+    else if (this.look === 'alpine') this.alpineChunk(i, slot, s0, s1, base, meshes, feats);
     else this.canyonChunk(i, slot, s0, s1, base, meshes, feats);
   }
 
@@ -437,6 +441,110 @@ export class Scenery {
       this.mesas.add(slot, p.x, -42, p.z, r() * 6.28, w, h, w * (0.6 + r() * 0.6), 0, new THREE.Color(c, c, c).getHex());
     }
   }
+}
+
+// ---------------------------------------------------------------- alpine
+Scenery.prototype.buildAlpine = function () {
+  const hi = this.hi;
+  this.groundPlane(-30, 0x9aa6b8);
+  this.farRing(peaksTexture(), -30 + 110, 300);
+  this.landMat = this.mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  this.pines = this.pool(pineGeometry(), this.mat(new THREE.MeshLambertMaterial({ vertexColors: true })), hi ? 34 : 20);
+  this.rocks = this.pool(rockGeometry(11), this.mat(new THREE.MeshLambertMaterial({ color: 0xffffff })), 10, true);
+  // snow poles with orange tips, every 25 m both sides (they mark the edge when it's white out)
+  this.poles = this.pool(new THREE.CylinderGeometry(0.04, 0.05, 2.2, 6).translate(0, 1.1, 0), this.mat(new THREE.MeshLambertMaterial({ color: 0x1a1c20 })), 20);
+  this.poleTips = this.pool(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 6).translate(0, 1.95, 0), this.mat(new THREE.MeshBasicMaterial({ color: hi ? new THREE.Color(2.2, 0.8, 0.15) : 0xff7a1a })), 20);
+};
+
+/** One side of the pass: a mountain wall going up, or a drop into the valley, swapping every so often. */
+Scenery.prototype.alpineProfile = function (s, side, ry, feats) {
+  const seed = this.w.seed, n = (k) => vnoise(seed + side * 9 + k, s * 0.014, k * 0.7);
+  const up = smooth(0.35, 0.65, vnoise(seed + 31, s * 0.0012, side * 0.7)); // 1 = mountain on this side, 0 = valley
+  const wall = [[0.3, ry - 0.05], [2.5, ry + 0.6 + n(1) * 0.5], [6, ry + 4 + n(2) * 3], [12, ry + 14 + n(3) * 8], [22, ry + 32 + n(4) * 14], [40, ry + 58 + n(5) * 22], [80, ry + 90 + n(6) * 30], [420, ry + 120]];
+  const vale = [[0.3, ry - 0.05], [2.5, ry - 0.4], [6, ry - 3 - n(1) * 2], [14, ry - 10 - n(2) * 6], [30, ry - 22 - n(3) * 8], [70, ry - 30 - n(4) * 6], [160, ry - 18 + n(5) * 20], [420, ry + 60 + n(6) * 40]];
+  let pr = wall.map(([dd, y], j) => [dd, lerp(vale[j][1], y, up)]);
+  pr = pr.map(([dd, y]) => [Math.min(dd, 400), Math.max(y, -29)]);
+  return this.mountain(pr, this.tunnelAmt(s, feats), ry);
+};
+
+Scenery.prototype.alpineChunk = function (i, slot, s0, s1, base, meshes, feats) {
+  const road = this.w.road, p = {}, seed = this.w.seed;
+  const ryAt = (s) => road.center(s, p).y;
+  const snow = [0.86, 0.9, 0.97], shade = [0.62, 0.68, 0.8], rock = [0.3, 0.31, 0.34], rock2 = [0.42, 0.42, 0.45];
+  const mix3 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+  for (const side of [-1, 1]) {
+    let prev = null;
+    this.strip(s0, s1, side, base, (s) => (prev = this.alpineProfile(s, side, ryAt(s), feats)), (s, dd, y, j) => {
+      if (j === 0) return [0.5, 0.52, 0.58]; // ploughed slush by the barrier
+      const ry = ryAt(s), h = y - ry;
+      const r = vnoise(seed + 5, s * 0.03, y * 0.09), steep = Math.abs(h) > 10 && r > 0.55;
+      const c = steep ? mix3(rock, rock2, vnoise(seed + 6, s * 0.1, y * 0.2)) : mix3(snow, shade, smooth(-20, 40, -h) * 0.5 + vnoise(seed + 7, s * 0.02, dd * 0.05) * 0.25);
+      const tint = 0.94 + hash(Math.round(s), Math.round(dd * 3)) * 0.1;
+      return [c[0] * tint, c[1] * tint, c[2] * tint];
+    }, this.landMat, meshes);
+  }
+  const r = rng(i * 9127 + seed * 5);
+  for (let j = 0; j < (this.hi ? 34 : 20); j++) {
+    const s = s0 + r() * CHUNK, side = r() < 0.5 ? -1 : 1, dd = 4 + r() * r() * 70;
+    if (this.tunnelAmt(s, feats) > 0.05) continue;
+    const pr = this.alpineProfile(s, side, ryAt(s), feats), y = profileY(pr, dd);
+    road.toWorld(s, side * (road.wall + dd), p);
+    const k = 0.7 + r() * 0.9;
+    this.pines.add(slot, p.x, y - 0.3, p.z, r() * 6.28, k, k * (0.85 + r() * 0.5), k);
+  }
+  for (let j = 0; j < 10; j++) {
+    const s = s0 + r() * CHUNK, side = r() < 0.5 ? -1 : 1, dd = 3 + r() * 25;
+    if (this.tunnelAmt(s, feats) > 0.05) continue;
+    const pr = this.alpineProfile(s, side, ryAt(s), feats), y = profileY(pr, dd);
+    road.toWorld(s, side * (road.wall + dd), p);
+    const k = 0.5 + r() * r() * 2.5, c = 0.38 + r() * 0.15;
+    this.rocks.add(slot, p.x, y - k * 0.3, p.z, r() * 6.28, k * (1 + r() * 0.5), k * (0.6 + r() * 0.5), k, 0, new THREE.Color(c, c, c * 1.08).getHex());
+  }
+  for (let s = Math.ceil(s0 / 25) * 25; s < s1; s += 25) {
+    if (road.featureAt(s)) continue;
+    for (const side of [-1, 1]) {
+      road.toWorld(s, side * (road.wall + 1.2), p);
+      this.poles.add(slot, p.x, p.y - 0.05, p.z, 0);
+      this.poleTips.add(slot, p.x, p.y - 0.05, p.z, 0);
+    }
+  }
+};
+
+/** A snowy pine: three stacked cones with white tips, and a trunk. 1 unit ~ 9 m tall. */
+function pineGeometry() {
+  const parts = [], green = [0.1, 0.24, 0.16], dark = [0.06, 0.15, 0.1], white = [0.88, 0.92, 0.98];
+  const trunk = new THREE.CylinderGeometry(0.25, 0.35, 2.4, 6).translate(0, 1.2, 0);
+  const tc = []; for (let i = 0; i < trunk.attributes.position.count; i++) tc.push(0.28, 0.2, 0.14);
+  trunk.setAttribute('color', new THREE.Float32BufferAttribute(tc, 3)); parts.push(trunk);
+  for (const [r, h, y] of [[2.4, 3.6, 3.2], [1.9, 3.2, 5.0], [1.3, 2.8, 6.8]]) {
+    const g = new THREE.ConeGeometry(r, h, 8, 2).translate(0, y, 0), p = g.attributes.position, col = [];
+    for (let i = 0; i < p.count; i++) { const k = (p.getY(i) - (y - h / 2)) / h; const c = k > 0.72 ? white : k > 0.36 ? green : dark; col.push(...c); }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); parts.push(g);
+  }
+  // merge keeping each vertex's colour (mergeGeos colours whole parts)
+  const pos = [], col = [];
+  for (let g of parts) { g = g.toNonIndexed(); pos.push(...g.attributes.position.array); col.push(...g.attributes.color.array); }
+  const m = new THREE.BufferGeometry();
+  m.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); m.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  m.computeVertexNormals();
+  return m;
+}
+
+/** Jagged snowy peaks for the far ring. */
+function peaksTexture() {
+  const c = document.createElement('canvas'); c.width = 2048; c.height = 256;
+  const x = c.getContext('2d'), R = rng(41);
+  for (const [k, col, top] of [[0, '#3c4a62', 70], [1, '#56657e', 110]]) {
+    const pts = []; let h = 150;
+    for (let px = 0; px <= 2048; px += 16) { h = Math.max(top, Math.min(230, h + (R() - 0.5) * 70)); pts.push([px, h]); }
+    pts[pts.length - 1][1] = pts[0][1];
+    x.fillStyle = col; x.beginPath(); x.moveTo(0, 256); for (const [px, py] of pts) x.lineTo(px, py); x.lineTo(2048, 256); x.fill();
+    // snow caps on the high points
+    x.fillStyle = k ? 'rgba(235,242,255,0.9)' : 'rgba(210,222,240,0.75)';
+    for (let i = 1; i < pts.length - 1; i++) if (pts[i][1] < pts[i - 1][1] && pts[i][1] < pts[i + 1][1] && pts[i][1] < 170) { const [px, py] = pts[i]; x.beginPath(); x.moveTo(px, py); x.lineTo(px - 22, py + 26); x.lineTo(px - 8, py + 20); x.lineTo(px + 6, py + 30); x.lineTo(px + 24, py + 24); x.closePath(); x.fill(); }
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 /** Extra columns between the profile's points, nudged up and down, so slopes look rocky rather than smooth. */

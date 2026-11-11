@@ -3,6 +3,7 @@
 //   Keep passing to keep the combo timer alive. When it runs out the combo BANKS into your score
 //   and pays cash (10 points = $1). Crash before that and the whole combo is lost.
 import { clamp } from './util.js';
+import { boxGap } from './physics.js';
 
 export const COMBO_TIME = 5;
 export const TIERS = [
@@ -33,7 +34,6 @@ export class Scorer {
     const kmh = car.v * 3.6;
     const seen = this._seen || (this._seen = new Set());
     seen.clear();
-    const hwE = car.hwEff;
     for (let i = 0; i < n; i++) {
       const c = traffic[i];
       const rel = car.s - c.s;
@@ -43,7 +43,7 @@ export class Scorer {
       let r = this.near.get(c.id);
       if (Math.abs(rel) < win) {
         if (!r) { r = { start: rel, min: 99, side: Math.sign(c.d - car.d) }; this.near.set(c.id, r); }
-        const gap = Math.abs(car.d - c.d) - (hwE + c.hw);
+        const gap = boxGap(car.s, car.d, car.hl, car.hw, car.yaw, c.s, c.d, c.hl, c.hw, c.yaw || 0); // the same exact boxes as crashes
         if (gap < r.min) r.min = gap;
         if (car.ghost > 0) r.dead = true;
       } else if (r && rel >= win) {
@@ -60,6 +60,14 @@ export class Scorer {
       if (kmh > 170) this.pending += (kmh - 170) * 1.6 * dt * this.mult; // speed bonus while the combo is live
       if (this.timer <= 0) this.bank(ev);
     }
+  }
+
+  /** A flat bonus (cones...): counts as part of the combo and keeps it alive. */
+  bonus(pts, name, side, ev) {
+    const p = pts * this.mult;
+    this.pending += p;
+    this.timer = Math.max(this.timer, COMBO_TIME * 0.7);
+    ev.push({ type: 'near', name, pts: p, side, tier: 2, bonus: true });
   }
 
   award(r, car, ev) {

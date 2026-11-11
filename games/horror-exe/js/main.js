@@ -11,10 +11,11 @@ import { account, refreshAccount, isOwnerAcct } from './account.js';
 import { Fx, GlitchShader, RetroShader } from './fx.js';
 import { Title } from './title.js';
 import { finishBoot } from './boot.js';
+import { openTask } from './tasks.js';
 import { Sound } from './audio.js';
 import { LocalSession, NetSession } from './net.js';
 import { SERVER_URL } from './config.js';
-import { CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, SURV, EXE, F, ST, PHASES, ROUND, TASKS, TASK, PORTAL, HIDE, QTE, AWAKEN, LEVEL, levelOf, moveSpeed, tickStamina } from '../shared/rules.js';
+import { CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, SURV, EXE, F, ST, PHASES, ROUND, TASKS, TASK, TASK_REACH, PORTAL, HIDE, QTE, AWAKEN, LEVEL, levelOf, moveSpeed, tickStamina } from '../shared/rules.js';
 import { stepMove, body } from '../shared/move.js';
 import { rayDist, terrainH, supportAt, solidAt, clampXZ, EXITS, V, S as HOLLOW, PORTALS, OBJ, ZONES, zoneAt, HALF, LAVA, GOO, ICE, L as LAKE, LOCKERS } from '../shared/map.js';
 import { defaultLook, randomLook, sanitizeLook, SKINS, COLORS, SHIRT_STYLES, PATTERNS, FACES, HATS, LABELS } from '../shared/looks.js';
@@ -145,7 +146,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0) { input.atk = true; if (match.spectating) match.nextSpectate(); }
 });
 addEventListener('mousemove', (e) => { if (document.pointerLockElement === canvas) { input.dx += e.movementX; input.dy += e.movementY; } });
-document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && match && !match.done && !paused && !touch && curScreen !== 'admin') togglePause(true); });
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && match && !match.done && !paused && !touch && curScreen !== 'admin' && !(match.mini && match.mini.task)) togglePause(true); });
 const held = (...codes) => codes.some((c) => input.keys.has(c));
 /** ADMIN.EXE switches (owner only). God mode and no cooldowns are also switched on in the round itself. */
 const adm = { god: false, speed: false, fly: false, nocd: false };
@@ -336,7 +337,7 @@ class Match {
     $('touch').classList.toggle('hidden', !touch);
     $('tAtk').classList.toggle('hidden', this.role !== 'exe');
     $('tSense').classList.toggle('hidden', this.role !== 'exe');
-    $('tDis').textContent = this.role === 'exe' ? 'F' : 'HIDE';
+    $('tDis').textContent = this.role === 'exe' ? 'F' : 'USE';
     $('tG').classList.toggle('hidden', this.role !== 'exe'); $('tV').classList.toggle('hidden', this.role !== 'exe' || !this.unlock.awaken);
     $('tSense').textContent = 'Q';
     $('tDis').classList.toggle('hidden', this.role === 'spec');
@@ -352,7 +353,7 @@ class Match {
       box.innerHTML = `<div class="who">You are</div><h1 class="glitch" data-text="${esc(v.name)}" style="color:#ff2a3a">${esc(v.name)}</h1><p>${esc(v.role)}: ${esc(v.desc)} Catch them before they escape.</p><p style="color:var(--muted)">Click ${esc(v.atkName)} · E ${esc(v.moves.abl.name)} · R ${esc(v.moves.ab2.name)} · Q ${esc(v.moves.ab3.name)} · F ${esc(v.moves.ab4.name)}<br>G disguise as a survivor (normal world) · click a locker to rip it open${this.unlock.awaken ? `<br><b style="color:#ffd23d">V ${esc(v.awake.name)}</b> when your meter is full: ${esc(v.awake.desc)}` : `<br>Reach level 10 with ${esc(v.name)} to unlock its Awakening.`}</p>`;
     } else if (this.role === 'surv') {
       const c = CHARS[this.kind];
-      box.innerHTML = `<div class="who">You are</div><h1 style="color:${c.accent}">${esc(c.name)}</h1><p>Finish the 5 zone tasks to open the escape gates early (some are in the corrupted world: use the rift portals). Escape through a gate in the corrupted world.</p><p style="color:#ffb0b0">EXE can disguise as one of your friends in the normal world. You have 3 hearts and can be revived once.</p><p style="color:var(--muted)">${touch ? 'HIDE' : 'F'} near a locker to hide (not while EXE is watching, and not for too long).</p><p style="color:var(--muted)">E ${esc(c.abilityName)} · R ${esc(c.r.name)} · Q ${this.unlock.q ? esc(c.q.name) : `${esc(c.q.name)} (unlocks at level 10)`}</p>`;
+      box.innerHTML = `<div class="who">You are</div><h1 style="color:${c.accent}">${esc(c.name)}</h1><p>Finish the 5 zone tasks to open the escape gates early (some are in the corrupted world: use the rift portals). Escape through a gate in the corrupted world.</p><p style="color:#ffb0b0">EXE can disguise as one of your friends in the normal world. You have 3 hearts and can be revived once.</p><p style="color:var(--muted)">${touch ? 'USE' : 'F'} near a task to open its minigame (you stand still while you do it). ${touch ? 'USE' : 'F'} near a locker to hide (not while EXE is watching, and not for too long).</p><p style="color:var(--muted)">E ${esc(c.abilityName)} · R ${esc(c.r.name)} · Q ${this.unlock.q ? esc(c.q.name) : `${esc(c.q.name)} (unlocks at level 10)`}</p>`;
     } else box.innerHTML = `<div class="who">Round in progress</div><h1>Watching</h1><p>You'll join the next round.</p>`;
     $('intro').classList.remove('hidden', 'corner');
     clearTimeout(this.introT); clearTimeout(this.introT2);
@@ -800,6 +801,9 @@ class Match {
         if (by) feed(`${tagOf(by)} ${e.t === 'valves' ? 'turned a valve' : e.t === 'panels' ? 'lit a jackpot panel' : 'rang a bell'} <b>${e.n}/${total}</b>`);
         break;
       }
+      case 'task-x':
+        if (mine && this.mini && this.mini.task) this.mini.close(e.why || 'left');
+        break;
       case 'core':
         if (e.s === 'pick') { feed(`${v ? tagOf(v) : 'Someone'} picked up the <b style="color:#ffa040">fire core</b>`); if (mine) { banner('YOU HAVE THE FIRE CORE', 'Bring it to the frozen engine', true); sound.play('core'); } }
         else if (e.s === 'drop') { feed(`${v ? tagOf(v) : 'Someone'} dropped the fire core`); if (mine) sound.play('core', 0.5); }
@@ -908,7 +912,7 @@ class Match {
       if (input.atk) this.attack(t, st, sf);
       if (input.ab2) this.useMove('ab2', t, st, sf);
       if (input.q) this.useMove('ab3', t, st, sf);
-      if (input.f) { if (this.role === 'exe') this.useMove('ab4', t, st, sf); else this.hide(st); }
+      if (input.f) { if (this.role === 'exe') this.useMove('ab4', t, st, sf); else if (!this.startTask(st, snap)) this.hide(st); }
       if (input.g) this.disguise(t, st);
       if (input.v) this.awaken(t, st, mine ? mine[16] : 0);
       this.pushState(false);
@@ -951,6 +955,9 @@ class Match {
       if (ph === 'intro') terror *= 0.2;
     }
     if (this.spectating && this.role === 'surv') terror *= 0.5;
+    // doing a task with EXE close: the window shakes red and warns you
+    if (this.mini && this.mini.task) { const on = terror > 0.55; if (on !== this.taskDanger) { this.taskDanger = on; $('task').classList.toggle('danger', on); if (on) sound.play('warn'); } }
+    else if (this.taskDanger) { this.taskDanger = false; $('task').classList.remove('danger'); }
     // EXE close: the screen glitches between the two worlds
     if (this.flickT > 0) { this.flickT -= dt; if (this.flickT <= 0) applyTheme(this.viewW); }
     else if (terror > 0.2 && ph !== 'over' && Math.random() < terror * terror * dt * 7) {
@@ -1021,6 +1028,7 @@ class Match {
       speed: v.speed, sprint: !!(flags & F.SPRINT), air: !!(flags & F.AIR) || (isMe && !this.body.ground),
       fly: isMe ? flying : !!(flags & F.FLY), down: st === ST.down, atk, stun: !!(flags & F.STUN) || (v.role === 'exe' && !!(flags & F.POP)),
       dash: isMe ? t < this.until.dash : !!(flags & F.DASH), lunge: isMe ? t < this.until.lunge : !!(flags & F.LUNGE),
+      task: isMe ? !!(this.mini && this.mini.task) : !!(flags & F.TASK), carry: !!(flags & F.CARRY),
     });
     // Grin.exe fading
     if (v.role === 'exe') {
@@ -1152,28 +1160,15 @@ class Match {
     // prompts: absorbing a shard, reviving a friend, flying
     let prompt = '';
     if (this.body && st === ST.alive && this.role === 'surv') {
-      for (let i = 0; i < this.info.shards.length; i++) {
-        if (snap.sh & (1 << i) || !(snap.sa & (1 << i))) continue;
-        const s = this.info.shards[i];
-        if (Math.hypot(this.body.x - s[0], this.body.z - s[2]) < SURV.pickupRange && Math.abs(this.body.y + 1.1 - s[1]) < 2.6) {
-          const p = snap.sp.indexOf(i) % 2 === 0 ? snap.sp[snap.sp.indexOf(i) + 1] : 0;
-          prompt = `Absorbing shard… stay close<div class="bar"><i style="width:${p}%"></i></div>`;
-          if (t > this.absorbTick) { this.absorbTick = t + 0.45; sound.play('absorb', p / 100); }
-        }
-      }
+      const tk = !this.mini && this.nearTask(snap);
+      if (tk) prompt = `<b style="color:var(--gold)">${touch ? 'USE' : 'F'}</b>: ${tk.label}`;
       for (const v of this.views.values()) {
         if (v.role !== 'surv' || v.id === this.me) continue;
         const e = snap.pm.get(v.id);
         if (e && e[6] === ST.down && Math.hypot(this.body.x - e[1], this.body.z - e[3]) < SURV.reviveRange) prompt = `Reviving ${esc(v.name)}…<div class="bar"><i style="width:${e[9]}%"></i></div>`;
       }
-      if (this.viewW === 0) this.info && OBJ.valves.forEach((v, i) => {
-        if (snap.vm & (1 << i) || Math.hypot(this.body.x - v.x, this.body.z - v.z) > TASK.valveRange || Math.abs(this.body.y + 1.1 - v.y) > 2.6) return;
-        const k = snap.vp.indexOf(i), p = k >= 0 && k % 2 === 0 ? snap.vp[k + 1] : 0;
-        prompt = `Turning the valve… stay close<div class="bar"><i style="width:${p}%"></i></div>`;
-        if (t > this.absorbTick) { this.absorbTick = t + 0.5; sound.play('valve', 0.4); }
-      });
       if (sf & F.CARRY) prompt = 'Carrying the fire core: bring it to the frozen engine';
-      if (!prompt) for (const L of LOCKERS) if (Math.hypot(this.body.x - L.fx, this.body.z - L.fz) < HIDE.range && Math.abs(L.y - this.body.y) < 1.5) prompt = `${touch ? 'HIDE' : 'F'}: hide in the locker`;
+      if (!prompt) for (const L of LOCKERS) if (Math.hypot(this.body.x - L.fx, this.body.z - L.fz) < HIDE.range && Math.abs(L.y - this.body.y) < 1.5) prompt = `${touch ? 'USE' : 'F'}: hide in the locker`;
       if (!prompt) for (const p of PORTALS) if (Math.hypot(this.body.x - p.x, this.body.z - p.z) < 6) prompt = `Rift portal: step in to enter the ${this.viewW ? 'normal' : 'corrupted'} world`;
       if (t < this.until.fly) prompt = touch ? 'Hold JUMP to fly up' : 'Hold Space to fly up';
     }
@@ -1272,6 +1267,51 @@ class Match {
     this.throws = this.throws.filter((w) => !w.dead);
   }
 
+  /** The task you could start right here: { t, i, label } or null (same reach as the server's TASK_REACH). */
+  nearTask(snap) {
+    const b = this.body;
+    if (!b || !snap || this.role !== 'surv') return null;
+    const w = this.viewW, close = (t, x, y, z, core) => Math.hypot(b.x - x, b.z - z) <= TASK_REACH[t] && Math.abs((core ? b.y : b.y + 1.1) - y) <= 3;
+    if (w === 0) {
+      for (let i = 0; i < this.info.shards.length; i++) { const p = this.info.shards[i]; if (!(snap.sh & (1 << i)) && snap.sa & (1 << i) && close('shards', p[0], p[1], p[2])) return { t: 'shards', i, label: 'absorb the shard' }; }
+      for (let i = 0; i < OBJ.valves.length; i++) { const v = OBJ.valves[i]; if (!(snap.vm & (1 << i)) && close('valves', v.x, v.y, v.z)) return { t: 'valves', i, label: 'turn the valve' }; }
+    } else {
+      for (let i = 0; i < OBJ.panels.length; i++) { const v = OBJ.panels[i]; if (!(snap.pn & (1 << i)) && close('panels', v.x, v.y, v.z)) return { t: 'panels', i, label: 'rewire the jackpot panel' }; }
+      for (let i = 0; i < OBJ.bells.length; i++) { const v = OBJ.bells[i]; if (!(snap.bm & (1 << i)) && close('bells', v.x, v.y, v.z)) return { t: 'bells', i, label: 'ring the bells' }; }
+      const c = snap.co, mine = snap.pm.get(this.me);
+      if ((c[0] === 0 || c[0] === 2) && !(mine && mine[7] & F.CARRY) && close('core', c[1], c[2], c[3], true)) return { t: 'core', i: 0, label: 'chip the fire core out of the ice' };
+    }
+    return null;
+  }
+
+  /** F near a task: open its minigame window. You stand still until it's done or you close it. */
+  startTask(st, snap) {
+    if (st !== ST.alive || this.mini) return false;
+    const tk = this.nearTask(snap);
+    if (!tk) return false;
+    const mine = snap.pm.get(this.me), fast = !!(mine && mine[7] & F.TURBO) || [...snap.pm.values()].some((e) => e !== mine && e[7] & F.TURBO && e[11] === this.viewW && Math.hypot(e[1] - this.body.x, e[3] - this.body.z) < CHARS.pip.q.range);
+    this.s.action({ k: 'task', s: 'open', t: tk.t, i: tk.i });
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.taskFor = tk;
+    const m = openTask(tk.t, {
+      fast, corrupted: this.viewW === 1, play: (n, v) => sound.play(n, v),
+      onDone: () => { if (this.mini === m) this.mini = null; this.s.action({ k: 'task', s: 'done', t: tk.t, i: tk.i }); this.relock(); },
+      onCancel: (why) => {
+        if (this.mini === m) this.mini = null;
+        if (why === 'cancel') this.s.action({ k: 'task', s: 'cancel', t: tk.t, i: tk.i });
+        if (why === 'hit') banner('INTERRUPTED', 'EXE got you mid-task', false);
+        else if (why === 'done') feed('Someone else finished that task');
+        if (why !== 'gone') this.relock();
+      },
+    });
+    this.mini = m;
+    sound.play('click');
+    return true;
+  }
+
+  /** Grab the mouse again after a task window (desktop only; it needs a click if the browser says no). */
+  relock() { if (!touch && !this.done && !paused) try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch { /* the "Click to look around" prompt covers it */ } }
+
   /** The Q/E quick-time minigame when EXE drags you out of a locker. */
   startMinigame(reason) {
     if (this.mini) this.mini.close();
@@ -1359,6 +1399,7 @@ class Match {
   }
 
   showResults(e) {
+    if (this.mini && this.mini.task) this.mini.close('gone');
     if (match !== this) return;
     this.done = true;
     if (document.pointerLockElement) document.exitPointerLock();
@@ -1409,7 +1450,7 @@ class Match {
     for (const d of this.decoyRigs.values()) { scene.remove(d.root); d.dispose(); }
     for (const d of this.ghostRigs.values()) { scene.remove(d.root); d.dispose(); }
     for (const w of this.throws) scene.remove(w.g);
-    if (this.mini) this.mini.close();
+    if (this.mini) this.mini.close('gone');
     $('lockerView').classList.add('hidden');
     for (const d of this.disRigs.values()) scene.remove(d.rig.root);
     $('minimap').classList.add('hidden'); $('tasks').classList.add('hidden');

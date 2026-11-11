@@ -1,134 +1,139 @@
 // The cast, built from parts: fabric suit shells over a metal endoskeleton, with eyes that follow you.
 import * as THREE from 'three';
-import { TAU, add, B, sq, limbGeo, lathe, gSph, gCyl, gBox, suit, paint, metal, plastic, glass, glow, tex, label, sign, BLACK, ENDO, TOOTH, GRIME } from './kit.js';
+import { TAU, add, B, sq, limbGeo, lathe, gSph, gCyl, gBox, suit, paint, metal, plastic, glass, glow, tex, label, sign, BLACK, ENDO, TOOTH, GRIME, furMat, furMesh, spring, irisTex } from './kit.js';
 
 const SPEC = {
-  bing: { suit: 0x7dcb35, plate: 0xe8f1c6, dark: 0x3f8f17, eye: 0xffe45a, iris: 0x8a5a12, W: 1, leg: 0.62, ry: 0.34, bz: 1, head: 1.08, S: 0.9 },
-  dylan: { suit: 0x2f62cc, plate: 0xc9d8f2, dark: 0x1b3a80, eye: 0xff4a3a, iris: 0x8a1a12, W: 0.8, leg: 0.84, ry: 0.31, bz: 0.9, head: 0.96, S: 0.9 },
-  gavin: { suit: 0xea8c2e, plate: 0xffe2b8, dark: 0xa85a12, eye: 0xffd27a, iris: 0x5a3208, W: 1.5, leg: 0.5, ry: 0.42, bz: 1.55, head: 1.16, S: 0.92 },
-  sal: { suit: 0xc07a3c, plate: 0xe8d9c0, dark: 0x7a1f2b, eye: 0x8dff5a, iris: 0x2f6a1a, W: 0.95, leg: 0.64, ry: 0.34, bz: 1, head: 1, S: 0.9 },
+  bing: { suit: 0x8bd13f, plate: 0xf3e2b8, dark: 0x3f8f17, shoe: 0xc9e83a, eye: 0xffe45a, iris: 0x2f6fd0, W: 1, leg: 0.6, ry: 0.33, bz: 1, head: 1.16, S: 0.88 },
+  dylan: { suit: 0x3a6fdc, plate: 0xd6e2f6, dark: 0x1b3a80, shoe: 0xd23a3a, eye: 0xff4a3a, iris: 0xc0392b, W: 0.8, leg: 0.82, ry: 0.3, bz: 0.9, head: 1.04, S: 0.88 },
+  gavin: { suit: 0xf0932f, plate: 0xffe6c4, dark: 0xa85a12, shoe: 0x6a3a14, eye: 0xffd27a, iris: 0x7a4a12, W: 1.5, leg: 0.48, ry: 0.42, bz: 1.55, head: 1.24, S: 0.9 },
+  sal: { suit: 0xc88446, plate: 0xf0dcc0, dark: 0x7a1f2b, shoe: 0x1c1c20, eye: 0x8dff5a, iris: 0x3f8f2a, W: 0.95, leg: 0.62, ry: 0.33, bz: 1, head: 1.08, S: 0.88 },
 };
-const EYEWHITE = plastic(0xe9e6da, { roughness: 0.12 });
-const SPARK = glow(0xffffff);
+const EYEWHITE = plastic(0xf2efe6, { roughness: 0.08 });
+const SPARK = glow(0xffffff, 1.6);
+const CHROME = metal(0xcfd3d8, 0.16);
 
 function makeEye(r, iris, pupilMat) {
   const g = new THREE.Group();
-  add(g, gSph(r, 22), EYEWHITE);
-  const cap = (th, mat, rr) => { const m = add(g, new THREE.SphereGeometry(rr, 22, 8, 0, TAU, 0, th), mat); m.rotation.x = Math.PI / 2; };
-  cap(0.62, plastic(iris), r * 1.012); cap(0.3, pupilMat, r * 1.026);
-  add(g, gSph(r * 0.08, 8), SPARK, r * 0.28, r * 0.34, r * 0.9);
+  add(g, gSph(r, 26), EYEWHITE);
+  const cap = (th, mat, rr) => { const m = add(g, new THREE.SphereGeometry(rr, 26, 10, 0, TAU, 0, th), mat); m.rotation.x = Math.PI / 2; };
+  cap(0.68, plastic(0xffffff, { map: irisTex(iris), roughness: 0.1 }), r * 1.012); cap(0.3, pupilMat, r * 1.024);
+  add(g, gSph(r * 0.1, 8), SPARK, r * 0.3, r * 0.36, r * 0.9); add(g, gSph(r * 0.05, 6), SPARK, -r * 0.22, -r * 0.2, r * 0.95);
   return g;
 }
 
 // A head on its own (also used for the spare heads in Storage, with empty sockets).
 export function makeHead(who, empty = false) {
   const c = SPEC[who], out = new THREE.Group(), g = new THREE.Group(); out.add(g); g.scale.setScalar(c.head);
-  const S = suit(c.suit), Pm = suit(c.plate), dk = suit(0x1b1d22), D = suit(c.dark);
-  add(g, sq(0.33, 0.29, 0.31, 2.8, 32), S, 0, 0.3, 0);
-  for (const s of [-1, 1]) { add(g, sq(0.05, 0.085, 0.06, 2.4, 14), S, s * 0.335, 0.3, -0.02); add(g, sq(0.022, 0.05, 0.035, 2.4, 12), Pm, s * 0.365, 0.3, -0.005); add(g, gSph(0.1, 18), S, s * 0.2, 0.2, 0.15); add(g, gSph(0.045, 12), suit(0xe58a7a), s * 0.235, 0.205, 0.225).scale.z = 0.45; }
-  add(g, sq(0.215, 0.105, 0.15, 2.6, 24), Pm, 0, 0.2, 0.2);
-  add(g, sq(0.055, 0.045, 0.05, 2.2, 14), who === 'sal' ? suit(0xb0483a) : D, 0, 0.28, 0.34);
-  add(g, sq(0.17, 0.02, 0.11, 3, 12), BLACK, 0, 0.105, 0.2);
-  for (let i = -3; i <= 3; i++) { const big = who === 'bing' && Math.abs(i) < 1; add(g, sq(big ? 0.03 : 0.02, big ? 0.04 : 0.028, 0.014, 3, 8), TOOTH, i * 0.05, big ? 0.085 : 0.095, 0.335 - i * i * 0.006); }
-  const jaw = new THREE.Group(); jaw.position.set(0, 0.14, 0.03); g.add(jaw);
-  add(jaw, sq(0.2, 0.07, 0.16, 2.6, 22), S, 0, -0.085, 0.165); add(jaw, sq(0.16, 0.015, 0.11, 3, 10), BLACK, 0, -0.03, 0.17); add(jaw, sq(0.07, 0.018, 0.09, 2, 10), paint(0x7a2a2a, { roughness: 0.4 }), 0, -0.02, 0.19);
-  for (let i = -2.5; i <= 2.5; i++) add(jaw, sq(0.02, 0.026, 0.013, 3, 8), TOOTH, i * 0.055, -0.022, 0.315 - i * i * 0.007);
-  // endoskeleton hinge visible at the jaw corners
-  for (const s of [-1, 1]) add(g, gCyl(0.03, 0.03, 0.04, 10), ENDO, s * 0.2, 0.14, 0.04).rotation.z = Math.PI / 2;
-  const pupil = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.2, emissive: c.eye, emissiveIntensity: 0 });
-  const eyes = [], lids = [], r = 0.082;
+  const F = furMat(c.suit), Pl = plastic(c.plate, { roughness: 0.42, clearcoat: 0.4, map: GRIME }), dk = plastic(0x15171b, { roughness: 0.45 }), DF = furMat(c.dark, 0.02);
+  furMesh(g, sq(0.34, 0.31, 0.32, 2.6, 36), F, 0, 0.32, 0);
+  for (const s of [-1, 1]) { furMesh(g, sq(0.06, 0.1, 0.07, 2.4, 14), F, s * 0.35, 0.32, -0.02); add(g, sq(0.022, 0.06, 0.04, 2.4, 12), Pl, s * 0.388, 0.32, 0.0); }
+  add(g, sq(0.275, 0.245, 0.12, 2.5, 32), Pl, 0, 0.315, 0.235);
+  for (const s of [-1, 1]) { add(g, gSph(0.092, 20), Pl, s * 0.185, 0.215, 0.268); add(g, gSph(0.05, 12), plastic(0xe9877a, { roughness: 0.5 }), s * 0.222, 0.212, 0.33).scale.z = 0.35; }
+  add(g, sq(0.2, 0.075, 0.1, 2.6, 24), Pl, 0, 0.168, 0.285);
+  add(g, sq(0.05, 0.038, 0.045, 2.2, 14), plastic(who === 'sal' ? 0xb0483a : 0x2a1c14, { roughness: 0.3 }), 0, 0.268, 0.378);
+  add(g, sq(0.16, 0.02, 0.09, 3, 10), BLACK, 0, 0.1, 0.27);
+  for (let i = -3; i <= 3; i++) { const big = who === 'bing' && Math.abs(i) < 1; add(g, sq(big ? 0.03 : 0.021, big ? 0.042 : 0.03, 0.014, 3, 8), TOOTH, i * 0.048, big ? 0.084 : 0.092, 0.365 - i * i * 0.0065); }
+  const jaw = new THREE.Group(); jaw.position.set(0, 0.13, 0.06); g.add(jaw);
+  add(jaw, sq(0.19, 0.062, 0.14, 2.6, 24), Pl, 0, -0.085, 0.2); furMesh(jaw, sq(0.2, 0.06, 0.14, 2.4, 18), F, 0, -0.118, 0.1);
+  add(jaw, sq(0.15, 0.014, 0.1, 3, 10), BLACK, 0, -0.036, 0.2); add(jaw, sq(0.07, 0.018, 0.08, 2, 10), plastic(0x8a2f2f, { roughness: 0.3 }), 0, -0.026, 0.22);
+  for (let i = -2.5; i <= 2.5; i++) add(jaw, sq(0.021, 0.027, 0.013, 3, 8), TOOTH, i * 0.052, -0.026, 0.33 - i * i * 0.0075);
+  for (const s of [-1, 1]) { add(g, gCyl(0.034, 0.034, 0.05, 12), CHROME, s * 0.205, 0.13, 0.07).rotation.z = Math.PI / 2; add(g, gSph(0.014, 8), CHROME, s * 0.235, 0.13, 0.07); }
+  const pupil = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.15, emissive: c.eye, emissiveIntensity: 0 });
+  const eyes = [], lids = [], r = 0.1;
   for (const s of [-1, 1]) {
-    add(g, gSph(r * 1.24, 18), BLACK, s * 0.135, 0.385, 0.18);
+    add(g, gSph(r * 1.16, 18), BLACK, s * 0.13, 0.385, 0.235);
+    add(g, new THREE.TorusGeometry(r * 1.03, 0.02, 10, 30), dk, s * 0.13, 0.385, 0.305);
     if (!empty) {
-      const e = makeEye(r, c.iris, pupil); e.position.set(s * 0.135, 0.385, 0.225); g.add(e); eyes.push(e);
-      const lg = new THREE.Group(); lg.position.copy(e.position); g.add(lg); add(lg, new THREE.SphereGeometry(r * 1.13, 20, 9, 0, TAU, 0, Math.PI / 2), S); lg.rotation.x = -0.45; lids.push(lg);
+      const e = makeEye(r, c.iris, pupil); e.position.set(s * 0.13, 0.385, 0.278); g.add(e); eyes.push(e);
+      const lg = new THREE.Group(); lg.position.copy(e.position); g.add(lg); add(lg, new THREE.SphereGeometry(r * 1.1, 24, 10, 0, TAU, 0, Math.PI / 2), Pl); lg.rotation.x = -0.5; lids.push(lg);
     }
-    add(g, sq(0.09, 0.026, 0.032, 2.4, 12), dk, s * 0.14, 0.505, 0.262).rotation.z = -s * 0.34;
+    furMesh(g, sq(0.1, 0.028, 0.04, 2.4, 12), DF, s * 0.135, 0.548, 0.3).rotation.z = -s * 0.3;
   }
   if (who === 'bing') {
-    add(g, new THREE.SphereGeometry(0.345, 28, 12, 0, TAU, 0, Math.PI / 2), D, 0, 0.4, -0.01).scale.set(1, 0.72, 0.98);
-    add(g, sq(0.27, 0.018, 0.2, 2.6, 18), D, 0, 0.43, 0.36).rotation.x = 0.12; add(g, gSph(0.03, 10), Pm, 0, 0.655, -0.01);
-    const b = sign(g, 0.2, 0.17, 0, 0.535, 0.262, 0, label('B', '#3f8f17', '#f4f4e8', 0.86), false, 128); b.rotation.x = -0.62;
+    const capM = plastic(c.dark, { roughness: 0.55, clearcoat: 0.2, map: GRIME });
+    add(g, new THREE.SphereGeometry(0.36, 30, 14, 0, TAU, 0, Math.PI / 2), capM, 0, 0.44, -0.01).scale.set(1, 0.7, 0.98);
+    add(g, sq(0.28, 0.018, 0.2, 2.6, 20), capM, 0, 0.46, 0.38).rotation.x = 0.12; add(g, gSph(0.032, 10), capM, 0, 0.695, -0.01);
+    for (let k = 0; k < 6; k++) { const sm = add(g, new THREE.TorusGeometry(0.352, 0.004, 4, 20, Math.PI), plastic(0x2f6f12), 0, 0.44, -0.01); sm.rotation.y = k * Math.PI / 6; sm.scale.y = 0.7; }
+    const b = sign(g, 0.2, 0.17, 0, 0.575, 0.272, 0, label('B', '#3f8f17', '#f4f4e8', 0.86), false, 128); b.rotation.x = -0.6;
   }
   if (who === 'dylan') {
-    const hair = suit(0x14161c);
-    for (let k = 0; k < 13; k++) { const a = (k / 12 - 0.5) * 2.2, row = k % 2, s = add(g, new THREE.ConeGeometry(0.075, 0.26 + row * 0.08, 7), hair, Math.sin(a) * 0.24, 0.56 + Math.cos(a) * 0.08, row ? -0.08 : 0.08); s.rotation.set(row ? -0.3 : 0.35, 0, -a * 0.8); }
-    const red = plastic(0xe23d3d); add(g, new THREE.TorusGeometry(0.36, 0.028, 10, 28, Math.PI), red, 0, 0.3, -0.02);
-    for (const s of [-1, 1]) { add(g, gCyl(0.11, 0.11, 0.07, 20), red, s * 0.385, 0.3, -0.02).rotation.z = Math.PI / 2; add(g, new THREE.TorusGeometry(0.085, 0.03, 8, 18), suit(0x14161c), s * 0.35, 0.3, -0.02).rotation.y = Math.PI / 2; }
+    const hair = furMat(0x15171d, 0.02);
+    for (let k = 0; k < 15; k++) { const a = (k / 14 - 0.5) * 2.3, row = k % 2, sp = furMesh(g, new THREE.ConeGeometry(0.08, 0.28 + row * 0.1, 8), hair, Math.sin(a) * 0.25, 0.6 + Math.cos(a) * 0.08, row ? -0.1 : 0.08); sp.rotation.set(row ? -0.3 : 0.35, 0, -a * 0.8); }
+    const red = plastic(0xe23d3d); add(g, new THREE.TorusGeometry(0.385, 0.03, 10, 30, Math.PI), red, 0, 0.32, -0.02);
+    for (const s of [-1, 1]) { add(g, gCyl(0.12, 0.12, 0.08, 22), red, s * 0.42, 0.32, -0.02).rotation.z = Math.PI / 2; add(g, new THREE.TorusGeometry(0.09, 0.034, 8, 20), plastic(0x15171b, { roughness: 0.7 }), s * 0.385, 0.32, -0.02).rotation.y = Math.PI / 2; add(g, gCyl(0.06, 0.06, 0.012, 16), CHROME, s * 0.462, 0.32, -0.02).rotation.z = Math.PI / 2; }
   }
   if (who === 'gavin') {
-    const hat = suit(0xf6f2ea); add(g, gCyl(0.27, 0.28, 0.17, 24), hat, 0, 0.63, 0);
-    for (let k = 0; k < 6; k++) add(g, gSph(0.19, 16), hat, Math.cos(k * TAU / 6) * 0.17, 0.84, Math.sin(k * TAU / 6) * 0.17); add(g, gSph(0.22, 16), hat, 0, 0.93, 0);
-    add(g, sq(0.2, 0.07, 0.14, 2.2, 16), Pm, 0, 0.02, 0.12); // double chin
+    const hat = suit(0xf6f2ea); add(g, gCyl(0.28, 0.29, 0.18, 26), hat, 0, 0.67, 0);
+    for (let k = 0; k < 7; k++) add(g, gSph(0.19, 18), hat, Math.cos(k * TAU / 7) * 0.18, 0.89, Math.sin(k * TAU / 7) * 0.18); add(g, gSph(0.23, 18), hat, 0, 0.98, 0);
+    add(g, sq(0.21, 0.07, 0.15, 2.2, 16), Pl, 0, 0.03, 0.14);
   }
   if (who === 'sal') {
-    const hair = plastic(0x0c0c0e, { roughness: 0.3 });
-    add(g, new THREE.SphereGeometry(0.34, 26, 12, 0, TAU, 0, Math.PI / 2.15), hair, 0, 0.33, -0.015).scale.set(1.01, 0.86, 1);
-    add(g, sq(0.2, 0.05, 0.08, 2.2, 12), hair, 0.1, 0.56, 0.2).rotation.set(0.3, 0, -0.25);
-    for (const s of [-1, 1]) { add(g, sq(0.03, 0.09, 0.07, 2.4, 10), hair, s * 0.325, 0.36, 0.07); const m = add(g, limbGeo(0.03, 0.012, 0.15, 10), suit(0x15110e), s * 0.012, 0.225, 0.345); m.rotation.set(0.2, 0, s * 1.25); }
-    if (lids[0]) lids[0].userData.droop = 0.55;
+    const hair = plastic(0x0c0c0e, { roughness: 0.22 });
+    add(g, new THREE.SphereGeometry(0.352, 28, 12, 0, TAU, 0, Math.PI / 2.15), hair, 0, 0.36, -0.015).scale.set(1.01, 0.86, 1);
+    add(g, sq(0.2, 0.05, 0.08, 2.2, 12), hair, 0.1, 0.6, 0.2).rotation.set(0.3, 0, -0.25);
+    const st = furMat(0x17120e, 0.016);
+    for (const s of [-1, 1]) { add(g, sq(0.03, 0.09, 0.07, 2.4, 10), hair, s * 0.335, 0.38, 0.08); const m = furMesh(g, limbGeo(0.034, 0.012, 0.17, 10), st, s * 0.012, 0.232, 0.385); m.rotation.set(0.2, 0, s * 1.25); }
+    if (lids[0]) lids[0].userData.droop = 0.6;
   }
-  out.userData = { jaw, eyes, lids, pupil, top: 0.6 * c.head };
+  out.userData = { jaw, eyes, lids, pupil, top: 0.64 * c.head };
   return out;
 }
 
-function makeArm(c, s, S, Pm) {
+function makeArm(c, s, F, Pl) {
   const sh = new THREE.Group(), el = new THREE.Group(), hand = new THREE.Group();
-  add(sh, gSph(0.12, 18), S); add(sh, limbGeo(0.1, 0.085, 0.36), S, 0, -0.06, 0);
-  add(sh, gCyl(0.03, 0.03, 0.1, 8), ENDO, 0, -0.42, 0);
-  el.position.y = -0.46; sh.add(el); add(el, gSph(0.062, 14), ENDO); add(el, gCyl(0.07, 0.07, 0.035, 12), ENDO).rotation.z = Math.PI / 2;
-  add(el, limbGeo(0.08, 0.1, 0.32), S, 0, -0.05, 0); add(el, gCyl(0.028, 0.028, 0.08, 8), ENDO, 0, -0.39, 0);
-  hand.position.y = -0.43; el.add(hand);
-  add(hand, sq(0.078, 0.08, 0.045, 2.6, 14), Pm, 0, -0.07, 0);
-  for (let i = 0; i < 4; i++) { const f = add(hand, limbGeo(0.025, 0.021, 0.13, 8), Pm, (i - 1.5) * 0.04, -0.12, 0.01); f.rotation.x = -0.75; f.rotation.z = (i - 1.5) * 0.06; add(f, limbGeo(0.021, 0.018, 0.09, 8), Pm, 0, -0.115, 0).rotation.x = -0.9; }
-  const th = add(hand, limbGeo(0.027, 0.022, 0.1, 8), Pm, s * 0.07, -0.04, 0.02); th.rotation.set(-0.9, 0, s * 0.9);
+  furMesh(sh, gSph(0.125, 18), F); furMesh(sh, limbGeo(0.1, 0.085, 0.36), F, 0, -0.06, 0);
+  add(sh, gCyl(0.028, 0.028, 0.1, 8), CHROME, 0, -0.42, 0);
+  el.position.y = -0.46; sh.add(el); add(el, gSph(0.062, 16), CHROME); add(el, gCyl(0.07, 0.07, 0.036, 14), ENDO).rotation.z = Math.PI / 2; for (const k of [-1, 1]) add(el, gSph(0.016, 8), CHROME, k * 0.04, 0, 0.06);
+  furMesh(el, limbGeo(0.08, 0.098, 0.3), F, 0, -0.05, 0); add(el, gCyl(0.1, 0.092, 0.05, 20), Pl, 0, -0.355, 0); spring(el, 0.034, 0.07, 3, 0, -0.405, 0, CHROME);
+  hand.position.y = -0.44; el.add(hand);
+  add(hand, sq(0.08, 0.082, 0.046, 2.6, 16), Pl, 0, -0.07, 0);
+  for (let i = 0; i < 4; i++) { const f = add(hand, limbGeo(0.026, 0.022, 0.13, 10), Pl, (i - 1.5) * 0.041, -0.12, 0.01); f.rotation.x = -0.75; f.rotation.z = (i - 1.5) * 0.06; add(f, gSph(0.024, 8), CHROME, 0, -0.118, 0); add(f, limbGeo(0.022, 0.018, 0.09, 10), Pl, 0, -0.118, 0).rotation.x = -0.9; }
+  const th = add(hand, limbGeo(0.028, 0.022, 0.1, 10), Pl, s * 0.072, -0.04, 0.02); th.rotation.set(-0.9, 0, s * 0.9);
   return { sh, el, hand };
 }
 
 export function makeBot(who) {
   const c = SPEC[who], g = new THREE.Group(), W = c.W;
-  const S = suit(c.suit), Pm = suit(c.plate), D = suit(c.dark), shoe = suit(0x202228);
+  const F = furMat(c.suit), Pl = plastic(c.plate, { roughness: 0.42, clearcoat: 0.4, map: GRIME }), DF = furMat(c.dark), shoe = plastic(c.shoe, { roughness: 0.22 }), S = suit(c.suit), D = suit(c.dark);
   const hipY = c.leg + 0.12, rx = 0.36 * W, ry = c.ry, rz = 0.27 * c.bz, tc = hipY + 0.2 + ry;
   for (const s of [-1, 1]) {
-    const x = s * 0.17 * Math.min(W, 1.25), th = c.leg * 0.46, shn = c.leg * 0.44;
-    add(g, gSph(0.07, 12), ENDO, x, hipY, 0); add(g, limbGeo(0.13, 0.11, th), S, x, hipY - 0.02, 0);
-    const ky = hipY - 0.02 - th - 0.035; add(g, gSph(0.06, 12), ENDO, x, ky, 0); add(g, gCyl(0.065, 0.065, 0.04, 12), ENDO, x, ky, 0).rotation.z = Math.PI / 2;
-    add(g, limbGeo(0.1, 0.135, shn), S, x, ky - 0.035, 0); add(g, gCyl(0.03, 0.03, 0.08, 8), ENDO, x, 0.16, 0);
-    add(g, sq(0.13, 0.075, 0.21, 2.8, 16), who === 'dylan' ? suit(0xd23a3a) : shoe, x, 0.085, 0.07); add(g, sq(0.135, 0.02, 0.215, 3, 12), suit(0xe8e4d4), x, 0.02, 0.07);
+    const x = s * 0.17 * Math.min(W, 1.25), th = c.leg * 0.46, shn = c.leg * 0.42;
+    add(g, gSph(0.07, 14), CHROME, x, hipY, 0); furMesh(g, limbGeo(0.13, 0.11, th), F, x, hipY - 0.02, 0);
+    const ky = hipY - 0.02 - th - 0.035; add(g, gSph(0.06, 14), CHROME, x, ky, 0); add(g, gCyl(0.066, 0.066, 0.042, 14), ENDO, x, ky, 0).rotation.z = Math.PI / 2;
+    furMesh(g, limbGeo(0.1, 0.13, shn), F, x, ky - 0.035, 0); spring(g, 0.04, 0.09, 3, x, 0.185, 0, CHROME); add(g, gCyl(0.022, 0.022, 0.1, 8), ENDO, x, 0.185, 0);
+    add(g, sq(0.135, 0.078, 0.215, 2.8, 20), shoe, x, 0.092, 0.07); add(g, sq(0.14, 0.022, 0.222, 3, 14), plastic(0x17181b, { roughness: 0.6 }), x, 0.022, 0.07);
+    add(g, sq(0.1, 0.05, 0.07, 2.4, 14), plastic(0xf1ead8, { roughness: 0.3 }), x, 0.075, 0.235); for (let k = 0; k < 3; k++) add(g, gCyl(0.008, 0.008, 0.11, 6), plastic(0xf4f4f4), x, 0.15 - k * 0.012, 0.1 + k * 0.045).rotation.z = Math.PI / 2;
   }
-  add(g, sq(0.27 * W, 0.14, 0.21 * Math.sqrt(c.bz), 2.6, 22), D, 0, hipY + 0.07, 0);
-  add(g, gCyl(0.075, 0.075, 0.12, 12), ENDO, 0, hipY + 0.18, 0);
-  add(g, sq(rx, ry, rz, 2.5, 34), S, 0, tc, 0);
-  add(g, sq(rx * 0.68, ry * 0.7, rz * 0.5, 2.4, 26), Pm, 0, tc - ry * 0.08, rz * 0.62);
-  // character dress
+  furMesh(g, sq(0.27 * W, 0.14, 0.21 * Math.sqrt(c.bz), 2.6, 22), DF, 0, hipY + 0.07, 0);
+  add(g, gCyl(0.07, 0.07, 0.12, 14), ENDO, 0, hipY + 0.18, 0); spring(g, 0.1, 0.1, 3, 0, hipY + 0.18, 0, CHROME);
+  furMesh(g, sq(rx, ry, rz, 2.5, 36), F, 0, tc, 0);
+  add(g, sq(rx * 0.66, ry * 0.7, rz * 0.5, 2.4, 28), Pl, 0, tc - ry * 0.08, rz * 0.66);
+  for (const [ax, ay] of [[-0.5, 0.42], [0.5, 0.42], [-0.5, -0.5], [0.5, -0.5]]) add(g, gSph(0.016, 8), CHROME, ax * rx * 0.9, tc - ry * 0.08 + ay * ry * 0.9, rz * (who === 'gavin' ? 1.0 : 1.02));
   if (who === 'bing') {
     const star = new THREE.Shape(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 0.045 : 0.1; star[i ? 'lineTo' : 'moveTo'](Math.cos(a) * r, -Math.sin(a) * r); }
-    const st = add(g, new THREE.ExtrudeGeometry(star, { depth: 0.025, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.008, bevelSegments: 2 }), metal(0xf2c230, 0.3), 0, tc + ry * 0.12, rz * 1.08); st.rotation.x = -0.1;
+    const st = add(g, new THREE.ExtrudeGeometry(star, { depth: 0.025, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.008, bevelSegments: 2 }), plastic(0xf2b61e, { roughness: 0.25 }), 0, tc + ry * 0.12, rz * 1.14); st.rotation.x = -0.1;
     add(g, new THREE.TorusGeometry(0.2, 0.045, 10, 24), D, 0, tc + ry * 0.9, 0).rotation.x = Math.PI / 2;
-    for (const y of [-0.12, -0.24]) add(g, gSph(0.022, 10), metal(0xf2c230, 0.3), 0, tc + y, rz * 1.12);
   }
   if (who === 'dylan') {
-    add(g, sq(rx * 0.6, 0.09, 0.05, 2.6, 14), D, 0, tc - ry * 0.45, rz * 0.98);
-    for (const s of [-1, 1]) { add(g, limbGeo(0.012, 0.012, 0.24, 6), suit(0xf4f4f4), s * 0.06, tc + ry * 0.75, rz * 0.82).rotation.x = -0.25; add(g, gSph(0.02, 8), suit(0xf4f4f4), s * 0.06, tc + ry * 0.75 - 0.23, rz * 0.82 + 0.06); }
-    add(g, sq(0.2, 0.09, 0.14, 2.2, 16), S, 0, tc + ry * 0.92, -0.06); // hood
+    add(g, sq(rx * 0.6, 0.09, 0.05, 2.6, 14), D, 0, tc - ry * 0.5, rz * 1.12);
+    for (const s of [-1, 1]) { add(g, limbGeo(0.012, 0.012, 0.24, 6), suit(0xf4f4f4), s * 0.06, tc + ry * 0.78, rz * 0.9).rotation.x = -0.25; add(g, gSph(0.02, 8), CHROME, s * 0.06, tc + ry * 0.78 - 0.23, rz * 0.9 + 0.06); }
+    furMesh(g, sq(0.2, 0.09, 0.14, 2.2, 16), F, 0, tc + ry * 0.92, -0.06);
   }
   if (who === 'gavin') {
-    add(g, sq(rx * 0.8, ry * 0.86, 0.06, 3.2, 22), suit(0xf6f2ea), 0, tc - ry * 0.12, rz * 0.98);
-    sign(g, 0.46, 0.22, 0, tc - ry * 0.05, rz * 0.98 + 0.062, 0, label('EAT', '#c0392b', '#f6f2ea', 0.86), false, 256);
+    add(g, sq(rx * 0.8, ry * 0.86, 0.06, 3.2, 24), suit(0xf6f2ea), 0, tc - ry * 0.12, rz * 1.06);
+    sign(g, 0.46, 0.22, 0, tc - ry * 0.05, rz * 1.06 + 0.062, 0, label('EAT', '#c0392b', '#f6f2ea', 0.86), false, 256);
     add(g, new THREE.TorusGeometry(0.22, 0.02, 8, 24), suit(0xf6f2ea), 0, tc + ry * 0.86, 0.02).rotation.x = Math.PI / 2 - 0.3;
   }
   if (who === 'sal') {
-    for (const s of [-1, 1]) add(g, sq(rx * 0.56, ry * 0.98, rz * 1.02, 2.5, 22), D, s * rx * 0.5, tc - 0.005, 0.012);
-    add(g, sq(rx * 0.3, ry * 0.8, rz * 0.5, 2.4, 18), Pm, 0, tc, rz * 0.66);
-    for (const y of [-0.2, -0.08, 0.04]) add(g, gSph(0.02, 10), metal(0xf2c230, 0.3), rx * 0.2, tc + y, rz * 1.06);
-    const tie = plastic(0xc0392b, { roughness: 0.6 }); add(g, sq(0.05, 0.04, 0.03, 2.4, 10), tie, 0.02, tc + ry * 0.72, rz * 0.92); const t = add(g, limbGeo(0.03, 0.055, 0.34, 8), tie, 0.02, tc + ry * 0.7, rz * 0.95); t.rotation.set(-0.25, 0, 0.22); t.scale.z = 0.4;
+    for (const s of [-1, 1]) add(g, sq(rx * 0.56, ry * 1.0, rz * 1.16, 2.5, 24), D, s * rx * 0.52, tc - 0.005, 0.012);
+    for (const y of [-0.2, -0.08, 0.04]) add(g, gSph(0.02, 10), plastic(0xf2b61e, { roughness: 0.25 }), rx * 0.2, tc + y, rz * 1.2);
+    const tie = plastic(0xc0392b, { roughness: 0.6 }); add(g, sq(0.05, 0.04, 0.03, 2.4, 10), tie, 0.02, tc + ry * 0.72, rz * 1.02); const t = add(g, limbGeo(0.03, 0.055, 0.34, 8), tie, 0.02, tc + ry * 0.7, rz * 1.05); t.rotation.set(-0.25, 0, 0.22); t.scale.z = 0.4;
   }
-  // arms
   const sy = tc + ry * 0.62, sxp = rx + 0.05, arms = {};
-  for (const s of [1, -1]) { const a = makeArm(c, s, S, Pm); a.sh.position.set(s * sxp, sy, 0); g.add(a.sh); arms[s > 0 ? 'R' : 'L'] = a; }
+  for (const s of [1, -1]) { const a = makeArm(c, s, F, Pl); a.sh.position.set(s * sxp, sy, 0); g.add(a.sh); arms[s > 0 ? 'R' : 'L'] = a; }
   const prop = new THREE.Group(); prop.position.set(0, -0.1, 0.07); arms.R.hand.add(prop);
   let liquid = null;
-  if (who === 'bing') { add(prop, gCyl(0.024, 0.02, 0.28, 12), plastic(0x222428), 0, 0.02, 0); add(prop, gCyl(0.03, 0.028, 0.05, 12), metal(0x9a9a9a), 0, 0.17, 0); add(prop, gSph(0.062, 16), metal(0x55585c, 0.6), 0, 0.24, 0); add(prop, new THREE.TorusGeometry(0.062, 0.006, 6, 20), metal(0xbfc3c8), 0, 0.24, 0).rotation.x = Math.PI / 2; }
+  if (who === 'bing') { add(prop, gCyl(0.024, 0.02, 0.28, 12), plastic(0x222428), 0, 0.02, 0); add(prop, gCyl(0.03, 0.028, 0.05, 12), CHROME, 0, 0.17, 0); add(prop, gSph(0.062, 16), metal(0x55585c, 0.6), 0, 0.24, 0); add(prop, new THREE.TorusGeometry(0.062, 0.006, 6, 20), CHROME, 0, 0.24, 0).rotation.x = Math.PI / 2; }
   if (who === 'dylan') for (const s of [-1, 1]) { const st = add(prop, limbGeo(0.014, 0.01, 0.5, 8), paint(0xd9b27a, { roughness: 0.5 }), s * 0.03, 0.42, 0); st.rotation.z = s * 0.22; add(prop, gSph(0.02, 8), paint(0xd9b27a), s * 0.03 - s * 0.092, 0.41, 0); }
   if (who === 'gavin') {
     const bun = paint(0xd99a3c, { roughness: 0.55 }); add(prop, sq(0.16, 0.035, 0.16, 2.2, 16), bun, 0, 0.04, 0); add(prop, gCyl(0.165, 0.165, 0.045, 20), paint(0x4a240e, { roughness: 0.9 }), 0, 0.095, 0);
@@ -140,11 +145,10 @@ export function makeBot(who) {
     liquid = add(prop, gCyl(0.052, 0.052, 0.2, 14), new THREE.MeshStandardMaterial({ color: 0xd9a13a, emissive: 0x6a4200, roughness: 0.3 }), 0, 0.045, 0);
     const lb = sign(prop, 0.1, 0.09, 0, 0.05, 0.064, 0, label('XXX', '#7a1f2b', '#f1ead8', 0.6), false, 128); lb.userData.noShadow = true;
   }
-  // neck + head
-  add(g, gCyl(0.06, 0.07, 0.14, 12), ENDO, 0, tc + ry + 0.04, 0); add(g, new THREE.TorusGeometry(0.075, 0.018, 8, 16), ENDO, 0, tc + ry + 0.03, 0).rotation.x = Math.PI / 2;
+  add(g, gCyl(0.055, 0.065, 0.16, 14), ENDO, 0, tc + ry + 0.04, 0); spring(g, 0.085, 0.11, 3, 0, tc + ry + 0.045, 0, CHROME);
   const head = makeHead(who); head.position.y = tc + ry + 0.1; g.add(head);
   g.scale.setScalar(c.S);
-  g.userData = { ...head.userData, head, arms, prop, liquid, eyeY: (tc + ry + 0.1 + 0.36 * c.head) * c.S, seed: who.length * 1.7 + who.charCodeAt(0) };
+  g.userData = { ...head.userData, head, arms, prop, liquid, eyeY: (tc + ry + 0.1 + 0.385 * c.head) * c.S, seed: who.length * 1.7 + who.charCodeAt(0) };
   g.visible = false; setPose(g, 'idle');
   return g;
 }
@@ -172,9 +176,9 @@ export function animate(m, t, camPos, o = {}) {
   else { u.head.rotation.z += Math.sin(t * 0.6 + u.seed) * 0.07 + tw * (hash(tk + 3) - 0.5) * 0.3; u.head.rotation.y += tw * (hash(tk + 5) - 0.5) * 0.25; }
   for (const e of u.eyes) e.lookAt(camPos);
   const blink = hash(Math.floor(t * 3 + u.seed * 3)) > 0.93 && (t * 3 + u.seed * 3) % 1 < 0.35;
-  for (const l of u.lids) l.rotation.x = o.wide ? -0.95 : blink ? 1.15 : -0.45 + (l.userData.droop || 0) + (o.glow ? -0.15 : 0);
+  for (const l of u.lids) l.rotation.x = o.wide ? -1.0 : blink ? 1.15 : -0.55 + (l.userData.droop || 0) + (o.glow ? -0.12 : 0);
   u.jaw.rotation.x = o.jaw != null ? o.jaw : 0.05 + (hash(Math.floor(t * 1.3 + u.seed)) > 0.8 ? Math.abs(Math.sin(t * 22)) * 0.16 : 0);
-  u.pupil.emissiveIntensity = o.glow ? 5 : 0;
+  u.pupil.emissiveIntensity = o.glow ? (o.wide ? 4 : 2.2) : 0;
 }
 
 // ---------- Benton: the porcelain wind-up doll in the music box ----------

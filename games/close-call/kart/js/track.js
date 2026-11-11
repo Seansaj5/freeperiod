@@ -3,6 +3,7 @@
 // every frame: where am I along the lap, how far off the middle, how high is the ground here.
 import * as THREE from 'three';
 import { THEMES } from './tracks.js';
+import { buildCosmic } from './cosmic.js';
 
 const STEP = 1; // metres between samples
 const CURB = 1.2, SHOULDER = 5, WALL_H = 1.1;
@@ -76,6 +77,7 @@ export class Track {
     this.def = def; this.theme = THEMES[def.theme];
     this.hi = quality === 'high';
     this.laps = def.laps || 3;
+    this.void = !!def.void; // nothing under you off the road: drive off an edge with no rail and you fall
     this.sample();
     this.group = new THREE.Group();
     this.anim = []; // things that animate (dash pad arrows)
@@ -122,7 +124,9 @@ export class Track {
     const B = (this.B = new Float32Array(N)), LINE = (this.LINE = new Float32Array(N));
     const sm = (src, r) => { const out = new Float32Array(N); for (let k = 0; k < N; k++) { let s = 0; for (let i = -r; i <= r; i++) s += src[(k + i + N) % N]; out[k] = s / (2 * r + 1); } return out; };
     const Ks = sm(K, 8);
-    for (let k = 0; k < N; k++) B[k] = Math.max(-0.2, Math.min(0.2, Ks[k] * bankK));
+    const bMax = def.bankMax || 0.2;
+    for (let k = 0; k < N; k++) B[k] = Math.max(-bMax, Math.min(bMax, Ks[k] * bankK));
+    if (def.bankSmooth) B.set(sm(sm(B, def.bankSmooth), def.bankSmooth)); // ease the lean in and out (no twisting road)
     const raw = new Float32Array(N);
     // look a little ahead so the line starts moving inside before the bend
     for (let k = 0; k < N; k++) { const c = Ks[(k + 10) % N]; raw[k] = Math.max(-0.55, Math.min(0.55, -c * 18)) * W[k]; }
@@ -131,11 +135,16 @@ export class Track {
     // how far out the walls are each side; on the inside of a tight bend they come in so nothing folds over
     const K4 = sm(K, 3), EL = (this.EL = new Float32Array(N)), ER = (this.ER = new Float32Array(N));
     for (let k = 0; k < N; k++) {
-      const full = W[k] + CURB + SHOULDER, r = 0.8 / Math.max(1e-4, Math.abs(K4[k])), inner = Math.max(W[k] + CURB + 0.6, Math.min(full, r));
+      const full = W[k] + CURB + (this.void ? 0.5 : SHOULDER), r = 0.8 / Math.max(1e-4, Math.abs(K4[k])), inner = Math.max(W[k] + CURB + (this.void ? 0.5 : 0.6), Math.min(full, r));
       EL[k] = K4[k] > 0 ? inner : full; ER[k] = K4[k] < 0 ? inner : full;
     }
     const minF = (A, r) => { const c = A.slice(); for (let k = 0; k < N; k++) { let m = 1e9; for (let i = -r; i <= r; i++) m = Math.min(m, c[(k + i + N) % N]); A[k] = m; } };
     minF(EL, 6); minF(ER, 6); EL.set(sm(EL, 5)); ER.set(sm(ER, 5));
+    // rails along the edges (every track has them all the way round except where `open` says)
+    this.RL = new Uint8Array(N).fill(1); this.RR = new Uint8Array(N).fill(1);
+    for (const [t0, t1, side] of def.open || []) for (let k = 0; k < N; k++) {
+      const t = T[k]; if (t0 <= t1 ? t >= t0 && t <= t1 : t >= t0 || t <= t1) { if (side <= 0) this.RL[k] = 0; if (side >= 0) this.RR[k] = 0; }
+    }
     // features
     const at = (t) => { // control parameter -> nearest sample
       let best = 0, bd = 1e9;
@@ -195,6 +204,7 @@ export class Track {
     o.ramp = this.RAMP[k] + (this.RAMP[k1] - this.RAMP[k]) * f;
     o.gap = this.GAP[k] && this.GAP[k1] ? 1 : 0;
     o.el = this.EL[k] + (this.EL[k1] - this.EL[k]) * f; o.er = this.ER[k] + (this.ER[k1] - this.ER[k]) * f;
+    o.rl = this.RL[k] && this.RL[k1]; o.rr = this.RR[k] && this.RR[k1];
     return o;
   }
 
@@ -206,38 +216,47 @@ export class Track {
   heading(k) { k = this.w(Math.round(k)); return Math.atan2(this.TX[k], this.TZ[k]); }
   /** Total edge: past this many metres from the middle is the wall (the most it can be; see EL / ER). */
   edge(hw) { return hw + CURB + SHOULDER; }
-  /** The wall on the side of d, from a locate() result. */
-  wallAt(L) { return L.d < 0 ? L.el : L.er; }
+  /** The wall on the side of d, from a locate() result (none where that side has no rail). */
+  wallAt(L) { return L.d < 0 ? (L.rl ? L.el : 1e4) : (L.rr ? L.er : 1e4); }
+  /** Where the drivable surface ends on the side of d: the wall, or on a void track the road's edge. */
+  edgeAt(L) { return L.d < 0 ? L.el : L.er; }
+  /** Is there ground under this spot? (Not over the glide gap, and not past the edge of a void track.) */
+  solidAt(L) { return !L.gap && !(this.void && Math.abs(L.d) > this.edgeAt(L) + 0.25); }
   get curb() { return CURB; }
 
   // ---------------------------------------------------------------- meshes
+  /** A strip along the track between two lateral offsets (functions of the sample), at height offsets; skips the
+   *  glide gap and, if `keep` is given, any segment it says no to. */
+  ribbon(dA, dB, mat, vScale, uA = 0, uB = 1, yA = 0, yB = 0, skipGap = true, withRamp = true, keep = null) {
+    const N = this.N, pos = [], uv = [], idx = [];
+    let v = 0;
+    for (let k = 0; k <= N; k++) {
+      const i = k % N;
+      const a = dA(i), b = dB(i);
+      const r = withRamp ? this.RAMP[i] : 0;
+      for (const [d, u, yo] of [[a, uA, yA], [b, uB, yB]]) {
+        pos.push(this.X[i] - this.TZ[i] * d, this.Y[i] + d * this.B[i] + r + yo, this.Z[i] + this.TX[i] * d);
+        uv.push(u, v);
+      }
+      v += STEP / vScale;
+      const j = (i + 1) % N;
+      if (k < N && !(skipGap && (this.GAP[i] || this.GAP[j])) && (!keep || (keep(i) && keep(j)))) { const q = k * 2; idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, mat);
+    this.group.add(m);
+    return m;
+  }
+
   build(env) {
+    if (this.theme.cosmic) return buildCosmic(this, env);
     const th = this.theme, N = this.N, G = this.group, hi = this.hi;
     const std = (o) => new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.9, metalness: 0, envMap: env, envMapIntensity: 0.35 }, o));
     const lam = (o) => (hi ? std(o) : new THREE.MeshLambertMaterial(o));
-    // a ribbon between two lateral offsets (functions of the sample) at height offsets, skipping the glide gap
-    const ribbon = (dA, dB, mat, vScale, uA = 0, uB = 1, yA = 0, yB = 0, skipGap = true, withRamp = true) => {
-      const pos = [], uv = [], idx = [];
-      let v = 0;
-      for (let k = 0; k <= N; k++) {
-        const i = k % N;
-        const a = dA(i), b = dB(i);
-        const r = withRamp ? this.RAMP[i] : 0;
-        for (const [d, u, yo] of [[a, uA, yA], [b, uB, yB]]) {
-          pos.push(this.X[i] - this.TZ[i] * d, this.Y[i] + d * this.B[i] + r + yo + 0.0, this.Z[i] + this.TX[i] * d);
-          uv.push(u, v);
-        }
-        v += STEP / vScale;
-        if (k < N && !(skipGap && (this.GAP[i] || this.GAP[(i + 1) % N]))) { const q = k * 2; idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); }
-      }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-      g.setIndex(idx); g.computeVertexNormals();
-      const m = new THREE.Mesh(g, mat);
-      G.add(m);
-      return m;
-    };
+    const ribbon = (...a) => this.ribbon(...a);
     const W = this.W;
     // road
     const road = lam({ map: roadTex(th) });

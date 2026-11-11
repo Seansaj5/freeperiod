@@ -136,7 +136,7 @@ export class Kart {
     const s = this.drift ? steer * this.drift : 0; // in a drift: +1 = steering into it (tight), -1 = against it (wide)
     // ---- speed
     let top = this.speedTop;
-    const off = this.ground && Math.abs(L.d) > L.hw + t.curb * 0.7 && !L.gap;
+    const off = this.ground && !t.void && Math.abs(L.d) > L.hw + t.curb * 0.7 && !L.gap; // (on a void track the edge is a drop, not grass)
     this.offroad = off;
     if (off && !this.boosting) top *= this.offK;
     if (this.boosting) top *= this.starT > 0 ? 1.28 : this.boostPow;
@@ -212,7 +212,7 @@ export class Kart {
     this.push.multiplyScalar(Math.exp(-5 * dt));
     L = this.locate();
     // ---- height: ramps launch you, the glider ramp opens the glider
-    const groundY = L.gap ? -1e3 : L.y + L.ramp;
+    const groundY = t.solidAt(L) ? L.y + L.ramp : -1e3;
     if (this.launchT > 0) this.launchT -= dt;
     if (this.ground) {
       if (this.prevRamp > 0.4 && L.ramp < this.prevRamp - 0.02 && this.v > 6) { // just went over the lip
@@ -319,12 +319,15 @@ export class Kart {
     // shadow on the road
     if (u.shadow) {
       const L = this.loc;
-      const gy = L.gap ? null : L.y + L.ramp;
+      const gy = this.track.solidAt(L) ? L.y + L.ramp : null;
       u.shadow.visible = gy != null && this.respawnT <= 0;
       if (gy != null) {
         const h = Math.max(0, this.pos.y - gy);
-        u.shadow.position.set(this.pos.x, gy + 0.05, this.pos.z);
-        u.shadow.rotation.set(-Math.PI / 2, 0, this.yaw + this.driftAng);
+        u.shadow.position.set(this.pos.x, gy + 0.04, this.pos.z);
+        // the road's own lean (not the kart's tricks or nose-up in the air)
+        const t = this.track, along = Math.sin(this.yaw) * L.tx + Math.cos(this.yaw) * L.tz, ah = t.w(L.k + 2), bk = t.w(L.k - 2);
+        const slope = (t.Y[ah] + t.RAMP[ah] - t.Y[bk] - t.RAMP[bk]) / 4;
+        u.shadow.rotation.set(-Math.atan(slope) * along, this.yaw + this.driftAng, -Math.atan(L.bank) * along);
         u.shadow.material.opacity = 0.85 * Math.max(0.15, 1 - h / 8);
         u.shadow.scale.setScalar(1 + h * 0.06);
       }

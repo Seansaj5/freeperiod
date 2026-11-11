@@ -3,7 +3,7 @@
 // The road is built in 160 m chunks ahead of the player and recycled behind.
 import * as THREE from 'three';
 import { Road } from './road.js';
-import { trafficNear, KINDS } from './traffic.js';
+import { POLICE, trafficNear, KINDS } from './traffic.js';
 import { trafficGeometry, slotMaterials, lightMaterial, glowMaterial, setCarLook, PAINT } from './models.js';
 import { rng } from './util.js';
 import { mapById } from './maps.js';
@@ -172,6 +172,12 @@ export class World {
     this.blinkers = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.11, 0.07), new THREE.MeshBasicMaterial({ color: this.hi ? new THREE.Color(3.2, 1.5, 0.15) : 0xffa020 }), 80);
     this.blinkers.count = 0; this.blinkers.frustumCulled = false;
     this.tGroup.add(this.blinkers);
+    // police light bars: a red and a blue lamp on each patrol car, flashing in turn
+    this.copLights = [0xff2030, 0x2050ff].map((c) => {
+      const m = new THREE.InstancedMesh(new THREE.BoxGeometry(0.42, 0.1, 0.26), new THREE.MeshBasicMaterial({ color: c }), 24);
+      m.count = 0; m.frustumCulled = false; this.tGroup.add(m);
+      return m;
+    });
   }
 
   // ---------- per map ----------
@@ -187,16 +193,16 @@ export class World {
     u.uTop.value.set(...sk.top); u.uMid.value.set(...sk.mid); u.uGlow.value.set(...sk.glow); u.uCloud.value.set(...sk.cloud); u.uStars.value = sk.stars;
     u.uSun.value = sk.sun ? 1 : 0;
     if (sk.sun) { u.uSunDir.value.set(...sk.sun.dir).normalize(); u.uSunCol.value.set(...sk.sun.col); }
-    this.moon.visible = !sk.sun;
+    this.moon.visible = !sk.sun && !m.noMoon;
     // reflections for paint and glass
     if (this.hi) {
       const env = this.envCache[m.id] || (this.envCache[m.id] = buildEnv(this.renderer, m));
       setCarLook(env, true);
       for (const mt of this.tMats) { mt.envMap = env; mt.needsUpdate = true; }
     } else setCarLook(null, false);
-    this.matTunnelIn.color.setHex(m.id === 'city' ? 0x5d6878 : 0x9a958c);
-    this.matTunnelOut.color.setHex(m.id === 'city' ? 0x262b35 : m.id === 'coast' ? 0x8c7c68 : 0x8e4a2c);
-    this.matTunnelLight.color.set(this.hi ? (m.id === 'city' ? new THREE.Color(1.15, 1.3, 1.45) : new THREE.Color(1.5, 1.05, 0.5)) : (m.id === 'city' ? 0xdfeeff : 0xffcf86));
+    this.matTunnelIn.color.setHex(m.look === 'city' ? 0x5d6878 : 0x9a958c);
+    this.matTunnelOut.color.setHex(m.look === 'city' ? 0x262b35 : m.look === 'coast' ? 0x8c7c68 : m.look === 'alpine' ? 0x8a8e96 : 0x8e4a2c);
+    this.matTunnelLight.color.set(this.hi ? (m.look === 'city' ? new THREE.Color(1.15, 1.3, 1.45) : new THREE.Color(1.5, 1.05, 0.5)) : (m.look === 'city' ? 0xdfeeff : 0xffcf86));
     if (this.scenery) this.scenery.dispose();
     this.scenery = new Scenery(this, m);
   }
@@ -214,7 +220,7 @@ export class World {
         : new THREE.MeshLambertMaterial({ map: t.map, emissive: 0xffffff, emissiveMap: t.glow, emissiveIntensity: 1.2 });
     } else { this.matRoad.map = t.map; this.matRoad.emissiveMap = t.glow; this.matRoad.needsUpdate = true; }
     // the daylight coast needs less glow from the studs and paint
-    this.matRoad.emissiveIntensity = this.map.id === 'coast' ? 0.5 : this.hi ? 1.6 : 1.2;
+    this.matRoad.emissiveIntensity = this.map.look === 'coast' ? 0.5 : this.hi ? 1.6 : 1.2;
   }
 
   // ---------- chunks ----------
@@ -371,7 +377,7 @@ export class World {
     const strips = [], band = [];
     for (const sx of [-1, 1]) quadStrip(sx * W * 0.4, 7.1, sx * W * 0.34, 7.16, strips, 0.4); // a light fitting every 4 m
     for (const sx of [-1, 1]) quadStrip(sx * (W - 0.03), 1.0, sx * (W - 0.03), 1.1, band);
-    meshes.push(triMesh(strips, this.matTunnelLight), triMesh(band, this.map.id === 'city' ? this.matTunnelBand : this.matTunnelLight));
+    meshes.push(triMesh(strips, this.matTunnelLight), triMesh(band, this.map.look === 'city' ? this.matTunnelBand : this.matTunnelLight));
     // portals: a face joining the inner and outer profiles at each open end
     const at = (prof, u) => { const x = u * (prof.length - 1), i = Math.min(prof.length - 2, Math.floor(x)), t = x - i; return [prof[i][0] + (prof[i + 1][0] - prof[i][0]) * t, prof[i][1] + (prof[i + 1][1] - prof[i][1]) * t]; };
     for (const s of [f.a, f.b]) {
@@ -403,6 +409,125 @@ export class World {
     for (const m of g.children.slice()) { m.geometry = m.geometry.clone().applyMatrix4(m.matrixWorld); m.position.set(0, 0, 0); m.rotation.set(0, 0, 0); m.updateMatrix(); meshes.push(m); }
   }
 
+  // ---------- road works, checkpoints, wet roads ----------
+
+  buildProps() {
+    const g = (this.propGroup = new THREE.Group());
+    this.scene.add(g);
+    // a traffic cone: orange body, white reflective band, black base
+    const cone = mergeGeos([new THREE.ConeGeometry(0.2, 0.72, 10).translate(0, 0.4, 0), new THREE.CylinderGeometry(0.14, 0.17, 0.12, 10).translate(0, 0.42, 0), new THREE.BoxGeometry(0.46, 0.05, 0.46).translate(0, 0.025, 0)], [0xff6a14, 0xf2f2f2, 0x15161a]);
+    const coneMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x3a1400 });
+    this.cones = new THREE.InstancedMesh(cone, coneMat, 160); this.cones.count = 0; this.cones.frustumCulled = false; g.add(this.cones);
+    this.flyCones = new THREE.InstancedMesh(cone, coneMat, 16); this.flyCones.count = 0; this.flyCones.frustumCulled = false; g.add(this.flyCones);
+    this.flying = [];
+    this.knocked = new Set();
+    // arrow board trailer at the start of each stretch: a dark board with a flashing amber arrow
+    const arrowTex = (() => {
+      const c = document.createElement('canvas'); c.width = 128; c.height = 64; const x = c.getContext('2d');
+      x.fillStyle = '#000'; x.fillRect(0, 0, 128, 64); x.fillStyle = '#ffb020';
+      for (let i = 0; i < 9; i++) for (let k = 0; k < 3; k++) { x.beginPath(); x.arc(14 + i * 11, 32 + (k - 1) * 9, 3, 0, 7); x.fill(); }
+      for (const [dx, dy] of [[0, -18], [10, -9], [20, 0], [10, 9], [0, 18], [-10, 9], [-10, -9]]) { x.beginPath(); x.arc(100 + dx * 0.6, 32 + dy * 0.7, 3.2, 0, 7); x.fill(); }
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+    })();
+    this.arrowMat = new THREE.MeshBasicMaterial({ map: arrowTex, side: THREE.DoubleSide, color: this.hi ? new THREE.Color(2.2, 2.2, 2.2) : 0xffffff });
+    this.boards = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.0, 1.0).translate(0, 2.0, 0.08), this.arrowMat, 6); this.boards.count = 0; this.boards.frustumCulled = false; g.add(this.boards);
+    this.boardBacks = new THREE.InstancedMesh(mergeGeos([new THREE.BoxGeometry(2.15, 1.15, 0.12).translate(0, 2.0, 0), new THREE.BoxGeometry(0.12, 1.5, 0.12).translate(0, 0.75, 0), new THREE.BoxGeometry(1.6, 0.5, 1.6).translate(0, 0.45, -0.4)], [0x1a1c22, 0x3a3e46, 0xf0a020]), new THREE.MeshLambertMaterial({ vertexColors: true }), 6);
+    this.boardBacks.count = 0; this.boardBacks.frustumCulled = false; g.add(this.boardBacks);
+    // checkpoint gates (time attack)
+    const cpTex = (() => {
+      const c = document.createElement('canvas'); c.width = 512; c.height = 64; const x = c.getContext('2d');
+      const gr = x.createLinearGradient(0, 0, 512, 0); gr.addColorStop(0, '#0a5a2a'); gr.addColorStop(0.5, '#12a050'); gr.addColorStop(1, '#0a5a2a');
+      x.fillStyle = gr; x.fillRect(0, 0, 512, 64); x.fillStyle = '#eafff0'; x.font = '900 40px Bungee, Outfit, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('CHECKPOINT', 256, 34);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+    })();
+    this.cpBanner = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: cpTex, side: THREE.DoubleSide, color: this.hi ? new THREE.Color(1.6, 1.6, 1.6) : 0xffffff }), 2);
+    this.cpFrame = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: 0x2a2e36 }), 8);
+    for (const m of [this.cpBanner, this.cpFrame]) { m.count = 0; m.frustumCulled = false; g.add(m); }
+    this.checkpointEvery = 0; // set by main.js in time attack
+  }
+
+  /** Cones (minus the ones knocked over), arrow boards, flying cones, checkpoint gates near s. */
+  updateProps(s, t, dt) {
+    if (!this.cones) this.buildProps();
+    const road = this.road, p = this._p, M = this._M || (this._M = new THREE.Matrix4()), Q = this._Q || (this._Q = new THREE.Quaternion()), E = this._E || (this._E = new THREE.Euler(0, 0, 0, 'YXZ')), V = this._V || (this._V = new THREE.Vector3()), S = this._S || (this._S = new THREE.Vector3(1, 1, 1));
+    const o = road.center(s, this._v), ox = o.x, oy = o.y, oz = o.z;
+    this.propGroup.position.set(ox, oy, oz);
+    let nc = 0, nb = 0;
+    this.works = road.worksIn(s - 80, s + 420);
+    for (const z of this.works) {
+      const d = z.side * (road.half + 0.55), gap = road.coneGap;
+      for (let i = 0, cs = z.a; cs <= z.b && nc < 160; i++, cs += gap) {
+        if (cs < s - 80 || cs > s + 420 || this.knocked.has(`${z.j}:${i}`)) continue;
+        road.toWorld(cs, d, p);
+        M.compose(V.set(p.x - ox, p.y - oy, p.z - oz), Q.setFromEuler(E.set(0, p.h, 0)), S.set(1, 1, 1));
+        this.cones.setMatrixAt(nc++, M);
+      }
+      if (nb < 6 && z.a > s - 60) { // the arrow board a little before the cones, pointing traffic away from the shoulder
+        road.toWorld(z.a - 18, z.side * (road.half + 0.6), p);
+        M.compose(V.set(p.x - ox, p.y - oy, p.z - oz), Q.setFromEuler(E.set(0, p.h + Math.PI, 0)), S.set(1, 1, 1));
+        this.boardBacks.setMatrixAt(nb, M);
+        M.compose(V, Q, S.set(z.side > 0 ? -1 : 1, 1, 1)); // the arrow points away from the closed shoulder
+        this.boards.setMatrixAt(nb, M); nb++;
+      }
+    }
+    this.cones.count = nc; this.cones.instanceMatrix.needsUpdate = true;
+    this.boards.count = this.boardBacks.count = nb; this.boards.instanceMatrix.needsUpdate = this.boardBacks.instanceMatrix.needsUpdate = true;
+    const on = Math.floor(t * 2.2) % 2 === 0;
+    this.arrowMat.color.setScalar(on ? (this.hi ? 2.2 : 1) : 0.18);
+    // knocked cones tumble away
+    let nf = 0;
+    for (let i = this.flying.length - 1; i >= 0; i--) {
+      const c = this.flying[i];
+      c.t += dt; c.vy -= 18 * dt; c.x += c.vx * dt; c.y += c.vy * dt; c.z += c.vz * dt; c.rx += c.wx * dt; c.rz += c.wz * dt;
+      if (c.y < c.floor) { c.y = c.floor; c.vy = Math.abs(c.vy) * 0.3; c.vx *= 0.7; c.vz *= 0.7; c.wx *= 0.6; c.wz *= 0.6; }
+      if (c.t > 2.2) { this.flying.splice(i, 1); continue; }
+      M.compose(V.set(c.x - ox, c.y - oy, c.z - oz), Q.setFromEuler(E.set(c.rx, c.ry, c.rz)), S.set(1, 1, 1));
+      this.flyCones.setMatrixAt(nf++, M);
+    }
+    this.flyCones.count = nf; this.flyCones.instanceMatrix.needsUpdate = true;
+    // checkpoint gates
+    let ng = 0, nfr = 0;
+    if (this.checkpointEvery) {
+      const E2 = this.checkpointEvery, W = road.wall + 0.6;
+      for (let k = Math.max(1, Math.floor(s / E2)); k <= Math.floor((s + 500) / E2) && ng < 2; k++) {
+        const cs = k * E2; if (cs < s - 30) continue;
+        road.toWorld(cs, 0, p); const base = V.set(p.x - ox, p.y - oy, p.z - oz).clone();
+        Q.setFromEuler(E.set(0, p.h + Math.PI, 0)); // facing the driver
+        M.compose(V.copy(base).add(new THREE.Vector3(0, 6.6, 0)), Q, S.set(W * 2, 1.4, 1)); this.cpBanner.setMatrixAt(ng, M);
+        for (const sd of [-1, 1]) { road.toWorld(cs, sd * W, p); M.compose(V.set(p.x - ox, p.y - oy + 3.6, p.z - oz), Q, S.set(0.5, 7.2, 0.5)); this.cpFrame.setMatrixAt(nfr++, M); }
+        M.compose(V.copy(base).add(new THREE.Vector3(0, 7.45, 0)), Q, S.set(W * 2 + 0.6, 0.3, 0.5)); this.cpFrame.setMatrixAt(nfr++, M);
+        ng++;
+      }
+    }
+    this.cpBanner.count = ng; this.cpFrame.count = nfr; this.cpBanner.instanceMatrix.needsUpdate = this.cpFrame.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Knock a cone flying (zone z, cone i), thrown along with velocity (vx, vz) in world space. */
+  knockCone(z, i, vx, vz) {
+    const key = `${z.j}:${i}`;
+    if (this.knocked.has(key)) return false;
+    this.knocked.add(key);
+    if (this.knocked.size > 600) this.knocked.clear();
+    const p = this.road.toWorld(z.a + i * this.road.coneGap, z.side * (this.road.half + 0.55), {});
+    if (this.flying.length < 16) this.flying.push({ x: p.x, y: p.y + 0.3, z: p.z, floor: p.y, vx: vx * 0.75 + (Math.random() - 0.5) * 3, vy: 4 + Math.random() * 3, vz: vz * 0.75 + (Math.random() - 0.5) * 3, rx: 0, ry: Math.random() * 6, rz: 0, wx: (Math.random() - 0.5) * 16, wz: (Math.random() - 0.5) * 16, t: 0 });
+    return true;
+  }
+
+  /** Rain: the road goes dark and glossy and mirrors the lights (pretty quality). 0..1 */
+  setWet(k) {
+    this.wet = k;
+    if (!this.matRoad || !this.hi) return;
+    this.matRoad.roughness = 0.62 - k * 0.5;
+    this.matRoad.metalness = k * 0.15;
+    this.matRoad.envMap = k > 0 ? this.envCache[this.mapId] || null : null;
+    this.matRoad.envMapIntensity = k * 1.1;
+    this.matRoad.color.setScalar(1 - k * 0.25);
+    this.matRoad.needsUpdate = true;
+  }
+
+  /** Thicker fog (fog weather, snow). mult < 1 pulls the fog in. */
+  setFog(mult) { const f = this.map.fog; this.scene.fog.near = f[1] * mult; this.scene.fog.far = f[2] * mult; }
+
   // ---------- traffic ----------
 
   /** Draw traffic near s at time t. Returns the list (also kept on this.traffic / this.trafficCount). */
@@ -417,19 +542,24 @@ export class World {
     const T = this._t || (this._t = { M: new THREE.Matrix4(), M2: new THREE.Matrix4(), Q: new THREE.Quaternion(), E: new THREE.Euler(0, 0, 0, 'YXZ'), V: new THREE.Vector3(), V2: new THREE.Vector3(), S1: new THREE.Vector3(1, 1, 1), S2: new THREE.Vector3(), C: new THREE.Color() });
     const { M, M2, Q, E, V, V2, S1, S2, C } = T;
     const p = this._p;
-    let sh = 0, bl = 0;
+    let sh = 0, bl = 0, cop = 0;
     for (let i = 0; i < n; i++) {
       const c = this.traffic[i];
       const m = this.tMeshes[c.kind];
       if (m.used >= m.n) continue;
       this.road.toWorld(c.s, c.d, p);
-      Q.setFromEuler(E.set(-Math.atan(this.road.grade(c.s)), p.h, 0));
+      Q.setFromEuler(E.set(-Math.atan(this.road.grade(c.s)), p.h + (c.yaw || 0), 0));
       V.set(p.x - ox, p.y - oy, p.z - oz);
       M.compose(V, Q, S1);
       M.toArray(m.matrix.array, m.used * 16);
       m.paint.setColorAt(m.used, C.setHex(c.color));
       m.used++;
       if (sh < 240) { V.y += 0.02; M2.compose(V, Q, S2.set(c.hw * 2 + 0.7, 1, c.hl * 2 + 0.9)); this.tShadow.setMatrixAt(sh++, M2); }
+      if (c.kind === POLICE && cop < 24) { // light bar lamps (the bar itself is in the model)
+        const roofY = 1.51, zc = -0.29;
+        for (const [j, x] of [[0, 0.25], [1, -0.25]]) { V2.set(x, roofY, zc).applyMatrix4(M); M2.copy(M).setPosition(V2); this.copLights[j].setMatrixAt(cop, M2); }
+        cop++;
+      }
       if (c.blink && bl < 78) {
         const yb = c.hl > 4 ? 1.0 : 0.72, x = (c.blink < 0 ? 1 : -1) * (c.hw - 0.04); // the car's left is local +x
         for (const z of [c.hl - 0.15, -(c.hl - 0.15)]) { V2.set(x, yb, z).applyMatrix4(M); M2.copy(M).setPosition(V2); this.blinkers.setMatrixAt(bl++, M2); }
@@ -442,6 +572,12 @@ export class World {
     }
     this.tShadow.count = sh; this.tShadow.instanceMatrix.needsUpdate = true;
     this.blinkers.count = bl; this.blinkers.instanceMatrix.needsUpdate = true;
+    const f = Math.floor(t * 12) % 8; // a double flash of red, then of blue
+    this.copLights.forEach((m, j) => {
+      m.count = cop; m.instanceMatrix.needsUpdate = true;
+      const on = j === 0 ? f === 0 || f === 2 : f === 4 || f === 6, k = on ? (this.hi ? 3.2 : 1) : 0.12;
+      m.material.color.setRGB(j === 0 ? k : k * 0.1, k * 0.12, j === 0 ? k * 0.08 : k);
+    });
     return this.traffic;
   }
 
@@ -460,7 +596,7 @@ export class World {
     if (inT) {
       // tunnel ceiling lights every 24 m
       const k0 = Math.round(s / 24) - 1;
-      for (let i = 0; i < 3; i++) { this.road.toWorld((k0 + i) * 24, 0, p); this.lamps[i].position.set(p.x, p.y + 6.2, p.z); this.lamps[i].intensity = 20; this.lamps[i].color.setHex(m.id === 'city' ? 0xdff0ff : 0xffc27a); }
+      for (let i = 0; i < 3; i++) { this.road.toWorld((k0 + i) * 24, 0, p); this.lamps[i].position.set(p.x, p.y + 6.2, p.z); this.lamps[i].intensity = 20; this.lamps[i].color.setHex(m.look === 'city' ? 0xdff0ff : 0xffc27a); }
       return;
     }
     if (!m.lamps) { for (const l of this.lamps) l.intensity = 0; return; }
@@ -469,7 +605,7 @@ export class World {
       const k = k0 + i, side = m.lamps.both ? (k % 2 === 0 ? -1 : 1) : 1;
       this.road.toWorld(k * gap, side * (this.road.wall + 0.45 - LAMP_IN), p);
       this.lamps[i].position.set(p.x, p.y + LAMP_Y - 0.6, p.z);
-      this.lamps[i].intensity = m.id === 'coast' ? 12 : 24;
+      this.lamps[i].intensity = m.look === 'coast' ? 12 : 24;
       this.lamps[i].color.setHex(m.lamps.color);
     }
   }
@@ -562,7 +698,7 @@ function buildEnv(renderer, m) {
   const col = (a) => new THREE.Vector3(...a);
   s.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), new THREE.ShaderMaterial({
     side: THREE.BackSide,
-    uniforms: { uTop: { value: col(sk.top) }, uMid: { value: col(sk.mid) }, uGlow: { value: col(sk.glow) }, uGround: { value: col(m.id === 'coast' ? [0.05, 0.08, 0.14] : [0.03, 0.03, 0.04]) } },
+    uniforms: { uTop: { value: col(sk.top) }, uMid: { value: col(sk.mid) }, uGlow: { value: col(sk.glow) }, uGround: { value: col(m.look === 'coast' ? [0.05, 0.08, 0.14] : [0.03, 0.03, 0.04]) } },
     vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: `varying vec3 vP; uniform vec3 uTop, uMid, uGlow, uGround; void main(){
       float y = vP.y;
@@ -575,7 +711,7 @@ function buildEnv(renderer, m) {
     const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.9, 1.15) });
     for (const x of m.lamps.both ? [-7, 7] : [7]) { const mm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 90), lamp); mm.position.set(x, 11, 0); s.add(mm); }
   }
-  if (m.id === 'city') { // city windows round the horizon
+  if (m.look === 'city') { // city windows round the horizon
     for (const z of [-30, 0, 30]) { const mm = new THREE.Mesh(new THREE.BoxGeometry(30, 0.15, 0.6), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.1, 1.1, 1.2) })); mm.position.set(0, 14, z); s.add(mm); }
     const r = rng(5);
     const cols = [new THREE.Color(1.4, 1.0, 0.6), new THREE.Color(0.8, 1.1, 1.5), new THREE.Color(1.5, 0.8, 0.45)];

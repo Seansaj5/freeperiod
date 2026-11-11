@@ -4,6 +4,31 @@ import { clamp, damp } from './util.js';
 
 export const GEAR_TOPS = [0.22, 0.38, 0.53, 0.68, 0.84, 1.0];
 const REDLINE = 7400;
+// a crash needs the bodies to overlap by more than this (metres): paint-trading touches and mirror brushes don't count
+export const HIT_SLACK = 0.05;
+
+/**
+ * Gap between two cars in road space (s along the road, d across, + right), each a rectangle turned by its yaw
+ * (+ = nose pointing left). Separating-axis test on the four box edges: > 0 = apart by at least that much,
+ * < 0 = overlapping that deep. Writes the push-out axis for the smallest overlap into `out` ({ as, ad }), pointing
+ * from b to a.
+ */
+export function boxGap(sa, da, hla, hwa, ya, sb, db, hlb, hwb, yb, out) {
+  const fa = [Math.cos(ya), -Math.sin(ya)], ra = [Math.sin(ya), Math.cos(ya)];
+  const fb = [Math.cos(yb), -Math.sin(yb)], rb = [Math.sin(yb), Math.cos(yb)];
+  const cs = sa - sb, cd = da - db;
+  let best = -Infinity, bs = 1, bd = 0;
+  for (const ax of [fa, ra, fb, rb]) {
+    const dist = cs * ax[0] + cd * ax[1];
+    const rA = hla * Math.abs(fa[0] * ax[0] + fa[1] * ax[1]) + hwa * Math.abs(ra[0] * ax[0] + ra[1] * ax[1]);
+    const rB = hlb * Math.abs(fb[0] * ax[0] + fb[1] * ax[1]) + hwb * Math.abs(rb[0] * ax[0] + rb[1] * ax[1]);
+    const g = Math.abs(dist) - rA - rB;
+    if (g > best) { best = g; const sg = dist < 0 ? -1 : 1; bs = ax[0] * sg; bd = ax[1] * sg; }
+  }
+  if (out) { out.as = bs; out.ad = bd; }
+  return best;
+}
+const AX = { as: 1, ad: 0 };
 
 export class CarSim {
   constructor(spec) {
@@ -68,7 +93,7 @@ export class CarSim {
     const target = clamp(input.steer, -1, 1);
     this.steer = damp(this.steer, target, Math.abs(target) > Math.abs(this.steer) ? 9 : 12, dt);
     const v = this.v;
-    const rate = -this.steer * 1.75 * sp.grip / (1 + v / 34) * Math.min(1, v / 5);
+    const rate = -this.steer * 1.75 * sp.grip * (this.gripK ?? 1) / (1 + v / 34) * Math.min(1, v / 5); // gripK: rain and snow
     const kap = road.kappa(this.s);
     // the car mostly follows the road's bends by itself (arcade assist); the rest pushes you wide
     this.yaw += (rate - kap * v * Math.cos(this.yaw) * 0.08) * dt;
@@ -98,25 +123,26 @@ export class CarSim {
       }
     }
 
-    // --- traffic ---
+    // --- traffic: exact turned boxes (yours and theirs, which lean into lane changes) ---
     if (this.ghost <= 0 && !this.noHit) { // noHit: the owner's god mode drives straight through traffic
-      const hwE = this.hwEff;
       for (let i = 0; i < nTraffic; i++) {
         const c = traffic[i];
         const ds = this.s - c.s, dd = this.d - c.d;
-        const ox = this.hl + c.hl - Math.abs(ds), oy = hwE + c.hw - Math.abs(dd);
-        if (ox <= 0 || oy <= 0) continue;
+        if (Math.abs(ds) > this.hl + c.hl + 1 || Math.abs(dd) > this.hl + c.hw + 1) continue; // nowhere near
+        const gap = boxGap(this.s, this.d, this.hl, this.hw, this.yaw, c.s, c.d, c.hl, c.hw, c.yaw || 0, AX);
+        if (gap > -HIT_SLACK) continue;
         const impact = Math.abs(this.v - c.v);
-        const side = oy < ox * 0.6;
+        const side = Math.abs(AX.ad) > Math.abs(AX.as); // pushed out sideways: a side swipe
+        const depth = -gap + 0.05;
         if (side) {
-          this.d += Math.sign(dd || 1) * (oy + 0.05);
-          this.yaw = -Math.sign(dd || 1) * 0.06;
+          this.d += Math.sign(AX.ad) * depth;
+          this.yaw = -Math.sign(AX.ad) * 0.06;
           this.v *= 0.82;
-        } else if (ds < 0) {
-          this.s = c.s - (this.hl + c.hl) - 0.05;
+        } else if (AX.as < 0) { // we ran into the back of them
+          this.s -= depth;
           this.v = Math.min(this.v, c.v * 0.72);
-        } else {
-          this.s = c.s + (this.hl + c.hl) + 0.05;
+        } else { // they ran into us
+          this.s += depth;
           this.v = Math.max(this.v, c.v * 1.05);
         }
         this.ghost = 1.6;

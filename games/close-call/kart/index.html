@@ -115,7 +115,8 @@
     #setup h2 { font: 400 28px 'Bungee', sans-serif; margin: 0 0 14px; }
     .seg { display: flex; gap: 8px; margin-bottom: 16px; }
     .seg .btn { flex: 1; height: 46px; font-size: 14px; flex-direction: column; gap: 0; line-height: 1.1; }
-    .tracks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+    .tracks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+    @media (max-width: 760px) { .tracks { grid-template-columns: repeat(2, 1fr); } }
     .tcard { border-radius: 14px; border: 1px solid var(--line); background: rgba(16, 22, 40, 0.85); padding: 8px; text-align: left; transition: transform 0.12s, border-color 0.12s; }
     .tcard canvas { width: 100%; height: auto; border-radius: 9px; display: block; }
     .tcard b { display: block; font: 400 13px 'Bungee', sans-serif; margin-top: 6px; }
@@ -278,7 +279,7 @@
     <div class="panel">
       <h2>Race</h2>
       <div class="lbl">Mode</div>
-      <div class="seg" id="m-mode"><button class="btn" data-mode="gp">Grand Prix<small>3 races, points</small></button><button class="btn" data-mode="vs">Single race<small>any track</small></button><button class="btn" data-mode="tt">Time trial<small>beat your best</small></button></div>
+      <div class="seg" id="m-mode"><button class="btn" data-mode="gp">Grand Prix<small>4 races, points</small></button><button class="btn" data-mode="vs">Single race<small>any track</small></button><button class="btn" data-mode="tt">Time trial<small>beat your best</small></button></div>
       <div class="lbl">Speed class</div>
       <div class="seg" id="m-cls"><button class="btn" data-cls="rookie">Rookie</button><button class="btn" data-cls="pro">Pro</button><button class="btn" data-cls="elite">Elite</button></div>
       <div class="cup" id="m-cup"></div>

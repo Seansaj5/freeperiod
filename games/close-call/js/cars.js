@@ -65,6 +65,17 @@ export const CARS = [
     },
   },
   {
+    id: 'supremo', name: 'Toyoda Supremo', cls: 'Sport coupe', price: 24000, top: 268, accel: 10.0, grip: 1.21, color: 0xff4a1a,
+    engine: { voice: 'i6', pitch: 1.05 },
+    body: {
+      L: 4.38, W: 1.85, clear: 0.11, wheel: 0.33, axle: [0.17, 0.8], nose: 0.3, noseLen: 0.13, tail: 0.18, fender: [0.06, 0.06], flare: [0.02, 0.04], hoodCrown: 0.01, chin: 0.07,
+      top: [[0, 0.82], [0.04, 0.88], [0.25, 0.86], [0.5, 0.8], [0.7, 0.76], [0.9, 0.68], [1, 0.55]],
+      cab: { r0: 0.14, r1: 0.36, f1: 0.56, f0: 0.72, h: 1.29, w: 0.72, fast: 1.1 }, sill: PLASTIC, ducktail: 0.04, splitter: true,
+      hlx: [0.45, 0.85], hly: [0.52, 0.58], tailBar: true, tlx: [0.45, 0.9], tly: [0.68, 0.74], intakeF: [0.3, 0.7, 0.14],
+      rim: { spokes: 5, sw: 0.06, color: 0x2a2d33 }, caliper: 0xd02020, exhaust: 'dual', exR: 0.05,
+    },
+  },
+  {
     id: 'thunder', name: 'Thunder 8', cls: 'Muscle', price: 30000, top: 272, accel: 10.6, grip: 0.98, color: 0xf4b400,
     engine: { voice: 'v8', pitch: 0.86 },
     body: {
@@ -94,6 +105,30 @@ export const CARS = [
     },
   },
   {
+    id: 'corvex', name: 'Corvex Stingray', cls: 'Mid-engine', price: 62000, top: 312, accel: 12.6, grip: 1.24, color: 0xe8322a,
+    engine: { voice: 'v8', pitch: 0.92 },
+    body: {
+      L: 4.63, W: 1.93, clear: 0.1, wheel: 0.35, axle: [0.18, 0.8], nose: 0.32, noseLen: 0.13, tail: 0.1, fender: [0.12, 0.08], flare: [0.03, 0.05], hoodCrown: 0, chin: 0.08,
+      top: [[0, 0.88], [0.04, 0.92], [0.28, 0.88], [0.5, 0.74], [0.74, 0.66], [0.92, 0.58], [1, 0.46]],
+      cab: { r0: 0.3, r1: 0.44, f1: 0.6, f0: 0.78, h: 1.23, w: 0.66, gw: 0.8, fast: 0.4 }, sill: PLASTIC, grille: false, intakeF: [0.25, 0.85, 0.18],
+      intakes: [0.38, 0.54], rearVent: 0.18, splitter: true, diffuser: true, hlx: [0.5, 0.9], hly: [0.4, 0.46], drl: [0.5, 0.9, 0.465],
+      tlx: [0.42, 0.93], tly: [0.72, 0.8], wing: { h: 0.05, t: 0.04, chord: 0.24, w: 0.9 },
+      rim: { spokes: 10, sw: 0.04, taper: 0.6, color: 0x1c1e22 }, caliper: 0xf4b400, exhaust: 'quadc', exR: 0.045, exY: 0.32,
+    },
+  },
+  {
+    id: 'gtz', name: 'Nisson GT-Z', cls: 'All-wheel drive', price: 68000, top: 315, accel: 13.0, grip: 1.34, color: 0x8a929e,
+    engine: { voice: 'i6', pitch: 0.95 },
+    body: {
+      L: 4.71, W: 1.9, clear: 0.11, wheel: 0.35, axle: [0.18, 0.79], nose: 0.22, noseLen: 0.1, tail: 0.1, fender: [0.06, 0.06], flare: [0.03, 0.05], chin: 0.08, hoodCrown: 0.01,
+      top: [[0, 0.86], [0.04, 0.9], [0.25, 0.9], [0.55, 0.86], [0.8, 0.8], [0.95, 0.74], [1, 0.64]],
+      cab: { r0: 0.12, r1: 0.34, f1: 0.54, f0: 0.7, h: 1.34, w: 0.74, fast: 0.9 }, sill: PLASTIC, skirt: true,
+      wing: { h: 0.2, t: 0.04, chord: 0.28, color: 0x15171b }, roundTails: { xs: [0.62, 0.84], y: 0.74, r: 0.075 },
+      grille: [0.5, 0.2, 0.48], splitter: true, diffuser: true, vents: [0.8, 0.3], hlx: [0.5, 0.86], hly: [0.56, 0.63],
+      rim: { spokes: 6, sw: 0.06, color: 0x2a2d33 }, caliper: 0xd0d4dc, exhaust: 'quad',
+    },
+  },
+  {
     id: 'masarotti', name: 'Masarotti Tridente MC', cls: 'Supercar', price: 70000, top: 318, accel: 12.0, grip: 1.2, color: 0x2a4d8f,
     engine: { voice: 'v8', pitch: 1.12 },
     body: {
@@ -105,6 +140,17 @@ export const CARS = [
       tails: { lens: [[[0.42, 0.72], [0.94, 0.7], [0.92, 0.78], [0.5, 0.79]]], lit: [[[0.46, 0.744], [0.9, 0.724], [0.895, 0.738], [0.465, 0.758]], [[0.84, 0.705], [0.91, 0.704], [0.9, 0.772], [0.83, 0.774]]] },
       splitter: true, diffuser: true, intakes: [0.4, 0.54], rearVent: 0.14,
       rim: { spokes: 7, sw: 0.06, color: 0x2a2d33 }, caliper: 0x2a6cff, exhaust: 'dual', exR: 0.055, exY: 0.3,
+    },
+  },
+  {
+    id: 'teslo', name: 'Teslo Model P', cls: 'Electric', price: 80000, top: 262, accel: 15.6, grip: 1.18, color: 0xf2f4f8,
+    engine: { voice: 'ev', pitch: 1 },
+    body: {
+      L: 4.72, W: 1.88, clear: 0.13, wheel: 0.34, axle: [0.18, 0.8], nose: 0.26, noseLen: 0.12, tail: 0.18, fender: [0.03, 0.03], hoodCrown: 0.01, chin: 0.05,
+      top: [[0, 0.82], [0.05, 0.9], [0.25, 0.92], [0.55, 0.9], [0.8, 0.82], [0.95, 0.72], [1, 0.6]],
+      cab: { r0: 0.12, r1: 0.3, f1: 0.58, f0: 0.74, h: 1.42, w: 0.76, b: 0.45, fast: 1.2 }, roofCol: GLASS, sill: PLASTIC, pillar: DARK,
+      grille: false, intakeF: [0.3, 0.6, 0.1], hlx: [0.55, 0.88], hly: [0.6, 0.65], tailBar: true, tlx: [0.5, 0.92], tly: [0.7, 0.76],
+      rim: { spokes: 5, sw: 0.1, color: 0xb6bcc6, size: 0.7 }, exhaust: 'none',
     },
   },
   {
@@ -127,6 +173,18 @@ export const CARS = [
       ...PORSHA, W: 1.9, clear: 0.09, flare: [0.04, 0.08], ducktail: 0, splitter: true, skirt: true, diffuser: true, vents: [0.84, 0.3],
       wing: { h: 0.36, t: 0.04, chord: 0.36, w: 0.9, color: 0x15171b },
       rim: { spokes: 10, sw: 0.04, color: 0x2a2d33, cap: 0xffd000 }, caliper: 0xffd000, exhaust: 'center', exR: 0.05,
+    },
+  },
+  {
+    id: 'audy', name: 'Audy R10 V10', cls: 'Supercar', price: 105000, top: 330, accel: 13.2, grip: 1.28, color: 0xd8dde6,
+    engine: { voice: 'v8', pitch: 1.4 },
+    body: {
+      L: 4.43, W: 1.94, clear: 0.1, wheel: 0.34, axle: [0.18, 0.8], nose: 0.3, noseLen: 0.12, tail: 0.14, fender: [0.1, 0.07], flare: [0.02, 0.05], hoodCrown: 0, chin: 0.08,
+      top: [[0, 0.86], [0.05, 0.9], [0.28, 0.86], [0.5, 0.74], [0.75, 0.66], [0.92, 0.58], [1, 0.48]],
+      cab: { r0: 0.28, r1: 0.43, f1: 0.6, f0: 0.78, h: 1.22, w: 0.66, gw: 0.8, fast: 0.5 }, sill: PLASTIC,
+      grille: [0.38, 0.14, 0.42], grilleBars: 0, intakes: [0.38, 0.55], blade: 0x15171b, splitter: true, diffuser: true,
+      hlx: [0.48, 0.86], hly: [0.48, 0.54], drl: [0.48, 0.86, 0.47], tlx: [0.48, 0.9], tly: [0.72, 0.78], rearVent: 0.16,
+      rim: { spokes: 10, sw: 0.045, color: 0x2a2d33 }, caliper: 0xd02020, exhaust: 'dual', exR: 0.06, exY: 0.3,
     },
   },
   {
@@ -214,6 +272,19 @@ export const CARS = [
       wing: { h: 0.04, t: 0.05, chord: 0.36, w: 0.9, color: 0x15171b },
       splitter: true, diffuser: true, exhaust: 'quadc', exR: 0.045, exY: 0.36,
       rim: { spokes: 10, sw: 0.05, color: SILVER }, caliper: 0x2a6cff,
+    },
+  },
+  {
+    id: 'jesca', name: 'Konigsberg Jesca', cls: 'Hypercar', price: 320000, top: 440, accel: 15.6, grip: 1.3, color: 0xff7a1a,
+    engine: { voice: 'v8', pitch: 1.3 },
+    body: {
+      L: 4.61, W: 2.03, clear: 0.09, wheel: 0.36, axle: [0.17, 0.81], nose: 0.33, noseLen: 0.14, tail: 0.1, fender: [0.2, 0.09], flare: [0.03, 0.07], hoodCrown: 0, chin: 0.09,
+      top: [[0, 0.9], [0.04, 0.93], [0.25, 0.86], [0.5, 0.7], [0.75, 0.62], [0.92, 0.54], [1, 0.44]],
+      cab: { r0: 0.3, r1: 0.45, f1: 0.6, f0: 0.79, h: 1.12, w: 0.6, gw: 0.76, rearGlass: false, fast: 0.2 }, roofCol: 0x15171b, sill: PLASTIC,
+      fin: true, grille: false, intakeF: [0.2, 0.9, 0.2], intakes: [0.38, 0.56], splitter: true, diffuser: true, skirt: true,
+      wing: { h: 0.32, t: 0.035, chord: 0.36, w: 0.95, color: 0x111317, light: true },
+      hlx: [0.55, 0.88], hly: [0.36, 0.41], drl: [0.55, 0.88, 0.42], tailBar: true, tlx: [0.3, 0.96], tly: [0.8, 0.85], rearVent: 0.24,
+      rim: { spokes: 7, sw: 0.05, taper: 0.55, color: 0x15171b, cap: 0xff7a1a }, caliper: 0xff7a1a, exhaust: 'center', exR: 0.07, exY: 0.5,
     },
   },
 ];

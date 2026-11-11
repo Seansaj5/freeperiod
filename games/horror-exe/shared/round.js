@@ -1,7 +1,7 @@
 // One round of horror.exe: who is EXE, the two worlds and their portals, the five zone tasks, hits,
 // knockdowns, revives, disguises, the escape gates and the result.
 // The server runs this for online rooms; the browser runs the very same code for solo games.
-import { ROUND, SURV, EXE, CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, F, ST, PHASES, PORTAL, TASKS, TASK, HIDE, QTE, AWAKEN, moveSpeed, tickStamina } from './rules.js';
+import { ROUND, SURV, EXE, CHARS, CHAR_IDS, VARIANTS, VARIANT_IDS, F, ST, PHASES, PORTAL, TASKS, TASK, TASK_MIN, TASK_REACH, HIDE, QTE, AWAKEN, moveSpeed, tickStamina } from './rules.js';
 import { SHARD_SPOTS, EXITS, SPAWNS, PORTALS, OBJ, LOCKERS, ZONES, HALF, supportAt, terrainH, clampXZ, surfaceAt, lineOfSight, solidAt } from './map.js';
 import { stepMove, body } from './move.js';
 import { newBrain, thinkSurv, thinkExe } from './bots.js';
@@ -74,7 +74,7 @@ export class Round {
       cd: { abl: 0, atk: 0, disguise: 0, portal: 0, ab2: 0, ab3: 0, ab4: 0, hide: 0 },
       fx: { stun: 0, boost: 0, invuln: 0, fade: 0, reveal: 0, dash: 0, fly: 0, lunge: 0, recover: 0, atk: 0, pop: 0, burn: 0, hunt: 0,
         spin: 0, awake: 0, invis: 0, iron: 0, invert: 0, turbo: 0, pinged: 0, slowx: 0 },
-      disguise: 0, carrying: false, hidden: 0, hideT: 0, overstay: 0, qte: null, revived: 0,
+      disguise: 0, carrying: false, hidden: 0, hideT: 0, overstay: 0, qte: null, revived: 0, task: null,
       // level 10 unlocks: survivors' Q ability, monsters' Awakening (bots get them half the time)
       unlockQ: bot ? this.rand() < 0.5 : !!(p.unlock && p.unlock.q),
       unlockAwaken: bot ? this.rand() < 0.5 : !!(p.unlock && p.unlock.awaken),
@@ -133,6 +133,7 @@ export class Round {
     if (e.carrying) f |= F.CARRY;
     if (e.hidden) f |= F.HIDDEN;
     if (e.qte) f |= F.QTE;
+    if (e.task || e.workT > this.time) f |= F.TASK;
     if (x.hunt > t) f |= F.HUNT;
     if (e.role === 'surv' && this.inField(e)) f |= F.SLOWED;
     if (x.spin > t) f |= F.SPIN;
@@ -231,7 +232,8 @@ export class Round {
     const e = this.ents.get(id), t = this.time;
     if (!e || e.st !== ST.alive || this.phase === 'over' || !a) return false;
     if (a.k === 'qte') { if (!e.qte) return false; this.resolveQte(e, !!a.ok); return true; }
-    if (a.k === 'hide' && e.role === 'surv') return this.toggleHide(e);
+    if (a.k === 'task' && e.role === 'surv') return this.taskAction(e, a);
+    if (a.k === 'hide' && e.role === 'surv') { e.task = null; return this.toggleHide(e); }
     if (e.role === 'surv' && (e.hidden || e.qte)) return false;
     const ok = e.role === 'exe' ? this.monsterAction(e, a) : this.survivorAction(e, a);
     if (e.nocd) for (const k in e.cd) if (k !== 'portal') e.cd[k] = 0;
@@ -591,6 +593,7 @@ export class Round {
     const t = this.time;
     if (s.st !== ST.alive || s.hidden || s.qte || s.god) return false;
     if (!ignoreSafety && (s.fx.invuln > t || s.fx.dash > t)) return false;
+    if (s.task) { s.task = null; this.ev({ k: 'task-x', id: s.id, why: 'hit' }); }
     dmg = Math.max(1, Math.round(dmg ?? (x ? VARIANTS[x.variant].dmg : SURV.heart)));
     s.hp -= dmg;
     if (x) { x.stats.hits++; x.fx.recover = t + VARIANTS[x.variant].recover; x.fx.lunge = 0; this.addMeter(x, AWAKEN.perHit); }
@@ -614,6 +617,67 @@ export class Round {
     this.ev({ k: 'core', s: 'drop', id: s.id });
   }
 
+  finishShard(sh, who) {
+    sh.taken = who.id; sh.prog = 1; who.stats.shards++; who.stats.tasks++;
+    this.relight.push(this.time + ROUND.RELIGHT);
+    const got = this.shards.filter((q) => q.taken).length;
+    this.ev({ k: 'shard', i: sh.i, by: who.id, n: got });
+    if (got >= this.shards.length) this.taskDone('shards', who);
+  }
+
+  finishOne(list, task, o, who) {
+    o.done = who.id; o.prog = 0; who.stats.tasks++;
+    this.ev({ k: 'task', t: task, i: o.i, by: who.id, n: list.filter((q) => q.done).length });
+    if (list.every((q) => q.done)) this.taskDone(task, who);
+  }
+
+  pickCore(s) {
+    const c = this.core;
+    c.state = CORE_STATE.carried; c.by = s.id; s.carrying = true;
+    this.ev({ k: 'core', s: 'pick', id: s.id });
+  }
+
+  /** The task object a person can still do: { o, w } or null. */
+  taskTarget(t, i) {
+    const n = i | 0;
+    if (t === 'shards') { const o = this.shards[n]; return o && o.lit && !o.taken ? { o, w: 0 } : null; }
+    if (t === 'valves') { const o = this.valves[n]; return o && !o.done ? { o, w: 0 } : null; }
+    if (t === 'panels') { const o = this.panels[n]; return o && !o.done ? { o, w: 1 } : null; }
+    if (t === 'bells') { const o = this.bells[n]; return o && !o.done ? { o, w: 1 } : null; }
+    if (t === 'core') { const c = this.core; return c.state === CORE_STATE.home || c.state === CORE_STATE.dropped ? { o: c, w: 1 } : null; }
+    return null;
+  }
+
+  /** Can this survivor reach that task right now (slack: a bit of extra room for lag)? */
+  canTask(e, t, i, slack = 0) {
+    const g = this.taskTarget(t, i);
+    if (!g || e.st !== ST.alive || e.hidden || e.qte || e.w !== g.w || (t === 'core' && e.carrying)) return false;
+    const dy = t === 'core' ? Math.abs(e.y - g.o.y) : Math.abs(e.y + 1.1 - g.o.y);
+    return Math.hypot(e.x - g.o.x, e.z - g.o.z) <= TASK_REACH[t] + slack && dy <= 3 + slack;
+  }
+
+  /** A person's task minigame: { s: 'open' | 'done' | 'cancel', t: task, i: which one }. */
+  taskAction(e, a) {
+    const t = String(a.t || ''), i = a.i | 0;
+    if (!TASK_MIN[t]) return false;
+    if (a.s === 'cancel') { e.task = null; return true; }
+    if (a.s === 'open') {
+      if (!this.canTask(e, t, i)) return false;
+      e.task = { t, i, at: this.time };
+      return true;
+    }
+    if (a.s !== 'done' || !e.task || e.task.t !== t || e.task.i !== i) return false;
+    const fast = e.fx.turbo > this.time || this.survivors().some((p) => p.fx.turbo > this.time && p.w === e.w && Math.hypot(p.x - e.x, p.z - e.z) < CHARS.pip.q.range);
+    if (this.time - e.task.at < TASK_MIN[t] * (fast ? 0.5 : 1) - 0.25) return false; // too quick to be real
+    e.task = null;
+    if (!this.canTask(e, t, i, 1.5)) return false;
+    const { o } = this.taskTarget(t, i);
+    if (t === 'shards') this.finishShard(o, e);
+    else if (t === 'core') this.pickCore(e);
+    else this.finishOne(this[t], t, o, e);
+    return true;
+  }
+
   taskDone(id, by) {
     if (this.done[id]) return;
     this.done[id] = true;
@@ -623,6 +687,8 @@ export class Round {
 
   resolve(dt) {
     const t = this.time, surv = this.survivors(), x = this.exeEnt();
+    // a task minigame ends if you leave, get knocked down, hide, or someone else finishes it first
+    for (const s of surv) if (s.task && !this.canTask(s, s.task.t, s.task.i, 3)) { this.ev({ k: 'task-x', id: s.id, why: this.taskTarget(s.task.t, s.task.i) ? 'left' : 'done' }); s.task = null; }
     // lockers: stay too long and EXE drags you out (the second time, it just takes you)
     for (const s of surv) {
       if (s.qte) {
@@ -672,7 +738,7 @@ export class Round {
       if (e.st !== ST.alive || t < e.cd.portal || e.hidden || e.qte) continue;
       for (const p of PORTALS) {
         if (Math.hypot(e.x - p.x, e.z - p.z) > PORTAL.range || Math.abs(e.y - p.y) > 3) continue;
-        e.w = e.w ? 0 : 1;
+        e.w = e.w ? 0 : 1; e.task = null;
         e.cd.portal = t + PORTAL.cooldown;
         e.fx.fly = Math.min(e.fx.fly, t);
         if (e.disguise) this.popOut(e, false);
@@ -708,7 +774,7 @@ export class Round {
     const near = (o, range, dy, w) => {
       let n = 0, who = null, turbo = false;
       for (const s of surv) {
-        if (s.st !== ST.alive || s.w !== w || s.hidden || Math.hypot(s.x - o.x, s.z - o.z) > range || Math.abs(s.y + 1.1 - o.y) > dy) continue;
+        if (!s.bot || s.st !== ST.alive || s.w !== w || s.hidden || Math.hypot(s.x - o.x, s.z - o.z) > range || Math.abs(s.y + 1.1 - o.y) > dy) continue; // people use the minigames
         n++; if (!who || s.id === o.by) who = s;
         if (turbos.some((p) => p.w === s.w && Math.hypot(p.x - s.x, p.z - s.z) < CHARS.pip.q.range)) turbo = true;
       }
@@ -718,14 +784,8 @@ export class Round {
       if (sh.taken || !sh.lit) continue;
       const { n, who, turbo } = near(sh, SURV.pickupRange, 2.6, 0);
       if (n) {
-        sh.prog += (dt / SURV.shardTime) * (1 + (n - 1) * 0.5) * (turbo ? 2 : 1); sh.by = who.id;
-        if (sh.prog >= 1) {
-          sh.taken = who.id; sh.prog = 1; who.stats.shards++; who.stats.tasks++;
-          this.relight.push(t + ROUND.RELIGHT);
-          const got = this.shards.filter((q) => q.taken).length;
-          this.ev({ k: 'shard', i: sh.i, by: who.id, n: got });
-          if (got >= this.shards.length) this.taskDone('shards', who);
-        }
+        sh.prog += (dt / SURV.shardTime) * (1 + (n - 1) * 0.5) * (turbo ? 2 : 1); sh.by = who.id; who.workT = t + 0.3;
+        if (sh.prog >= 1) this.finishShard(sh, who);
       } else sh.prog = Math.max(0, sh.prog - dt * 0.15);
     }
     // Toxic Works: valves (normal world) - stay at a valve to turn it
@@ -733,12 +793,8 @@ export class Round {
       if (v.done) continue;
       const { n, who, turbo } = near(v, TASK.valveRange, 2.6, 0);
       if (n) {
-        v.prog += (dt / TASK.valveTime) * (1 + (n - 1) * 0.5) * (turbo ? 2 : 1); v.by = who.id;
-        if (v.prog >= 1) {
-          v.done = who.id; who.stats.tasks++;
-          this.ev({ k: 'task', t: 'valves', i: v.i, by: who.id, n: this.valves.filter((q) => q.done).length });
-          if (this.valves.every((q) => q.done)) this.taskDone('valves', who);
-        }
+        v.prog += (dt / TASK.valveTime) * (1 + (n - 1) * 0.5) * (turbo ? 2 : 1); v.by = who.id; who.workT = t + 0.3;
+        if (v.prog >= 1) this.finishOne(this.valves, 'valves', v, who);
       } else v.prog = Math.max(0, v.prog - dt * 0.1);
     }
     // Neon Jackpot: panels (corrupted world) - step on them; Ember Ruins: bells (corrupted world) - touch them
@@ -746,10 +802,7 @@ export class Round {
       for (const o of list) {
         if (o.done) continue;
         const { who } = near(o, range, dy, 1);
-        if (!who) continue;
-        o.done = who.id; who.stats.tasks++;
-        this.ev({ k: 'task', t: task, i: o.i, by: who.id, n: list.filter((q) => q.done).length });
-        if (list.every((q) => q.done)) this.taskDone(task, who);
+        if (who) this.finishOne(list, task, o, who);
       }
     }
     // Frostbite Peak: carry the fire core (corrupted world) from the ice cave to the frozen engine
@@ -768,9 +821,8 @@ export class Round {
       }
     } else if (c.state === CORE_STATE.home || c.state === CORE_STATE.dropped) {
       for (const s of surv) {
-        if (s.st !== ST.alive || s.w !== 1 || s.carrying || Math.hypot(s.x - c.x, s.z - c.z) > TASK.coreRange || Math.abs(s.y - c.y) > 2.5) continue;
-        c.state = CORE_STATE.carried; c.by = s.id; s.carrying = true;
-        this.ev({ k: 'core', s: 'pick', id: s.id });
+        if (!s.bot || s.st !== ST.alive || s.w !== 1 || s.carrying || Math.hypot(s.x - c.x, s.z - c.z) > TASK.coreRange || Math.abs(s.y - c.y) > 2.5) continue;
+        this.pickCore(s);
         break;
       }
     }
