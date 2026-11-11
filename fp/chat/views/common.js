@@ -67,6 +67,8 @@ export function icon(name, cls) {
   s.setAttribute('viewBox', '0 0 24 24');
   s.setAttribute('aria-hidden', 'true');
   s.setAttribute('class', 'cx-ic' + (cls ? ' ' + cls : ''));
+  // a name this copy does not know (a newer module next to an older cached common.js): an empty icon, never a throw
+  if (!def || !Array.isArray(def.d)) { s.setAttribute('data-missing', String(name)); return s; }
   if (def.fill) s.setAttribute('fill', 'currentColor');
   else {
     s.setAttribute('fill', 'none');

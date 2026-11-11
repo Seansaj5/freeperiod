@@ -123,7 +123,7 @@ export function mountChannels(el, { onPick, onManage, onTools, onMe, onSettings,
         } else {
           // Guests never see voice channels (and only the owner-only channels app.js keeps for them).
           const shown = guest ? channels.filter((c) => c.kind !== 'voice') : channels;
-          const groups = groupSidebar({ channels: shown, categories, collapsed, current, roster, guest, showEmpty: canManage && !guest });
+          const groups = groupSidebar({ channels: shown, categories, collapsed, current, roster, unread, guest, showEmpty: canManage && !guest });
           const ctx = { roster, vs, people };
           const kids = [];
           for (const g of groups) {

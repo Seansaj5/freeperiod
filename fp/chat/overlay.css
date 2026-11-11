@@ -32,6 +32,9 @@
 /* the server background, at half strength over the game */
 .fpco-host.cx-app.server .cx-main::before, .fpco-host.cx-app.server .cx-main:not(.drop)::after,
 .fpco-host.cx-app.server .cx-srv::before, .fpco-host.cx-app.server .cx-srv::after { opacity: 0.5; }
+/* closed (off screen, the app paused): the aurora layers stop drifting too, so the game gets the frames */
+.fpco-panel:not(.open) .fpco-host.cx-app.server .cx-main::before,
+.fpco-panel:not(.open) .fpco-host.cx-app.server .cx-srv::before { animation-play-state: paused; }
 @media (max-width: 599px) {
   .fpco-panel { width: 100%; border-left: 0; }
 }

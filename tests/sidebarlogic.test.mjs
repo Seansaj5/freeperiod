@@ -32,6 +32,22 @@ test('collapsed category keeps only the current channel and voice channels with 
   assert.equal(none[0].collapsed, true);
 });
 
+test('collapsed category still shows text channels with unread messages or @mentions (I3, like Discord)', () => {
+  const channels = [ch(1, 1, 0), ch(2, 1, 1), ch(3, 1, 2), ch(4, 1, 3), ch(5, 1, 4, 'voice'), ch(6, 2, 0)];
+  const unread = new Map([['c:2', { unread: 3, mentions: 0 }], ['c:3', { unread: 0, mentions: 1 }], ['c:4', { unread: 0, mentions: 0 }],
+    ['c:5', { unread: 9, mentions: 9 }], ['d:2', { unread: 5, mentions: 5 }], ['c:6', { unread: 1, mentions: 0 }]]);
+  const g = groupSidebar({ ...base, categories: [cat(1, 0), cat(2, 1)], channels, collapsed: new Set([1, 2]), current: 1, unread });
+  // 1 = open, 2 = unread, 3 = a mention; 4 = read; 5 = an empty voice channel (no unread there); a DM key never counts
+  assert.deepEqual(ids(g), [[1, [1, 2, 3]], [2, [6]]]);
+  assert.equal(g[0].collapsed, true);
+  // expanded: everything, unread or not
+  assert.deepEqual(ids(groupSidebar({ ...base, categories: [cat(1, 0)], channels: channels.slice(0, 5), unread })), [[1, [1, 2, 3, 4, 5]]]);
+  // nothing new, nothing open: the collapsed category is just its header
+  assert.deepEqual(ids(groupSidebar({ ...base, categories: [cat(1, 0)], channels: channels.slice(0, 5), collapsed: new Set([1]), unread: new Map() })), [[1, []]]);
+  // no unread map given (older callers) or junk: as before
+  assert.deepEqual(ids(groupSidebar({ ...base, categories: [cat(1, 0)], channels: channels.slice(0, 5), collapsed: new Set([1]), unread: null })), [[1, []]]);
+});
+
 test('guest: categories without visible channels are omitted', () => {
   const g = groupSidebar({ ...base, guest: true, categories: [cat(1, 0), cat(2, 1)], channels: [ch(1, 1, 0)] });
   assert.deepEqual(ids(g), [[1, [1]]]);

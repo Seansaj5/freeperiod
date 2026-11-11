@@ -64,3 +64,18 @@ test('the profile editor preview (a blob: file) wins over the Hallpass art', () 
 test('no profile at all: initials only, no picture', () => withDom(async () => {
   assert.equal(imgs(avatar(null)).length, 0);
 }));
+
+test('icon(): a known name draws its paths; an unknown name (cache skew) gives an empty icon instead of throwing (M12)', async () => withDom(async () => {
+  const { icon } = await import('../fp/chat/views/common.js');
+  const ok = icon('mic', 'x');
+  assert.equal(ok.getAttribute('class'), 'cx-ic x');
+  assert.ok(ok.children.length > 0);
+  for (const name of ['no-such-icon-yet', undefined, null, 'constructor', 'toString', '__proto__']) {
+    let el;
+    assert.doesNotThrow(() => { el = icon(name); }, String(name));
+    assert.equal(el.tagName, 'SVG');
+    assert.equal(el.getAttribute('aria-hidden'), 'true');
+    assert.equal(el.getAttribute('class'), 'cx-ic');
+    assert.equal(el.children.length, 0, String(name));
+  }
+}));

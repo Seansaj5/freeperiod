@@ -1,9 +1,15 @@
 // Pure sidebar logic (no DOM): categories + channels grouping, collapsed-state storage, voice labels, member sections.
 const byPosId = (a, b) => ((a.position | 0) - (b.position | 0)) || (a.id - b.id);
 const KEY = 'fp.chat.cats';
+const hasNews = (unread, id) => {
+  const u = unread instanceof Map ? unread.get('c:' + id) : null;
+  return !!u && ((u.unread || 0) > 0 || (u.mentions || 0) > 0);
+};
 
 // -> [{ category: Category|null, collapsed, channels }]: uncategorized first (no header), then categories by position.
-export function groupSidebar({ channels = [], categories = [], collapsed = new Set(), current = null, roster = new Map(), guest = false, showEmpty = false } = {}) {
+// A collapsed category still shows (like Discord) the open channel, voice channels with people in them, and text
+// channels with something new: unread ('c:<id>' -> { unread, mentions }, the app's unread map) above 0.
+export function groupSidebar({ channels = [], categories = [], collapsed = new Set(), current = null, roster = new Map(), unread = new Map(), guest = false, showEmpty = false } = {}) {
   const cats = [...categories].sort(byPosId);
   const known = new Set(cats.map((c) => c.id));
   const buckets = new Map();
@@ -20,7 +26,7 @@ export function groupSidebar({ channels = [], categories = [], collapsed = new S
     if (!all.length && (guest || !showEmpty)) continue;
     const isCollapsed = collapsed.has(category.id);
     const shown = isCollapsed
-      ? all.filter((c) => c.id === current || (c.kind === 'voice' && (roster.get(c.id) || []).length > 0))
+      ? all.filter((c) => c.id === current || (c.kind === 'voice' ? (roster.get(c.id) || []).length > 0 : hasNews(unread, c.id)))
       : all;
     out.push({ category, collapsed: isCollapsed, channels: shown });
   }

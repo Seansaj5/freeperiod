@@ -13,6 +13,8 @@ export function signalLabel(peers) {
   return 'Connected';
 }
 
+const put = (node, text) => { if (node.textContent !== text) node.textContent = text; };
+
 export function mountVoiceBar(el, { onLeave } = {}) {
   el.classList.add('cx-vbar');
   el.hidden = true;
@@ -34,10 +36,11 @@ export function mountVoiceBar(el, { onLeave } = {}) {
       const joining = state.status === 'joining';
       const label = joining ? 'Connecting…' : signalLabel(state.peers);
       el.dataset.sig = label === 'Connected' ? 'ok' : label === 'Connecting…' ? 'wait' : 'bad';
-      status.textContent = joining ? 'Joining voice…' : 'Voice Connected';
-      sig.textContent = !joining && label !== 'Connected' ? label : '';
+      // the line is a live region: a screen reader announces every write, so only real changes are written
+      put(status, joining ? 'Joining voice…' : 'Voice Connected');
+      put(sig, !joining && label !== 'Connected' ? label : '');
       sig.hidden = !sig.textContent;
-      where.textContent = voiceLabel((channel && channel.name) || state.channelName || 'voice') + ' / Free Period';
+      put(where, voiceLabel((channel && channel.name) || state.channelName || 'voice') + ' / Free Period');
     },
   };
 }
