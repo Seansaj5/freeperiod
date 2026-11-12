@@ -6,7 +6,8 @@ Every game card on Free Period has three pictures, all made from real gameplay (
 |---|---|---|
 | `assets/<id>.jpg` | 1280x720, under 350 KB | the card poster: an action shot, colour grade, vignette, the title in Bungee with a glow, a small tag line |
 | `assets/<id>-hero.jpg` | 1920x820, under 350 KB | the featured banner (no lettering: the home page writes the title over its left side) |
-| `assets/<id>.webm` | 640x360, 8 s, VP9, no audio, under 1.2 MB | the card's hover preview |
+| `assets/<id>.webm` | 640x360, 8 s, VP9, no audio, under 1.2 MB | the card's hover preview (and the phone autoplay) |
+| `assets/<id>.mp4` | the same clip, H.264 main, yuv420p, faststart, no audio, under 1.2 MB | the preview in Safari and on iPhones (`<source>` after the webm) |
 
 `capture.mjs` plays each game in headless Chrome on the real GPU, stages the shot and records it; `poster.html` is the
 layout the stills are composed in.
@@ -25,10 +26,11 @@ export PUPPETEER_DIR=~/scratch POSTERS_OUT=~/scratch/posters
 node tools/posters/capture.mjs shoot bing-ball            # bursts of stills + an 8 s clip, in $POSTERS_OUT/bing-ball/
 # look at the bursts (card-*.jpg are 16:9, hero-*.jpg are wide), pick a frame for each
 node tools/posters/capture.mjs poster bing-ball --card $POSTERS_OUT/bing-ball/card-c0-039.jpg --hero $POSTERS_OUT/bing-ball/card-c0-039.jpg
-node tools/posters/capture.mjs preview bing-ball          # assets/bing-ball.webm from the clip
+node tools/posters/capture.mjs preview bing-ball          # assets/bing-ball.webm from the clip, then assets/bing-ball.mp4 from the webm
+node tools/posters/capture.mjs mp4 bing-ball              # only the mp4, from the existing webm
 ```
 
-Games: `bing-ball`, `close-call`, `horror-exe`. `poster` takes `--card-cfg '<json>'` / `--hero-cfg '<json>'` to adjust
+Games: `bing-ball`, `close-call`, `horror-exe`, `five-nights-at-bings`. The webm is encoded in one pass on purpose: libvpx's two-pass files failed to decode in Chrome (PIPELINE_ERROR_DECODE). After a preview, open the page in Chrome and watch the card play. `poster` takes `--card-cfg '<json>'` / `--hero-cfg '<json>'` to adjust
 the layout for a frame (any `renderPoster` setting in `poster.html`, e.g. `'{"focus":[0.6,0.5],"zoom":1.1}'`); the
 defaults in `LOOK` in `capture.mjs` fit the frames named there. Look at every picture before committing, and check the
 sizes (`ls -l assets`): `poster` lowers the JPEG quality until a poster fits under 340 KB.
@@ -51,3 +53,6 @@ sizes (`ls -l assets`): `poster` lowers the JPEG quality until a poster fits und
   dolly runs along a path checked clear of every prop in `shared/map.js`. The characters are the game's originals.
 
 Raw frames stay in `$POSTERS_OUT` (default `<tmp>/fp-posters`); only the finished pictures go in `assets/`.
+- **Five Nights at Bing's** (`games/five-nights-at-bings/`): Night 1 started through the game's `window.__fnab` hook, past the
+  "12:00 AM" intro, every animatronic's level at 0. The clip flips cameras (Show Stage, Arcade Floor, Prize Corner) and
+  puts Bing, Dylan and Gavin where each camera sees them. The game's own HUD stays in the shot.

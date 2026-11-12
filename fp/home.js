@@ -19,6 +19,7 @@ import { mountStreakCard, onStreak, peekStreak } from './streak.js';
 import { mountFriendsNow } from './chat/activity.js';
 import { mountTopPlayers } from './top-players.js';
 import { startParallax, wireMorph } from './motion.js';
+import { pickInView } from './previews.js';
 
 const GAMES = (window.GAMES || []).map(resolveGame);
 const $ = (id) => document.getElementById(id);
@@ -221,7 +222,7 @@ function card(g) {
       h('p', { text: g.tagline || '' }),
       tagList(g)));
   wireTilt(el);
-  if (g.preview) wirePreview(el, thumb, g);
+  if (g.preview || g.previewMp4) autoPreview(el, g.id, wirePreview(el, thumb, g));
   return el;
 }
 
@@ -278,42 +279,79 @@ function wireTilt(el) {
   el.addEventListener('pointerleave', () => { el.style.removeProperty('--rx'); el.style.removeProperty('--ry'); });
 }
 
-let webm = null;
+// The card's preview video: <source> webm (Chrome, Firefox) then mp4 (Safari, iPhones). Returns { play, pause } so the phone
+// picker below can drive it; the hover/focus wiring is for mice and keyboards.
 function wirePreview(el, thumb, g) {
   let timer = null, video = null;
-  const allowed = () => !noHover.matches && !reduced.matches && !el.dataset.nopreview;
-  function start() {
-    if (!allowed()) return;
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      if (webm === null) webm = !!document.createElement('video').canPlayType('video/webm');
-      if (!webm) { el.dataset.nopreview = '1'; return; }
-      if (!video) {
-        video = h('video', { class: 'preview', muted: true, loop: true, playsinline: true, preload: 'none', disablepictureinpicture: true, 'aria-hidden': 'true', tabindex: '-1' });
-        video.muted = true;
-        video.addEventListener('playing', () => thumb.classList.add('previewing'));
-        video.addEventListener('error', () => { // missing or unplayable file: never try again, the poster stays
-          el.dataset.nopreview = '1';
-          thumb.classList.remove('previewing');
-          if (video) video.remove();
-          video = null;
-        }, { once: true });
-        video.src = g.preview;
-        thumb.querySelector('.poster').after(video);
-      }
-      const p = video.play();
-      if (p && p.catch) p.catch(() => {});
-    }, 250);
+  const allowed = () => !reduced.matches && !el.dataset.nopreview;
+  function ensure() {
+    if (video) return video;
+    video = h('video', { class: 'preview', muted: true, loop: true, playsinline: true, preload: 'none', disablepictureinpicture: true, 'aria-hidden': 'true', tabindex: '-1' });
+    video.muted = true;
+    video.addEventListener('playing', () => thumb.classList.add('previewing'));
+    const fail = () => { // no file or no playable format: never try again, the poster stays
+      el.dataset.nopreview = '1';
+      thumb.classList.remove('previewing');
+      if (video) video.remove();
+      video = null;
+    };
+    const srcs = [[g.preview, 'video/webm'], [g.previewMp4, 'video/mp4']].filter(([u]) => u);
+    srcs.forEach(([src, type], i) => {
+      const so = h('source', { src, type });
+      if (i === srcs.length - 1) so.addEventListener('error', fail, { once: true }); // only the last source failing means none played
+      video.append(so);
+    });
+    video.addEventListener('error', fail, { once: true });
+    thumb.querySelector('.poster').after(video);
+    return video;
   }
-  function stop() {
+  function play() {
+    if (!allowed()) return;
+    const p = ensure().play();
+    if (p && p.catch) p.catch(() => {});
+  }
+  function pause() {
     clearTimeout(timer);
     thumb.classList.remove('previewing');
     if (video) video.pause();
   }
-  el.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') start(); });
-  el.addEventListener('pointerleave', stop);
-  el.addEventListener('focusin', start);
-  el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget)) stop(); });
+  function hover() {
+    if (noHover.matches || !allowed()) return;
+    clearTimeout(timer);
+    timer = setTimeout(play, 250);
+  }
+  el.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') hover(); });
+  el.addEventListener('pointerleave', pause);
+  el.addEventListener('focusin', hover);
+  el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget)) pause(); });
+  return { play, pause };
+}
+
+// Phones: no hover, so the card most in view (at least 60% of it) plays its preview and the others pause. Not with Data
+// Saver or reduced motion, and everything pauses while the tab is hidden.
+const coarse = mq('(pointer: coarse)');
+const ratios = new Map();       // card element -> { id, ratio, ctl }
+let seen = null;
+function autoPlayOk() {
+  return coarse.matches && !reduced.matches && !(typeof navigator !== 'undefined' && navigator.connection && navigator.connection.saveData);
+}
+function pickPlaying() {
+  const live = [...ratios.entries()].filter(([el]) => el.isConnected);
+  for (const [el] of ratios) if (!el.isConnected) { seen && seen.unobserve(el); ratios.delete(el); }
+  const want = autoPlayOk() && !document.hidden ? pickInView(live.map(([, c]) => ({ id: c.id, ratio: c.ratio }))) : null;
+  for (const [, c] of live) { if (c.id === want) c.ctl.play(); else c.ctl.pause(); }
+}
+function autoPreview(el, id, ctl) {
+  if (typeof IntersectionObserver === 'undefined' || !coarse.matches) return;
+  if (!seen) {
+    seen = new IntersectionObserver((entries) => {
+      for (const e of entries) { const c = ratios.get(e.target); if (c) c.ratio = e.isIntersecting ? e.intersectionRatio : 0; }
+      pickPlaying();
+    }, { threshold: [0, 0.2, 0.4, 0.6, 0.8, 1] });
+    document.addEventListener('visibilitychange', pickPlaying);
+  }
+  ratios.set(el, { id, ratio: 0, ctl });
+  seen.observe(el);
 }
 
 // ---------- search, keys ----------

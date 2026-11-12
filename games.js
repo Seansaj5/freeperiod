@@ -4,7 +4,9 @@
 //   thumb     card poster, 16:9 (assets/<id>.jpg, 1280x720); tools/posters/ makes all three pictures from real gameplay
 //   hero      optional wide poster for the featured banner (assets/<id>-hero.jpg, 1920x820); falls back to thumb
 //   preview   optional hover video for the card (assets/<id>.webm: 6-8 s, 640x360, VP9, no audio, under 1.2 MB);
-//             plays after 250 ms of hover, never on touch screens or with reduced motion; a missing file just doesn't play
+//             plays after 250 ms of hover; on phones the card most in view plays (not with Data Saver); never with reduced motion;
+//             a missing file just doesn't play
+//   previewMp4  the same clip as H.264 (assets/<id>.mp4, under 1.2 MB) for Safari and iPhones; the card tries webm, then this
 //   tags      shown on the card and used by the filter chips
 //   controls  one line shown under the title on the play page
 //   accent    the card's glow color
@@ -36,6 +38,7 @@ window.GAMES = [
     thumb: 'assets/bing-ball.jpg',
     hero: 'assets/bing-ball-hero.jpg',
     preview: 'assets/bing-ball.webm',
+    previewMp4: 'assets/bing-ball.mp4',
     tags: ['3D', 'Multiplayer', 'Sports'],
     controls: 'WASD move · click shoot · right-click pass · F dash · G Flow',
     accent: '#c6ff3d',
@@ -54,6 +57,7 @@ window.GAMES = [
     thumb: 'assets/close-call.jpg',
     hero: 'assets/close-call-hero.jpg',
     preview: 'assets/close-call.webm',
+    previewMp4: 'assets/close-call.mp4',
     tags: ['3D', 'Multiplayer', 'Racing'],
     controls: 'W/S gas & brake · A/D steer · Shift nitro · C camera · Esc pause',
     accent: '#ffb020',
@@ -69,6 +73,8 @@ window.GAMES = [
     tagline: 'Five zones, two worlds, and one friend who might be EXE. Finish the zone tasks, cross into the corrupted world and escape.',
     url: 'games/horror-exe/',
     thumb: 'assets/horror-exe.jpg',
+    preview: 'assets/horror-exe.webm',
+    previewMp4: 'assets/horror-exe.mp4',
     tags: ['3D', 'Multiplayer', 'Horror'],
     controls: 'WASD move · Shift sprint · Space jump · E R Q abilities · F hide · EXE: click + E R Q F moves, G disguise, V awaken · Esc pause',
     accent: '#ff2a3a',
@@ -83,6 +89,8 @@ window.GAMES = [
     tagline: "Night guard at Bing's Arcade & Grill. Watch the cameras, shut the doors, keep Sal's bottle full and never let the music box stop.",
     url: 'games/five-nights-at-bings/',
     thumb: 'assets/five-nights-at-bings.jpg',
+    preview: 'assets/five-nights-at-bings.webm',
+    previewMp4: 'assets/five-nights-at-bings.mp4',
     tags: ['3D', 'Horror', 'Solo'],
     controls: 'A/D doors · Q/E lights · W vent · Space cameras · 1-9 camera · hold F wind / pour · hold G crank · L lure · M sound · C captions',
     accent: '#9dff3a',

@@ -562,15 +562,13 @@ async function poster(id, o) {
 function preview(id, out) {
   const dir = path.join(out, id, 'clip'), list = path.join(dir, 'clip.ffconcat');
   if (!fs.existsSync(list)) throw new Error(`no clip in ${dir}: run shoot first`);
-  const target = path.join(ROOT, `assets/${id}.webm`), log = path.join(dir, 'vp9');
+  const target = path.join(ROOT, `assets/${id}.webm`);
   // a touch of grade (contrast, saturation, vignette) so the preview matches the poster it plays over
   const vf = 'fps=30,scale=640:360:flags=lanczos,eq=contrast=1.06:saturation=1.12,vignette=angle=PI/5';
-  const common = ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-t', '8', '-vf', vf, '-c:v', 'libvpx-vp9', '-b:v', '900k', '-an', '-pix_fmt', 'yuv420p', '-row-mt', '1', '-g', '240', '-passlogfile', log];
-  for (const [pass, dest] of [['1', '/dev/null'], ['2', target]]) {
-    const r = spawnSync(process.env.FFMPEG || 'ffmpeg', ['-loglevel', 'error', ...common, '-pass', pass, '-deadline', 'good', '-cpu-used', pass === '1' ? '4' : '1', ...(pass === '1' ? ['-f', 'webm'] : []), dest], { stdio: 'inherit' });
-    if (r.status !== 0) throw new Error('ffmpeg failed');
-  }
-  for (const f of fs.readdirSync(dir)) if (f.startsWith('vp9')) fs.unlinkSync(path.join(dir, f));
+  // One pass: files from libvpx's two-pass mode did not decode in Chrome (PIPELINE_ERROR_DECODE), these do. 650k lands near 0.9 MB.
+  const args = ['-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-t', '8', '-vf', vf, '-c:v', 'libvpx-vp9', '-b:v', '650k', '-an', '-pix_fmt', 'yuv420p', '-g', '240', '-deadline', 'good', '-cpu-used', '1', target];
+  const r = spawnSync(process.env.FFMPEG || 'ffmpeg', args, { stdio: 'inherit' });
+  if (r.status !== 0) throw new Error('ffmpeg failed');
   console.log(`  assets/${id}.webm: ${(fs.statSync(target).size / 1024).toFixed(0)} KB`);
   mp4(id);
 }
@@ -578,7 +576,7 @@ function preview(id, out) {
 // The same clip as H.264 for Safari and iPhones (they need no VP9). Made from the webm so the two always match.
 function mp4(id) {
   const src = path.join(ROOT, `assets/${id}.webm`), target = path.join(ROOT, `assets/${id}.mp4`);
-  const r = spawnSync(process.env.FFMPEG || 'ffmpeg', ['-loglevel', 'error', '-y', '-i', src, '-c:v', 'libx264', '-profile:v', 'main', '-pix_fmt', 'yuv420p', '-preset', 'slow', '-crf', '26', '-maxrate', '1000k', '-bufsize', '2000k', '-movflags', '+faststart', '-an', target], { stdio: 'inherit' });
+  const r = spawnSync(process.env.FFMPEG || 'ffmpeg', ['-loglevel', 'error', '-y', '-i', src, '-vf', 'scale=in_range=pc:out_range=tv,format=yuv420p', '-color_range', 'tv', '-c:v', 'libx264', '-profile:v', 'main', '-pix_fmt', 'yuv420p', '-preset', 'slow', '-crf', '26', '-maxrate', '1000k', '-bufsize', '2000k', '-movflags', '+faststart', '-an', target], { stdio: 'inherit' });
   if (r.status !== 0) throw new Error('ffmpeg failed');
   console.log(`  assets/${id}.mp4: ${(fs.statSync(target).size / 1024).toFixed(0)} KB`);
 }
