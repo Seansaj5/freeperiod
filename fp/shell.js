@@ -9,6 +9,8 @@ import { mountAccount } from './account-ui.js';
 import { mountChatButton } from './chat/button.js';
 import { startAmbient } from './ambient.js';
 import { startReveal } from './motion.js';
+import { armSfx, wireSfx } from './sfx.js';
+import { startCursor } from './cursor.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -26,8 +28,8 @@ function tick() {
 function mountThemeButtons() {
   const slot = $('account');
   if (!slot || !slot.parentNode || document.querySelector('.fp-hdr-tools')) return;
-  const themeBtn = h('button', { type: 'button', class: 'fp-theme-btn', 'aria-label': 'Themes', title: 'Themes', onclick: openThemeSheet }, icon('palette'));
-  const sfxBtn = h('button', { type: 'button', class: 'fp-sfx-btn', 'aria-label': 'Sounds', title: 'Sounds', 'aria-pressed': 'true', onclick: () => setSounds(!getSounds()) },
+  const themeBtn = h('button', { type: 'button', class: 'fp-theme-btn', 'data-sfx': 'click', 'aria-label': 'Themes', title: 'Themes', onclick: openThemeSheet }, icon('palette'));
+  const sfxBtn = h('button', { type: 'button', class: 'fp-sfx-btn', 'data-sfx': 'toggle', 'aria-label': 'Sounds', title: 'Sounds', 'aria-pressed': 'true', onclick: () => setSounds(!getSounds()) },
     icon('speaker', 'ic-on'), icon('speakerOff', 'ic-off'));
   const sync = () => sfxBtn.setAttribute('aria-pressed', String(getSounds()));
   sync();
@@ -40,6 +42,8 @@ export function mountShell({ search = 'link' } = {}) {
   applyAccent();
   applyTheme();
   mountThemeButtons();
+  // sounds (silent until the first click/key, then per theme) and the cursor trail (mouse + effects only)
+  armSfx(); wireSfx(); startCursor();
   mountAccount($('account'));
   mountChatButton($('chat-btn')); // stays hidden (and loads nothing) until chat is set up
   tick();

@@ -7,9 +7,11 @@ import { resolveGame } from './status.js';
 import { dailyCheckin } from './streak.js';
 import { startActivity, cleanRoom, withJoin, friendInRoom } from './chat/activity.js';
 import { hasFullscreenApi } from './viewport.js';
+import { armSfx, wireSfx } from './sfx.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
+armSfx(); wireSfx(); // ticks and clicks on the play page's own buttons (the game inside the frame stays silent)
 const id = params.get('g');
 // A friend's Join button (home page): play.html?g=<game>&room=<CODE>. Games that can deep-join (games.js `joins`) get
 // ?join=<CODE> on their own URL and go straight into that room, but only when an accepted chat friend is in it right

@@ -14,13 +14,13 @@ function preview(t) {
 export function openThemeSheet() {
   if (open) { open.focus(); return open; }
   const grid = h('div', { class: 'fp-theme-grid', role: 'group', 'aria-label': 'Theme' }, readyThemes().map((t) =>
-    h('button', { type: 'button', class: 'fp-theme-pick', 'data-theme-pick': t.id, 'aria-pressed': 'false', onclick: () => setTheme(t.id) },
+    h('button', { type: 'button', class: 'fp-theme-pick', 'data-sfx': 'toggle', 'data-theme-pick': t.id, 'aria-pressed': 'false', onclick: () => setTheme(t.id) },
       preview(t), h('span', { class: 'fp-theme-name', text: t.name }))));
   const swatches = h('div', { class: 'fp-swatches', role: 'radiogroup', 'aria-label': 'Accent color' }, [themeAccent(), ...ACCENTS].map((a) =>
     h('button', { type: 'button', class: 'fp-swatch', role: 'radio', 'aria-checked': 'false', 'aria-label': a.label, title: a.label,
-      'data-accent-pick': a.id, style: `--sw:${a.color};--sw2:${a.second}`, onclick: () => setAccent(a.id) })));
+      'data-accent-pick': a.id, 'data-sfx': 'toggle', style: `--sw:${a.color};--sw2:${a.second}`, onclick: () => setAccent(a.id) })));
   const sw = (cls, label, onToggle) => h('button', { type: 'button', role: 'switch', 'aria-checked': 'false', 'aria-label': label,
-    class: 'fp-switch ' + cls, onclick: onToggle });
+    class: 'fp-switch ' + cls, 'data-sfx': 'toggle', onclick: onToggle });
   const sfx = sw('fp-pref-sfx', 'Sounds', () => setSounds(!getSounds()));
   const fx = sw('fp-pref-fx', 'Effects', () => setEffects(!getEffects()));
   const sheet = openSheet({ title: 'Themes', onClose: () => { off(); open = null; } });
