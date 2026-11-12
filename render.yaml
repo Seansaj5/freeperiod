@@ -37,3 +37,22 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+
+  # Brielle Battleroyal multiplayer: the server runs each match with the game's shared code (games/brielle-battleroyal/shared)
+  - type: web
+    name: freeperiod-brielle
+    runtime: node
+    plan: free
+    # Virginia (US East) is the closest to New Jersey. Render can't move a service to another region later.
+    region: virginia
+    rootDir: games/brielle-battleroyal
+    buildCommand: cd server && npm install --omit=dev
+    startCommand: node server/index.js
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - games/brielle-battleroyal/server/**
+        - games/brielle-battleroyal/shared/**
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
