@@ -98,4 +98,19 @@ window.GAMES = [
     saveKey: 'fnab.v1',
     added: '2026-11-10',
   },
+  {
+    id: 'brielle-battleroyal',
+    title: 'Brielle Battleroyal',
+    tagline: '20 drop from the Shore Blimp over Brielle, NJ. Loot Union Landing, build and edit, and outlast the Nor\'easter. Last one standing wins.',
+    url: 'games/brielle-battleroyal/',
+    thumb: 'assets/brielle-battleroyal.jpg',
+    tags: ['3D', 'Multiplayer', 'Battle Royale'],
+    controls: 'WASD move · click shoot · right-click aim · Q/Z/X/V build · G edit · E loot · 1-5 items · F pickaxe · M map',
+    accent: '#ffd23d',
+    orientation: 'landscape',      // third-person shooter HUD + touch buttons need the width
+    beta: true,
+    saveKey: 'brielle.v1',
+    joins: true,
+    added: '2026-11-11',
+  },
 ];

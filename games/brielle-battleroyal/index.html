@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Brielle Battleroyal</title>
+  <meta name="theme-color" content="#123a66" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <style>
+    @font-face { font-family: 'Bungee'; src: url('../../assets/fonts/bungee.woff2') format('woff2'); font-display: swap; }
+    @font-face { font-family: 'Outfit'; src: url('../../assets/fonts/outfit.woff2') format('woff2'); font-weight: 400 800; font-display: swap; }
+    :root { --sun: #ffd23d; --coral: #ff6b4a; --sea: #2bc4d8; --navy: #0f2747; --ink: #f6f8ff; --muted: #b9c6dc; --panel: rgba(12, 30, 58, 0.82); --line: rgba(255, 255, 255, 0.14); --hp: #6be35a; --sh: #46b6ff; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0e2a4a; color: var(--ink); font-family: 'Outfit', system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; touch-action: none; }
+    canvas { display: block; }
+    button { font: inherit; color: inherit; cursor: pointer; }
+    .hidden { display: none !important; }
+    #gl { position: fixed; inset: 0; }
+
+    /* ---------- menus ---------- */
+    .screen { position: fixed; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 5vh 6vw; z-index: 10; pointer-events: none; }
+    .screen > * { pointer-events: auto; }
+    .shade { background: linear-gradient(90deg, rgba(8, 24, 48, 0.9) 0%, rgba(8, 24, 48, 0.55) 40%, rgba(8, 24, 48, 0) 70%); }
+    .logo { font-family: 'Bungee', sans-serif; line-height: 0.88; margin: 0; letter-spacing: 0.01em; transform: skewX(-6deg); }
+    .logo .l1 { display: block; font-size: clamp(44px, 7.4vw, 104px); color: #fff; text-shadow: 0 5px 0 #1e5fa8, 0 10px 26px rgba(0, 0, 0, 0.45); }
+    .logo .l2 { display: block; font-size: clamp(34px, 5.6vw, 78px); color: var(--sun); text-shadow: 0 5px 0 #c4561b, 0 10px 26px rgba(0, 0, 0, 0.45); }
+    .tag { color: var(--muted); font-size: 17px; margin: 14px 0 22px; max-width: 440px; line-height: 1.45; }
+    .stack { display: flex; flex-direction: column; gap: 9px; width: min(380px, 100%); }
+    .btn { height: 52px; border-radius: 12px; border: 1px solid var(--line); background: rgba(12, 32, 62, 0.85); font-family: 'Bungee', sans-serif; font-size: 17px; text-align: left; padding: 0 18px; display: flex; align-items: center; gap: 10px; transition: transform 0.12s, background 0.12s, border-color 0.12s; }
+    .btn:hover, .btn:focus-visible { transform: translateX(4px) skewX(-3deg); border-color: var(--sun); background: rgba(22, 52, 96, 0.95); outline: none; }
+    .btn small { margin-left: auto; font-family: 'Outfit', sans-serif; font-size: 13px; color: var(--muted); font-weight: 600; }
+    .btn.primary { background: linear-gradient(135deg, #ffd23d, #ff8a2a); color: #3a1a00; border: 0; box-shadow: 0 10px 30px -10px rgba(255, 160, 40, 0.9); }
+    .btn.primary small { color: rgba(60, 25, 0, 0.75); }
+    .btn.small { height: 42px; font-size: 14px; }
+    .btn.center { justify-content: center; }
+    .row { display: flex; gap: 9px; align-items: center; }
+    .field { width: 100%; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.35); color: var(--ink); padding: 0 14px; font: 600 16px 'Outfit', sans-serif; outline: none; user-select: text; -webkit-user-select: text; }
+    .field:focus { border-color: var(--sun); }
+    .field.code { text-transform: uppercase; letter-spacing: 0.3em; font-family: 'Bungee', sans-serif; width: 120px; text-align: center; }
+    .online { font-size: 13px; color: var(--muted); margin-top: 14px; display: flex; align-items: center; gap: 8px; }
+    .online i { width: 8px; height: 8px; border-radius: 50%; background: #667; display: inline-block; }
+    .online.up i { background: #6dff8a; box-shadow: 0 0 10px #6dff8a; }
+    .status { min-height: 22px; margin-top: 10px; font-size: 14px; color: var(--muted); max-width: 420px; }
+    .status.err { color: #ff9a8a; }
+    .stats { display: flex; gap: 16px; margin-top: 14px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+    .stats b { color: var(--sun); font-size: 16px; }
+    .acct { position: fixed; top: 16px; right: 18px; z-index: 11; padding: 8px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-weight: 700; font-size: 14px; }
+    .acct.own { color: var(--sun); border-color: rgba(255, 210, 61, 0.5); }
+    .keys { position: fixed; right: 3vw; bottom: 3vh; color: var(--muted); font-size: 12.5px; line-height: 1.8; pointer-events: none; max-width: 470px; text-align: right; background: rgba(8, 24, 48, 0.55); padding: 10px 14px; border-radius: 12px; }
+    kbd { font: 700 11px 'Outfit', sans-serif; padding: 1px 6px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, 0.3); color: var(--ink); }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px; width: min(460px, 100%); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+    .panel h2 { font-family: 'Bungee', sans-serif; font-weight: 400; margin: 0 0 12px; font-size: 26px; }
+    .lbl { font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 14px 0 7px; display: block; }
+    #locker { justify-content: center; align-items: flex-end; }
+    .outfits { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .outfit { height: 48px; border-radius: 10px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); display: flex; align-items: center; gap: 10px; padding: 0 10px; font-weight: 700; }
+    .outfit i { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(180deg, var(--a) 55%, var(--b) 55%); border: 2px solid rgba(255, 255, 255, 0.4); }
+    .outfit.sel { border-color: var(--sun); background: rgba(255, 210, 61, 0.15); }
+    #lobby, #settings { align-items: center; }
+    .lobbylist { list-style: none; padding: 0; margin: 10px 0; max-height: 40vh; overflow: auto; }
+    .lobbylist li { padding: 9px 12px; border-radius: 9px; background: rgba(255, 255, 255, 0.05); margin-bottom: 5px; display: flex; gap: 8px; align-items: center; font-weight: 600; }
+    .lobbylist li.own { color: var(--sun); }
+    .lobbylist small { color: var(--muted); font-weight: 600; }
+    .lobbylist .kick { margin-left: auto; border: 1px solid var(--line); background: none; border-radius: 7px; padding: 3px 9px; font-size: 12px; }
+    .bigcode { font-family: 'Bungee', sans-serif; font-size: 44px; color: var(--sun); letter-spacing: 0.12em; }
+    input[type=range] { width: 100%; accent-color: var(--sun); }
+    select.field { appearance: none; }
+    #loading { align-items: center; justify-content: center; background: rgba(8, 24, 48, 0.6); }
+    #loading h2 { font-family: 'Bungee', sans-serif; font-size: 30px; }
+
+    /* ---------- hud ---------- */
+    #hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; font-weight: 700; }
+    #hud .pe { pointer-events: auto; }
+    .cross { position: fixed; left: 50%; top: 50%; width: 0; height: 0; }
+    .cross::before, .cross::after { content: ''; position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
+    .cross.dot::before { width: 4px; height: 4px; border-radius: 50%; left: -2px; top: -2px; }
+    .cross.dot::after { display: none; }
+    .cross.gun::before { width: calc(var(--spread) * 2); height: 2px; left: calc(var(--spread) * -1); top: -1px; background: linear-gradient(90deg, #fff 0 30%, transparent 30% 70%, #fff 70%); box-shadow: none; filter: drop-shadow(0 0 1px #000); }
+    .cross.gun::after { height: calc(var(--spread) * 2); width: 2px; top: calc(var(--spread) * -1); left: -1px; background: linear-gradient(180deg, #fff 0 30%, transparent 30% 70%, #fff 70%); box-shadow: none; filter: drop-shadow(0 0 1px #000); }
+    .cross.shotgun::before { width: calc(var(--spread) * 2.4); height: calc(var(--spread) * 2.4); left: calc(var(--spread) * -1.2); top: calc(var(--spread) * -1.2); border-radius: 50%; background: none; border: 2px solid rgba(255, 255, 255, 0.9); box-shadow: 0 0 2px #000; }
+    .cross.shotgun::after { width: 3px; height: 3px; left: -1.5px; top: -1.5px; border-radius: 50%; }
+    .cross.build::before { width: 6px; height: 6px; border-radius: 50%; left: -3px; top: -3px; background: var(--sea); }
+    .cross.build::after { display: none; }
+    .hitm { position: fixed; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; opacity: 0; }
+    .hitm::before, .hitm::after { content: ''; position: absolute; left: 50%; top: 0; width: 2px; height: 100%; background: #fff; transform: rotate(45deg); box-shadow: 0 0 2px #000; }
+    .hitm::after { transform: rotate(-45deg); }
+    .hitm.on { opacity: 1; }
+    .hitm.head::before, .hitm.head::after { background: var(--sun); }
+    .hitm.kill::before, .hitm.kill::after { background: #ff4a4a; width: 3px; }
+    #dmgLayer { position: fixed; inset: 0; overflow: hidden; }
+    .dmgnum { position: absolute; left: 0; top: 0; font-family: 'Bungee', sans-serif; font-size: 22px; color: #fff; text-shadow: 0 2px 0 #000, 0 0 6px rgba(0, 0, 0, 0.6); margin: -14px 0 0 -10px; }
+    .dmgnum.sh { color: #8fd8ff; }
+    .dmgnum.hs { color: var(--sun); font-size: 27px; }
+    .bars { position: fixed; left: 22px; bottom: 22px; width: min(320px, 40vw); }
+    .barrow { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .barrow span { width: 34px; text-align: right; font-family: 'Bungee', sans-serif; font-size: 16px; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5); }
+    .bar { flex: 1; height: 16px; border-radius: 4px; background: rgba(0, 0, 0, 0.45); overflow: hidden; transform: skewX(-12deg); border: 1px solid rgba(255, 255, 255, 0.2); }
+    .bar i { display: block; height: 100%; transition: width 0.2s; }
+    #hpFill { background: linear-gradient(180deg, #8dff7a, #3fb52f); }
+    #shFill { background: linear-gradient(180deg, #8fd8ff, #2f8fe0); }
+    .barrow.empty { opacity: 0.45; }
+    .hotbar { position: fixed; right: 22px; bottom: 22px; display: flex; gap: 6px; }
+    .slot { width: 62px; height: 62px; border-radius: 9px; background: rgba(10, 24, 46, 0.7); border: 2px solid rgba(255, 255, 255, 0.15); position: relative; display: grid; place-items: center; color: #fff; background-image: linear-gradient(0deg, color-mix(in srgb, var(--rc, transparent) 55%, transparent), transparent 85%); }
+    .slot.sel { border-color: #fff; transform: translateY(-6px); box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4); }
+    .slot b { position: absolute; right: 5px; bottom: 2px; font-size: 13px; text-shadow: 0 1px 2px #000; }
+    .slot kbd { position: absolute; left: 4px; top: 3px; border: 0; padding: 0; font-size: 10px; opacity: 0.7; }
+    .slot.empty { opacity: 0.55; }
+    .slot svg { color: #e9eef8; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6)); }
+    .held { position: fixed; right: 24px; bottom: 98px; text-align: right; }
+    #heldName { font-family: 'Bungee', sans-serif; font-size: 16px; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5); }
+    #ammoNum { font-family: 'Bungee', sans-serif; font-size: 26px; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5); }
+    #ammoList { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+    .mats { position: fixed; right: 24px; bottom: 170px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+    .mat { display: flex; align-items: center; gap: 7px; background: rgba(10, 24, 46, 0.6); border-radius: 8px; padding: 3px 9px 3px 5px; font-family: 'Bungee', sans-serif; font-size: 14px; border: 2px solid transparent; }
+    .mat i { width: 18px; height: 18px; border-radius: 4px; }
+    .mat.sel { border-color: var(--sun); }
+    .topright { position: fixed; right: 22px; top: 18px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    #mini { width: 190px; height: 190px; border-radius: 14px; border: 3px solid rgba(255, 255, 255, 0.85); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); }
+    .pills { display: flex; gap: 6px; }
+    .pill { background: rgba(10, 24, 46, 0.75); border-radius: 8px; padding: 4px 10px; font-size: 14px; display: flex; gap: 6px; align-items: center; }
+    .pill b { font-family: 'Bungee', sans-serif; font-weight: 400; font-size: 16px; }
+    #stormTxt { background: rgba(60, 40, 140, 0.75); }
+    #poiName { font-family: 'Bungee', sans-serif; font-size: 13px; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6); min-height: 16px; }
+    .feed { position: fixed; left: 20px; top: 18px; display: flex; flex-direction: column; gap: 4px; max-width: 46vw; }
+    .feedrow { background: rgba(10, 24, 46, 0.6); padding: 4px 10px; border-radius: 7px; font-size: 13.5px; font-weight: 600; transition: opacity 0.6s; }
+    .feedrow b { font-weight: 800; }
+    .feedrow b.me { color: var(--sun); }
+    .feedrow i { color: var(--muted); font-style: normal; font-size: 12px; }
+    .feedrow.fade { opacity: 0; }
+    .ann { position: fixed; left: 0; right: 0; top: 19vh; text-align: center; opacity: 0; transition: opacity 0.3s, transform 0.3s; transform: translateY(-8px); }
+    .ann.on { opacity: 1; transform: none; }
+    #annBig { font-family: 'Bungee', sans-serif; font-size: clamp(22px, 3.6vw, 42px); text-shadow: 0 3px 0 #1e5fa8, 0 6px 20px rgba(0, 0, 0, 0.5); transform: skewX(-6deg); }
+    #annSmall { font-size: 16px; margin-top: 4px; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7); }
+    .prompt { position: fixed; left: 50%; top: 60%; transform: translateX(-50%); background: rgba(10, 24, 46, 0.75); padding: 7px 14px; border-radius: 9px; font-size: 15px; white-space: nowrap; }
+    .buildbar { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; gap: 6px; }
+    .bp { width: 58px; height: 52px; border-radius: 9px; background: rgba(10, 24, 46, 0.7); border: 2px solid rgba(255, 255, 255, 0.15); display: grid; place-items: center; font-size: 11px; position: relative; }
+    .bp svg { width: 30px; height: 30px; }
+    .bp kbd { position: absolute; left: 3px; top: 2px; border: 0; padding: 0; font-size: 10px; opacity: 0.8; }
+    .bp.sel { border-color: var(--sea); background: rgba(43, 196, 216, 0.25); }
+    .piecehp { position: fixed; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); width: 120px; text-align: center; font-size: 11px; }
+    .piecehp .bar { height: 7px; transform: none; }
+    .piecehp .bar i { background: linear-gradient(90deg, #b8864f, #e8c088); }
+    .ring { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 64px; height: 64px; }
+    .ring svg { transform: rotate(-90deg); }
+    #ringTxt { position: absolute; top: 70px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 13px; text-shadow: 0 1px 3px #000; }
+    .scope { position: fixed; inset: 0; background: radial-gradient(circle at 50% 50%, transparent 0 32vmin, rgba(0, 0, 0, 0.92) 32.4vmin); }
+    .scope::before, .scope::after { content: ''; position: absolute; background: rgba(0, 0, 0, 0.85); }
+    .scope::before { left: 50%; top: 18vh; bottom: 18vh; width: 1.5px; }
+    .scope::after { top: 50%; left: 20vw; right: 20vw; height: 1.5px; }
+    .vignette { position: fixed; inset: 0; box-shadow: inset 0 0 140px rgba(255, 30, 30, 0); transition: box-shadow 0.25s; }
+    .vignette.on { box-shadow: inset 0 0 140px rgba(255, 30, 30, 0.55); }
+    .stormedge { position: fixed; inset: 0; background: radial-gradient(circle, transparent 40%, rgba(80, 60, 200, 0.45)); opacity: 0; transition: opacity 0.6s; }
+    .stormedge.on { opacity: 1; }
+    #hurtLayer { position: fixed; left: 50%; top: 50%; }
+    .hurt { position: absolute; left: -40px; top: -170px; width: 80px; height: 40px; transform-origin: 40px 170px; background: radial-gradient(ellipse at 50% 100%, rgba(255, 40, 40, 0.85), transparent 70%); animation: hurt 0.9s forwards; }
+    @keyframes hurt { to { opacity: 0; } }
+    #specName { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); font-family: 'Bungee', sans-serif; font-size: 18px; text-shadow: 0 2px 0 #000; }
+
+    .overlay { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(6, 18, 36, 0.55); pointer-events: auto; }
+    .death h1, .results h1 { font-family: 'Bungee', sans-serif; font-size: clamp(40px, 8vw, 96px); margin: 0; text-shadow: 0 5px 0 #1e5fa8; transform: skewX(-6deg); }
+    .results h1.win { color: var(--sun); text-shadow: 0 5px 0 #c4561b, 0 0 40px rgba(255, 210, 61, 0.6); }
+    .reslist { list-style: none; padding: 0; margin: 14px 0; }
+    .reslist li { display: flex; gap: 10px; align-items: baseline; padding: 6px 10px; border-radius: 8px; font-weight: 700; }
+    .reslist li span { font-family: 'Bungee', sans-serif; width: 40px; color: var(--muted); }
+    .reslist li small { margin-left: auto; color: var(--muted); font-weight: 600; }
+    .reslist li.me { background: rgba(255, 210, 61, 0.16); color: var(--sun); }
+    #bigWrap { z-index: 15; flex-direction: column; gap: 10px; }
+    #bigmap { border-radius: 16px; border: 3px solid rgba(255, 255, 255, 0.85); cursor: crosshair; max-width: 96vw; max-height: 82vh; }
+    .maphint { font-size: 13px; color: var(--muted); }
+    #admin { z-index: 16; }
+    #admin .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #pause { z-index: 16; }
+
+    /* touch */
+    #touch { position: fixed; inset: 0; z-index: 6; }
+    .tbtn { position: fixed; width: 64px; height: 64px; border-radius: 50%; background: rgba(10, 24, 46, 0.55); border: 2px solid rgba(255, 255, 255, 0.35); display: grid; place-items: center; font: 800 12px 'Outfit', sans-serif; color: #fff; }
+    .tbtn.on { background: rgba(255, 210, 61, 0.5); }
+    .tbtn.big { width: 86px; height: 86px; font-size: 14px; }
+    #stickBase { position: fixed; width: 120px; height: 120px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.08); display: none; pointer-events: none; }
+    #stickKnob { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255, 255, 255, 0.5); }
+    body.ingame .keys, body.ingame .acct { display: none; }
+    @media (max-width: 760px), (max-height: 500px) {
+      #mini { width: 128px; height: 128px; }
+      .slot { width: 46px; height: 46px; }
+      .slot svg { width: 30px; height: 30px; }
+      .bars { width: 34vw; left: 12px; bottom: 12px; }
+      .hotbar { right: 50%; transform: translateX(50%); bottom: 8px; }
+      .held { bottom: auto; top: 160px; right: 14px; }
+      .mats { bottom: auto; top: 230px; right: 14px; }
+      .keys { display: none; }
+      .feed { font-size: 11px; max-width: 40vw; }
+    }
+
+    /* ---------- phones / touch ---------- */
+    @media (max-height: 520px) {
+      .screen { padding: 12px 18px; justify-content: flex-start; overflow-y: auto; }
+      .logo .l1 { font-size: 40px; } .logo .l2 { font-size: 30px; }
+      #title .tag { display: none; }
+      #title .stack { margin-top: 10px; gap: 6px; }
+      .btn { height: 40px; font-size: 15px; }
+      .btn.small { height: 36px; font-size: 13px; }
+      .field { height: 38px; }
+      .online, .stats { margin-top: 6px; font-size: 12px; }
+      .panel { padding: 14px; }
+      .panel h2 { font-size: 20px; margin-bottom: 6px; }
+      .outfit { height: 38px; }
+      #locker, #lobby, #settings { justify-content: center; }
+    }
+    body.touch #mini { width: 96px; height: 96px; border-width: 2px; border-radius: 10px; }
+    body.touch .topright { right: 10px; top: 8px; gap: 3px; }
+    body.touch .topright .pills, body.touch #stormTxt { position: fixed; right: 116px; font-size: 12px; }
+    body.touch .topright .pills { top: 8px; } body.touch #stormTxt { top: 40px; }
+    body.touch .pill { padding: 3px 8px; } body.touch .pill b { font-size: 13px; }
+    body.touch #poiName { font-size: 10px; }
+    body.touch .feed { left: 70px; top: 8px; font-size: 11px; max-width: 38vw; }
+    body.touch .feedrow { font-size: 11px; padding: 3px 7px; }
+    body.touch .bars { width: 30vw; left: 12px; bottom: 10px; }
+    body.touch .barrow span { font-size: 12px; width: 26px; }
+    body.touch .bar { height: 11px; }
+    body.touch .mats { flex-direction: row; left: 12px; right: auto; bottom: 58px; top: auto; gap: 4px; }
+    body.touch .mat { font-size: 11px; padding: 2px 6px 2px 3px; } body.touch .mat i { width: 13px; height: 13px; }
+    body.touch .held { left: 50%; right: auto; transform: translateX(-50%); bottom: 64px; top: auto; text-align: center; }
+    body.touch #heldName { font-size: 12px; } body.touch #ammoNum { font-size: 16px; } body.touch #ammoList { display: none; }
+    body.touch .hotbar { right: 50%; transform: translateX(50%); bottom: 6px; gap: 4px; }
+    body.touch .slot { width: 46px; height: 46px; } body.touch .slot svg { width: 28px; height: 28px; } body.touch .slot.sel { transform: translateY(-4px); }
+    body.touch .buildbar { bottom: auto; top: 60px; } body.touch .bp { width: 44px; height: 40px; } body.touch .bp svg { width: 22px; height: 22px; }
+    body.touch .ann { top: 26vh; } body.touch #annBig { font-size: 22px; } body.touch #annSmall { font-size: 13px; }
+    body.touch .prompt { top: 34%; font-size: 13px; }
+    body.touch .tbtn { width: 54px; height: 54px; font-size: 11px; }
+    body.touch .tbtn.big { width: 80px; height: 80px; font-size: 14px; }
+  </style>
+  <script type="importmap">{ "imports": { "three": "../../lib/three.module.min.js", "three/addons/": "../../lib/addons/" } }</script>
+</head>
+<body>
+  <div id="gl"></div>
+  <div class="acct" id="acct">Guest</div>
+
+  <!-- title -->
+  <div class="screen shade" id="title">
+    <h1 class="logo"><span class="l1">BRIELLE</span><span class="l2">BATTLEROYAL</span></h1>
+    <p class="tag">20 drop out of the Shore Blimp over Brielle, NJ. Loot Union Landing, build on the golf course, and outrun the Nor'easter. Last one standing wins.</p>
+    <div class="stack">
+      <input class="field" id="nameField" maxlength="16" placeholder="Your name" />
+      <button class="btn primary" id="bSolo">Solo <small>you vs 19 bots</small></button>
+      <button class="btn" id="bQuick">Quick Play <small>online with anyone</small></button>
+      <div class="row"><button class="btn small" id="bCreate" style="flex:1">Create Room</button><input class="field code" id="codeField" maxlength="4" placeholder="CODE" /><button class="btn small" id="bJoin">Join</button></div>
+      <div class="row"><button class="btn small" id="bLocker" style="flex:1">Locker</button><button class="btn small" id="bSettings" style="flex:1">Settings</button></div>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="online" id="online"><i></i><span id="onlineTxt">Checking the online server…</span></div>
+    <div class="stats" id="stats"></div>
+    <div class="status hidden" id="adminTip">👑 Owner: <kbd>`</kbd> in a match opens the owner panel. Shift-click the big map to teleport.</div>
+  </div>
+  <div class="keys" id="keysHelp">
+    <kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>Shift</kbd> sprint · <kbd>Ctrl</kbd>/<kbd>C</kbd> crouch · <kbd>Click</kbd> shoot · <kbd>Right-click</kbd> aim · <kbd>1-5</kbd> items · <kbd>F</kbd> pickaxe · <kbd>R</kbd> reload · <kbd>E</kbd> pick up / open<br />
+    Build: <kbd>Q</kbd> wall · <kbd>Z</kbd> floor · <kbd>X</kbd> ramp · <kbd>V</kbd> cone · <kbd>T</kbd>/<kbd>Right-click</kbd> material · <kbd>B</kbd> build mode · <kbd>G</kbd> edit (click tiles, <kbd>G</kbd> again to confirm) · <kbd>M</kbd> map
+  </div>
+
+  <!-- locker -->
+  <div class="screen" id="locker" style="justify-content:center;align-items:flex-end">
+    <div class="panel">
+      <h2>Locker</h2>
+      <span class="lbl">Outfit</span>
+      <div class="outfits" id="outfits"></div>
+      <div style="height:14px"></div>
+      <button class="btn small center" id="lockerBack">Done</button>
+    </div>
+  </div>
+
+  <!-- settings -->
+  <div class="screen" id="settings">
+    <div class="panel">
+      <h2>Settings</h2>
+      <span class="lbl">Look sensitivity</span><input type="range" id="sens" min="0.3" max="2.5" step="0.05" />
+      <span class="lbl">Volume</span><input type="range" id="vol" min="0" max="1" step="0.05" />
+      <span class="lbl">Graphics</span>
+      <select class="field" id="quality"><option value="high">High (shadows, sharper)</option><option value="low">Fast (for Chromebooks and phones)</option></select>
+      <div style="height:16px"></div>
+      <button class="btn small center" id="settingsBack">Done</button>
+    </div>
+  </div>
+
+  <!-- online lobby -->
+  <div class="screen" id="lobby">
+    <div class="panel">
+      <span class="lbl">Room</span>
+      <div class="bigcode" id="lobbyCode"></div>
+      <div class="status" id="lobbyHint"></div>
+      <ul class="lobbylist" id="lobbyList"></ul>
+      <div class="status" id="lobbyCount"></div>
+      <div class="stack" style="width:100%;margin-top:10px">
+        <button class="btn primary center hidden" id="bStart">Start match</button>
+        <button class="btn small center" id="bLeaveLobby">Leave</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen hidden" id="loading"><h2>Building Brielle…</h2></div>
+
+  <!-- the hud -->
+  <div id="hud" class="hidden">
+    <div class="stormedge" id="stormEdge"></div>
+    <div class="vignette" id="vignette"></div>
+    <div class="scope hidden" id="scope"></div>
+    <div id="dmgLayer"></div>
+    <div id="hurtLayer"></div>
+    <div class="cross dot" id="cross"></div>
+    <div class="hitm" id="hitm"></div>
+    <div class="ring hidden" id="ring"><svg viewBox="0 0 48 48" width="64" height="64"><circle cx="24" cy="24" r="20" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="5" /><circle id="ringFill" cx="24" cy="24" r="20" fill="none" stroke="#ffd23d" stroke-width="5" stroke-dasharray="126" stroke-dashoffset="126" /></svg><div id="ringTxt"></div></div>
+    <div class="feed" id="feed"></div>
+    <div class="topright">
+      <canvas id="mini" class="pe" width="190" height="190"></canvas>
+      <div id="poiName"></div>
+      <div class="pills"><div class="pill">👥 <b id="aliveNum">20</b></div><div class="pill">🎯 <b id="killNum">0</b></div></div>
+      <div class="pill" id="stormTxt"></div>
+    </div>
+    <div class="ann" id="ann"><div id="annBig"></div><div id="annSmall"></div></div>
+    <div class="prompt hidden" id="prompt"><span id="promptTxt"></span></div>
+    <div class="piecehp hidden" id="pieceHp"><div class="bar"><i id="pieceHpFill"></i></div><span id="pieceHpTxt"></span></div>
+    <div class="bars">
+      <div class="barrow" id="shRow"><span id="shNum">0</span><div class="bar"><i id="shFill"></i></div></div>
+      <div class="barrow"><span id="hpNum">100</span><div class="bar"><i id="hpFill"></i></div></div>
+    </div>
+    <div class="mats">
+      <div class="mat" id="matBox0"><i style="background:#b8864f"></i><span id="mat0">0</span></div>
+      <div class="mat" id="matBox1"><i style="background:#b5523b"></i><span id="mat1">0</span></div>
+      <div class="mat" id="matBox2"><i style="background:#9aa4b0"></i><span id="mat2">0</span></div>
+    </div>
+    <div class="held"><div id="heldName"></div><div id="ammoNum"></div><div id="ammoList"></div></div>
+    <div class="hotbar pe" id="hotbar"></div>
+    <div class="buildbar hidden" id="buildBar">
+      <div class="bp" id="bp-wall"><kbd>Q</kbd><svg viewBox="0 0 32 32"><rect x="5" y="6" width="22" height="20" fill="none" stroke="#fff" stroke-width="3" /></svg></div>
+      <div class="bp" id="bp-floor"><kbd>Z</kbd><svg viewBox="0 0 32 32"><path d="M3 20 L13 12 H29 L19 20 Z" fill="none" stroke="#fff" stroke-width="3" /></svg></div>
+      <div class="bp" id="bp-ramp"><kbd>X</kbd><svg viewBox="0 0 32 32"><path d="M4 26 L28 6 V26 Z" fill="none" stroke="#fff" stroke-width="3" /></svg></div>
+      <div class="bp" id="bp-cone"><kbd>V</kbd><svg viewBox="0 0 32 32"><path d="M4 24 L16 8 L28 24 Z" fill="none" stroke="#fff" stroke-width="3" /></svg></div>
+    </div>
+    <div id="specName"></div>
+  </div>
+
+  <div class="overlay hidden" id="bigWrap"><canvas id="bigmap" width="600" height="600"></canvas><div class="maphint">Click to drop a marker · <kbd>M</kbd> close</div><button class="btn small center" id="bigClose" style="width:160px">Close</button></div>
+
+  <div class="overlay hidden" id="pause">
+    <div class="panel">
+      <h2>Paused</h2>
+      <div class="stack" style="width:100%">
+        <button class="btn primary center" id="bResume">Resume</button>
+        <button class="btn small center hidden" id="bAdmin">👑 Owner panel</button>
+        <button class="btn small center" id="bPauseSettings">Settings</button>
+        <button class="btn small center" id="bLeave">Leave match</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="admin">
+    <div class="panel">
+      <h2>👑 Owner panel</h2>
+      <div class="grid">
+        <button class="btn small center" data-c="god">God mode</button>
+        <button class="btn small center" data-c="loadout">Gold loadout</button>
+        <button class="btn small center" data-c="mats">999 materials</button>
+        <button class="btn small center" data-c="heal">Full health</button>
+        <button class="btn small center" data-c="storm">Skip storm timer</button>
+        <button class="btn small center" data-c="chest">Spawn chest</button>
+        <button class="btn small center" data-c="bots">Eliminate bots</button>
+        <button class="btn small center" id="adminClose">Close</button>
+      </div>
+      <span class="lbl">Announcement</span>
+      <div class="row"><input class="field" id="annText" maxlength="120" placeholder="Say something to the match" /><button class="btn small" id="annSend">Send</button></div>
+      <div class="status">Shift-click the big map (<kbd>M</kbd>) to teleport.</div>
+    </div>
+  </div>
+
+  <div class="overlay hidden death" id="death">
+    <div class="panel" style="text-align:center">
+      <h1 id="deathTitle">#20</h1>
+      <div style="font-size:20px;font-weight:800" id="deathSub"></div>
+      <div class="status" style="margin:6px auto" id="deathKills"></div>
+      <div class="stack" style="width:100%;margin-top:12px">
+        <button class="btn primary center" id="bSpec">Spectate <small>Space = next player</small></button>
+        <button class="btn small center" id="bDeathAgain">Play again</button>
+        <button class="btn small center" id="bDeathHome">Main menu</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay hidden results" id="results">
+    <div class="panel" style="width:min(520px,100%)">
+      <h1 id="resTitle" style="font-size:clamp(28px,5vw,52px)">MATCH OVER</h1>
+      <ol class="reslist" id="resList"></ol>
+      <div class="stack" style="width:100%">
+        <button class="btn primary center" id="bAgain">Play again</button>
+        <button class="btn small center" id="bResHome">Main menu</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="touch" class="hidden">
+    <div id="stickBase"><div id="stickKnob"></div></div>
+    <div class="tbtn big" data-t="fire" style="right:16px;bottom:70px">FIRE</div>
+    <div class="tbtn" data-t="ads" style="right:104px;bottom:84px">AIM</div>
+    <div class="tbtn" data-t="jump" style="right:104px;bottom:16px">JUMP</div>
+    <div class="tbtn" data-t="reload" style="right:176px;bottom:16px">RELOAD</div>
+    <div class="tbtn" data-t="use" style="right:176px;bottom:84px">USE</div>
+    <div class="tbtn" data-t="crouch" style="right:16px;bottom:160px">DUCK</div>
+    <div class="tbtn" data-t="build" style="right:16px;top:118px">BUILD</div>
+    <div class="tbtn" data-t="piece" style="right:76px;top:118px">PIECE</div>
+    <div class="tbtn" data-t="mat" style="right:136px;top:118px">MAT</div>
+    <div class="tbtn" data-t="edit" style="right:196px;top:118px">EDIT</div>
+    <div class="tbtn" data-t="pause" style="left:10px;top:8px">II</div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
