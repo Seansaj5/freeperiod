@@ -307,6 +307,7 @@ function wirePreview(el, thumb, g) {
   }
   function play() {
     if (!allowed()) return;
+    if (video && !video.paused) return;
     const p = ensure().play();
     if (p && p.catch) p.catch(() => {});
   }
@@ -321,9 +322,11 @@ function wirePreview(el, thumb, g) {
     timer = setTimeout(play, 250);
   }
   el.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') hover(); });
-  el.addEventListener('pointerleave', pause);
+  // Mouse, pen and keyboard only: on a touch screen a finger lifting (pointerleave) or a scroll starting (pointercancel) must not
+  // pause the card; there the phone picker below alone decides.
+  el.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch' && !coarse.matches) pause(); });
   el.addEventListener('focusin', hover);
-  el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget)) pause(); });
+  el.addEventListener('focusout', (e) => { if (!coarse.matches && !el.contains(e.relatedTarget)) pause(); });
   return { play, pause };
 }
 

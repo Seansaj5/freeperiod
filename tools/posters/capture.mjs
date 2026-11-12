@@ -583,7 +583,7 @@ function mp4(id) {
 
 const o = args();
 if (!['shoot', 'poster', 'preview', 'mp4'].includes(o.cmd) || !GAMES[o.game]) {
-  console.log(`usage: node tools/posters/capture.mjs <shoot|poster|preview> <${Object.keys(GAMES).join('|')}> [--out DIR] [--card FILE --hero FILE]`);
+  console.log(`usage: node tools/posters/capture.mjs <shoot|poster|preview|mp4> <${Object.keys(GAMES).join('|')}> [--out DIR] [--card FILE --hero FILE]`);
   process.exit(1);
 }
 try {
