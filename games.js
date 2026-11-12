@@ -101,6 +101,8 @@ window.GAMES = [
     accent: '#ffd23d',
     orientation: 'landscape',      // third-person shooter HUD + touch buttons need the width
     beta: true,
+    saveKey: 'brielle.v1',
+    joins: true,
     added: '2026-11-11',
   },
 ];

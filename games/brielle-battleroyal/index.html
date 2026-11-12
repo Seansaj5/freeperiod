@@ -190,6 +190,44 @@
       .keys { display: none; }
       .feed { font-size: 11px; max-width: 40vw; }
     }
+
+    /* ---------- phones / touch ---------- */
+    @media (max-height: 520px) {
+      .screen { padding: 12px 18px; justify-content: flex-start; overflow-y: auto; }
+      .logo .l1 { font-size: 40px; } .logo .l2 { font-size: 30px; }
+      #title .tag { display: none; }
+      #title .stack { margin-top: 10px; gap: 6px; }
+      .btn { height: 40px; font-size: 15px; }
+      .btn.small { height: 36px; font-size: 13px; }
+      .field { height: 38px; }
+      .online, .stats { margin-top: 6px; font-size: 12px; }
+      .panel { padding: 14px; }
+      .panel h2 { font-size: 20px; margin-bottom: 6px; }
+      .outfit { height: 38px; }
+      #locker, #lobby, #settings { justify-content: center; }
+    }
+    body.touch #mini { width: 96px; height: 96px; border-width: 2px; border-radius: 10px; }
+    body.touch .topright { right: 10px; top: 8px; gap: 3px; }
+    body.touch .topright .pills, body.touch #stormTxt { position: fixed; right: 116px; font-size: 12px; }
+    body.touch .topright .pills { top: 8px; } body.touch #stormTxt { top: 40px; }
+    body.touch .pill { padding: 3px 8px; } body.touch .pill b { font-size: 13px; }
+    body.touch #poiName { font-size: 10px; }
+    body.touch .feed { left: 70px; top: 8px; font-size: 11px; max-width: 38vw; }
+    body.touch .feedrow { font-size: 11px; padding: 3px 7px; }
+    body.touch .bars { width: 30vw; left: 12px; bottom: 10px; }
+    body.touch .barrow span { font-size: 12px; width: 26px; }
+    body.touch .bar { height: 11px; }
+    body.touch .mats { flex-direction: row; left: 12px; right: auto; bottom: 58px; top: auto; gap: 4px; }
+    body.touch .mat { font-size: 11px; padding: 2px 6px 2px 3px; } body.touch .mat i { width: 13px; height: 13px; }
+    body.touch .held { left: 50%; right: auto; transform: translateX(-50%); bottom: 64px; top: auto; text-align: center; }
+    body.touch #heldName { font-size: 12px; } body.touch #ammoNum { font-size: 16px; } body.touch #ammoList { display: none; }
+    body.touch .hotbar { right: 50%; transform: translateX(50%); bottom: 6px; gap: 4px; }
+    body.touch .slot { width: 46px; height: 46px; } body.touch .slot svg { width: 28px; height: 28px; } body.touch .slot.sel { transform: translateY(-4px); }
+    body.touch .buildbar { bottom: auto; top: 60px; } body.touch .bp { width: 44px; height: 40px; } body.touch .bp svg { width: 22px; height: 22px; }
+    body.touch .ann { top: 26vh; } body.touch #annBig { font-size: 22px; } body.touch #annSmall { font-size: 13px; }
+    body.touch .prompt { top: 34%; font-size: 13px; }
+    body.touch .tbtn { width: 54px; height: 54px; font-size: 11px; }
+    body.touch .tbtn.big { width: 80px; height: 80px; font-size: 14px; }
   </style>
   <script type="importmap">{ "imports": { "three": "../../lib/three.module.min.js", "three/addons/": "../../lib/addons/" } }</script>
 </head>
@@ -271,7 +309,7 @@
     <div class="ring hidden" id="ring"><svg viewBox="0 0 48 48" width="64" height="64"><circle cx="24" cy="24" r="20" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="5" /><circle id="ringFill" cx="24" cy="24" r="20" fill="none" stroke="#ffd23d" stroke-width="5" stroke-dasharray="126" stroke-dashoffset="126" /></svg><div id="ringTxt"></div></div>
     <div class="feed" id="feed"></div>
     <div class="topright">
-      <canvas id="mini" width="190" height="190"></canvas>
+      <canvas id="mini" class="pe" width="190" height="190"></canvas>
       <div id="poiName"></div>
       <div class="pills"><div class="pill">👥 <b id="aliveNum">20</b></div><div class="pill">🎯 <b id="killNum">0</b></div></div>
       <div class="pill" id="stormTxt"></div>
@@ -358,18 +396,17 @@
 
   <div id="touch" class="hidden">
     <div id="stickBase"><div id="stickKnob"></div></div>
-    <div class="tbtn big" data-t="fire" style="right:120px;bottom:120px">FIRE</div>
-    <div class="tbtn" data-t="jump" style="right:30px;bottom:190px">JUMP</div>
-    <div class="tbtn" data-t="ads" style="right:210px;bottom:200px">AIM</div>
-    <div class="tbtn" data-t="crouch" style="right:30px;bottom:110px">DUCK</div>
-    <div class="tbtn" data-t="build" style="right:30px;bottom:270px">BUILD</div>
-    <div class="tbtn" data-t="piece" style="right:100px;bottom:270px">PIECE</div>
-    <div class="tbtn" data-t="mat" style="right:170px;bottom:290px">MAT</div>
-    <div class="tbtn" data-t="edit" style="right:240px;bottom:290px">EDIT</div>
-    <div class="tbtn" data-t="reload" style="right:210px;bottom:120px">RELOAD</div>
-    <div class="tbtn" data-t="use" style="left:50%;bottom:150px;transform:translateX(-50%)">USE</div>
-    <div class="tbtn" data-t="map" style="right:230px;top:16px">MAP</div>
-    <div class="tbtn" data-t="pause" style="left:16px;top:120px">II</div>
+    <div class="tbtn big" data-t="fire" style="right:16px;bottom:70px">FIRE</div>
+    <div class="tbtn" data-t="ads" style="right:104px;bottom:84px">AIM</div>
+    <div class="tbtn" data-t="jump" style="right:104px;bottom:16px">JUMP</div>
+    <div class="tbtn" data-t="reload" style="right:176px;bottom:16px">RELOAD</div>
+    <div class="tbtn" data-t="use" style="right:176px;bottom:84px">USE</div>
+    <div class="tbtn" data-t="crouch" style="right:16px;bottom:160px">DUCK</div>
+    <div class="tbtn" data-t="build" style="right:16px;top:118px">BUILD</div>
+    <div class="tbtn" data-t="piece" style="right:76px;top:118px">PIECE</div>
+    <div class="tbtn" data-t="mat" style="right:136px;top:118px">MAT</div>
+    <div class="tbtn" data-t="edit" style="right:196px;top:118px">EDIT</div>
+    <div class="tbtn" data-t="pause" style="left:10px;top:8px">II</div>
   </div>
 
   <script type="module" src="js/main.js"></script>

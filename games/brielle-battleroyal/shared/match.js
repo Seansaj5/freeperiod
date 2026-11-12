@@ -476,7 +476,7 @@ export class Match {
     v.place = this.placeNext--;
     this.alive--;
     const killer = by && by !== v.id ? this.players.get(by) : null;
-    if (killer) killer.kills++;
+    if (killer) { killer.kills++; killer.dirty = true; }   // (dirty: their kill count reaches their screen)
     this.ev({ e: 'elim', v: v.id, a: killer ? killer.id : 0, w: info.w || (info.storm ? 'storm' : info.fall ? 'fall' : ''), hs: info.head ? 1 : 0, place: v.place });
     // drop everything
     const list = [];

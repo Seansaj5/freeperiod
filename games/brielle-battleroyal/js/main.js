@@ -19,6 +19,7 @@ import { SERVER_URL } from './config.js';
 const $ = (id) => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 const touch = matchMedia('(pointer: coarse)').matches || qs.has('touch');
+document.body.classList.toggle('touch', touch);
 
 // ---------- save ----------
 const SAVE_KEY = 'brielle.v1';
@@ -37,6 +38,13 @@ function loadSave() {
 }
 const save = loadSave();
 const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* private mode */ } };
+// Free Period may bring in your cloud save (signed in) while the menu is open: take it, then show it
+addEventListener('storage', (e) => {
+  if (e.key !== SAVE_KEY || app.game) return;
+  Object.assign(save, loadSave());
+  setVolume(save.vol); showStats();
+  if (!app.acct.user) $('nameField').value = save.name;
+});
 setVolume(save.vol);
 
 // ---------- renderer + the island ----------
@@ -192,7 +200,14 @@ async function goOnline(opts) {
   status('');
   bindSession(s);
   app.own = app.own || s.own;
+  reportRoom(s.lobby && s.lobby.code);
   showLobby(s.lobby);
+}
+// Free Period's play page shows chat friends which room you're in (their Join button opens ?join=CODE). Nothing when the
+// game runs on its own.
+function reportRoom(code) {
+  if (window.parent === window) return;
+  try { window.parent.postMessage({ type: 'fp:room', room: code || null }, location.origin); } catch { /* not framed by Free Period */ }
 }
 function showLobby(m) {
   if (!m) return;
@@ -221,10 +236,10 @@ function bindSession(s) {
   s.on.results = (r) => app.game && app.game.onResults(r);
   s.on.back = () => { endGame(); showLobby(s.lobby); };
   s.on.ann = (t) => app.game && hud.announce(t, '', 4000);
-  s.on.close = () => { if (app.session === s) { endGame(); screen('title'); status('Lost the connection to the server.', true); } };
+  s.on.close = () => { if (app.session === s) { reportRoom(null); endGame(); screen('title'); status('Lost the connection to the server.', true); } };
   s.on.err = (msg) => status(msg, true);
 }
-function leaveSession() { if (app.session) app.session.close(); app.session = null; endGame(); }
+function leaveSession() { if (app.session && app.session.online) reportRoom(null); if (app.session) app.session.close(); app.session = null; endGame(); }
 function endGame() { if (app.game) app.game.dispose(); app.game = null; app.paused = false; $('pause').classList.add('hidden'); if (document.pointerLockElement) document.exitPointerLock(); }
 
 // ---------- pause ----------
@@ -1114,6 +1129,7 @@ function touchAct(a, down) {
   else if (a === 'map') g.toggleMap(!g.mapOpen);
   else if (a === 'pause') showPause(true);
 }
+$('mini').addEventListener('click', () => { if (app.game) app.game.toggleMap(!app.game.mapOpen); });
 $('hotbar').addEventListener('click', (e) => { const s = e.target.closest('.slot'); if (s && app.game) app.game.selectSlot(+s.dataset.s); });
 
 // ---------- main loop ----------
@@ -1148,5 +1164,13 @@ function frame(now) {
 // ---------- boot ----------
 showAccount(); showStats();
 screen('title');
+// A friend's Join button on Free Period: ?join=CODE goes straight into that room. Only inside Free Period's play page (same
+// site, which first checks a chat friend is in that room); a bare game link with ?join= just opens the title.
+{
+  const joinCode = (qs.get('join') || '').trim().toUpperCase();
+  let fpFramed = false;
+  try { fpFramed = window.parent !== window && window.parent.location.origin === location.origin && /\/play\.html$/.test(window.parent.location.pathname); } catch { /* another site */ }
+  if (fpFramed && /^[A-Z]{4}$/.test(joinCode)) { $('codeField').value = joinCode; setTimeout(() => goOnline({ mode: 'join', code: joinCode }), 300); }
+}
 requestAnimationFrame(frame);
 window.__br = { app, save, map, camera, get game() { return app.game; }, startSolo, scene, renderer };
