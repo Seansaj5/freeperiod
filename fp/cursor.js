@@ -117,6 +117,19 @@ function run() {
 /** Starts the trail if it applies right now and keeps it in step with the prefs. Returns stop(). */
 export function startCursor() {
   let stopRun = run();
-  const off = onPrefs(() => { stopRun(); stopRun = run(); });
-  return function stop() { off(); stopRun(); stopRun = () => {}; };
+  const redo = () => { stopRun(); stopRun = run(); };
+  const off = onPrefs(redo);
+  // reduced motion (or the pointer type) can change while the page is open
+  const lists = [];
+  for (const q of ['(prefers-reduced-motion: reduce)', '(hover: hover) and (pointer: fine)']) {
+    try {
+      const m = typeof matchMedia === 'function' ? matchMedia(q) : null;
+      if (m && typeof m.addEventListener === 'function') { m.addEventListener('change', redo); lists.push(m); }
+    } catch { /* no media query events */ }
+  }
+  return function stop() {
+    off();
+    for (const m of lists) { try { m.removeEventListener('change', redo); } catch { /* gone */ } }
+    stopRun(); stopRun = () => {};
+  };
 }

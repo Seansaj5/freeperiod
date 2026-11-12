@@ -7,7 +7,9 @@
 // chat.css (the Messages page) and fp/chat/overlay.css (the play-page chat sheet) size themselves with these.
 
 /** px of the layout viewport hidden below what you can see (0 when nothing is). */
-export function keyboardInset({ layoutHeight, vvHeight, vvTop = 0 }) {
+export function keyboardInset({ layoutHeight, vvHeight, vvTop = 0, vvScale = 1 }) {
+  // pinch-zoomed in: the visual viewport is small because of the zoom, not because a keyboard covers it
+  if (Math.abs((Number(vvScale) || 1) - 1) > 0.01) return 0;
   const h = Math.round(Number(layoutHeight) - Number(vvHeight) - Number(vvTop));
   return Number.isFinite(h) && h > 0 ? h : 0;
 }
@@ -31,7 +33,7 @@ export function trackKeyboard() {
   let raf = 0, up = false;
   const update = () => {
     raf = 0;
-    const kb = keyboardInset({ layoutHeight: root.clientHeight, vvHeight: vv.height, vvTop: vv.offsetTop });
+    const kb = keyboardInset({ layoutHeight: root.clientHeight, vvHeight: vv.height, vvTop: vv.offsetTop, vvScale: vv.scale });
     if (kb >= KEYBOARD_MIN) {
       root.style.setProperty('--fp-kb', kb + 'px');
       root.style.setProperty('--fp-vvh', Math.round(vv.height) + 'px');

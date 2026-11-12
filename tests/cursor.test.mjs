@@ -124,3 +124,21 @@ test('stop removes the canvas and listeners', () => {
   T.setTheme('space'); T.setEffects(true);
   assert.equal(canvases.length, 0);
 });
+
+test('turning reduced motion on mid-page stops the trail (media query change)', () => {
+  setup();
+  const changes = new Set();
+  globalThis.matchMedia = (q) => ({ media: q, get matches() { return /reduced-motion/.test(q) ? reduced : /pointer:\s*fine/.test(q) ? fine : false; },
+    addEventListener: (t, fn) => { if (t === 'change') changes.add(fn); }, removeEventListener: (t, fn) => { changes.delete(fn); } });
+  const stop = start();
+  assert.equal(canvases.length, 1);
+  assert.ok(changes.size >= 1, 'listens for the change');
+  reduced = true; for (const fn of [...changes]) fn();
+  assert.equal(canvases.length, 0, 'trail removed');
+  assert.equal(wl.pointermove?.size || 0, 0);
+  reduced = false; for (const fn of [...changes]) fn();
+  assert.equal(canvases.length, 1, 'and back when it is off again');
+  stop();
+  assert.equal(changes.size, 0, 'stop lets go of the listeners');
+  assert.equal(canvases.length, 0);
+});

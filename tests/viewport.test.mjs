@@ -56,3 +56,27 @@ test('games.js: orientation is either unset or landscape/portrait', () => {
   Function('window', src)(window);
   for (const g of window.GAMES) if (g.orientation != null) assert.match(g.orientation, /^(landscape|portrait)$/, g.id);
 });
+
+test('keyboardInset: a pinch-zoom is not a keyboard', () => {
+  assert.equal(keyboardInset({ layoutHeight: 844, vvHeight: 422, vvTop: 0, vvScale: 2 }), 0);
+  assert.equal(keyboardInset({ layoutHeight: 844, vvHeight: 508, vvTop: 0, vvScale: 1 }), 336);
+  assert.equal(keyboardInset({ layoutHeight: 844, vvHeight: 508, vvTop: 0, vvScale: 1.004 }), 336, 'rounding noise is still scale 1');
+  assert.equal(keyboardInset({ layoutHeight: 844, vvHeight: 508, vvTop: 0 }), 336, 'no scale given');
+});
+
+test('trackKeyboard ignores a zoomed-in visual viewport', () => {
+  const props = new Map(), classes = new Set(), handlers = {};
+  const vv = { height: 422, offsetTop: 0, scale: 2, addEventListener: (t, fn) => { handlers[t] = fn; }, removeEventListener: () => {} };
+  globalThis.visualViewport = vv;
+  globalThis.document = { documentElement: { clientHeight: 844, style: { setProperty: (k, v) => props.set(k, v), removeProperty: (k) => props.delete(k) }, classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) } } };
+  globalThis.requestAnimationFrame = (fn) => { fn(); return 0; };
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    const stop = trackKeyboard();
+    handlers.resize();
+    assert.equal(classes.has('fp-kb-up'), false);
+    vv.scale = 1; vv.height = 500; handlers.resize();
+    assert.equal(classes.has('fp-kb-up'), true, 'back at 1x, a real keyboard still counts');
+    stop();
+  } finally { delete globalThis.visualViewport; delete globalThis.document; delete globalThis.requestAnimationFrame; delete globalThis.cancelAnimationFrame; }
+});

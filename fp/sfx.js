@@ -34,6 +34,8 @@ function ensure() {
   return ctx;
 }
 
+const NON_ACTIVATING = new Set(['Escape', 'Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'Fn', 'FnLock', 'OS', 'Hyper', 'Super']);
+
 /** Unlocks audio on the first pointerdown/keydown. Returns stop(). */
 export function armSfx() {
   // Real activation events only: touch's pointerdown does not count (Chrome would log "not allowed to start"), so touch unlocks
@@ -43,8 +45,11 @@ export function armSfx() {
   function unlock(e) {
     if (unlocked) return;
     if (e && e.type === 'pointerdown' && e.pointerType && e.pointerType !== 'mouse') return;
+    // Escape and modifier-only keys are not user activations (Chrome would log "not allowed to start"): keep waiting
+    if (e && e.type === 'keydown' && NON_ACTIVATING.has(e.key)) return;
     unlocked = true;
     off();
+    if (!getSounds()) return;      // muted: no AudioContext until sounds are on and something plays (play() makes it)
     const c = ensure();
     if (c && c.state === 'suspended' && typeof c.resume === 'function') { try { Promise.resolve(c.resume()).catch(() => {}); } catch { /* stays locked */ } }
   }

@@ -176,3 +176,16 @@ test('themes.css has an explicit lime accent override after the theme blocks', (
   const css = readFileSync(new URL('../themes.css', import.meta.url), 'utf8');
   assert.ok(css.indexOf(':root[data-accent="lime"]') > css.indexOf(':root[data-theme="minimal"]'));
 });
+
+test('each theme default accent in theme.js matches --lime/--cyan in themes.css', () => {
+  const css = readFileSync(new URL('../themes.css', import.meta.url), 'utf8');
+  for (const t of T.THEMES) {
+    const m = css.match(new RegExp(':root\\[data-theme="' + t.id + '"\\], \\[data-theme="' + t.id + '"\\] \\{([^}]*)\\}'));
+    assert.ok(m, 'token block for ' + t.id);
+    const lime = m[1].match(/--lime:\s*(#[0-9a-fA-F]{6})/), cyan = m[1].match(/--cyan:\s*(#[0-9a-fA-F]{6})/);
+    assert.ok(lime && cyan, 'lime and cyan in ' + t.id);
+    const a = T.themeAccent(t.id);
+    assert.equal(a.color.toLowerCase(), lime[1].toLowerCase(), t.id + ' color');
+    assert.equal(a.second.toLowerCase(), cyan[1].toLowerCase(), t.id + ' second');
+  }
+});

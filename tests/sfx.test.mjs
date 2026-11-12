@@ -191,3 +191,28 @@ test('touch pointerdown does not unlock; pointerup does', () => {
   for (const fn of [...handlers.pointerup]) fn({ type: 'pointerup', pointerType: 'touch' });
   assert.equal(ctxs.length, 1);
 });
+
+test('Escape and modifier keys do not unlock audio; a real key does', () => {
+  setup();
+  S.armSfx();
+  const key = (k) => { for (const fn of [...(handlers.keydown || [])]) fn({ type: 'keydown', key: k }); };
+  key('Escape'); key('Shift'); key('Meta');
+  assert.equal(S._debug().unlocked, false);
+  assert.equal(ctxs.length, 0, 'no AudioContext from Escape');
+  key('a');
+  assert.equal(S._debug().unlocked, true);
+  assert.equal(ctxs.length, 1);
+});
+
+test('no AudioContext is created while muted; it appears when sounds come back on and something plays', () => {
+  setup();
+  T.setSounds(false);
+  S.armSfx(); gesture();
+  assert.equal(ctxs.length, 0, 'muted unlock makes no context');
+  S.play('click');
+  assert.equal(ctxs.length, 0, 'muted play makes none either');
+  T.setSounds(true);
+  S.play('click');
+  assert.equal(ctxs.length, 1);
+  assert.ok(made.some((n) => n.kind === 'osc'));
+});
