@@ -106,8 +106,9 @@
     @media (max-width: 640px) {
       .bar .wordmark, .sep, .tool .label { display: none; }
       .now small { display: none; }
-      .now-poster { width: 42px; height: 24px; border-radius: 6px; }
+      .now-poster { width: 24px; height: 24px; border-radius: 7px; }      /* a small square: the game's name keeps its room */
     }
+    @media (max-width: 379px) { .now-poster { display: none; } }      /* the smallest phones: the name needs all of it */
     .tool { white-space: nowrap; }
     /* touch screens: 44 x 44 buttons; a phone held sideways keeps the bar to icons so the game gets the room */
     @media (pointer: coarse) {

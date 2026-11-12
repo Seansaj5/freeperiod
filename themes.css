@@ -991,7 +991,7 @@
 @keyframes fp-vt-out { to { opacity: 0; transform: translateY(-12px); } }
 @keyframes fp-vt-in { from { opacity: 0; transform: translateY(22px); } }
 ::view-transition-group(fp-poster) { animation-duration: 0.5s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
-::view-transition-old(fp-poster), ::view-transition-new(fp-poster) { animation-duration: 0.5s; }
+::view-transition-old(fp-poster), ::view-transition-new(fp-poster) { animation-duration: 0.5s; height: 100%; object-fit: cover; }      /* a 16:9 card into a square phone poster: both fill the box */
 :root[data-theme="minimal"]::view-transition-old(root) { animation-name: fp-vt-fade-out; }
 :root[data-theme="minimal"]::view-transition-new(root) { animation-name: fp-vt-fade-in; }
 @keyframes fp-vt-fade-out { to { opacity: 0; } }
