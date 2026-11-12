@@ -13,7 +13,7 @@ const TIERS = [['gold', 'Gold'], ['silver', 'Silver'], ['bronze', 'Bronze']];
 let filter = 'all', lastSig = '';
 
 function card(t, wonAt) {
-  return h('article', { class: 'tro-card tier-' + t.tier + (t.done ? ' done' : ''), id: t.id },
+  return h('article', { class: 'tro-card tier-' + t.tier + (t.done ? ' done' : ''), id: t.id, 'data-reveal': true }, // rises in as it scrolls into view
     trophyMedal(t, 'lg'),
     h('div', { class: 'tro-body' },
       h('div', { class: 'tro-title' }, h('span', { text: t.title }), h('span', { class: 'tro-tier', text: t.tier })),
@@ -43,7 +43,7 @@ function draw({ results, record }) {
     !session.getToken() ? h('p', { class: 'page-note' }, icon('key'),
       h('span', {}, 'Streak, Bing Ball and chat trophies count once you log in. ',
         h('button', { type: 'button', class: 'link-btn', onclick: () => openAuthSheet('login') }, 'Log in'))) : null,
-    h('section', { class: 'tro-summary', 'aria-label': 'Your progress' },
+    h('section', { class: 'tro-summary', 'aria-label': 'Your progress', 'data-reveal': true },
       h('div', { class: 'tt-ring', style: `--p:${pct}`, role: 'img', 'aria-label': `${won.length} of ${total} trophies won` },
         h('b', { text: String(won.length) }), h('small', { text: 'of ' + total })),
       h('div', { class: 'tro-sum-r' },

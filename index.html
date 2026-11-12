@@ -77,9 +77,10 @@
 
     <section id="hero" class="hero-slot" aria-label="Featured games"></section>
 
-    <section class="friends-now" id="friends-now" hidden></section>
+    <!-- data-reveal: fades/rises in once it scrolls into view (fp/motion.js; shown at once if that never runs) -->
+    <section class="friends-now" id="friends-now" data-reveal hidden></section>
 
-    <section class="recent" id="recent" aria-labelledby="recent-h" hidden>
+    <section class="recent" id="recent" aria-labelledby="recent-h" data-reveal hidden>
       <div class="section-head"><h2 id="recent-h">Jump back in</h2></div>
       <div class="recent-row" id="recent-row"></div>
     </section>
@@ -87,17 +88,17 @@
     <!-- Home panels: one row of cards that share the width (each hidden panel takes no room). Another small panel can
          join with <section class="hp ..."> here; .hp gives the card look. -->
     <div class="home-row" id="home-row">
-      <section class="hp hp-new" id="whatsnew" aria-labelledby="whatsnew-h"></section>
-      <section class="hp hp-trophies" id="trophy-teaser" aria-labelledby="trophy-teaser-h" hidden></section>
+      <section class="hp hp-new" id="whatsnew" aria-labelledby="whatsnew-h" data-reveal></section>
+      <section class="hp hp-trophies" id="trophy-teaser" aria-labelledby="trophy-teaser-h" data-reveal hidden></section>
     </div>
 
     <!-- Top players (fp/top-players.js, the leaderboards branch): every game's top 3, full width under the panels -->
-    <section class="tops" id="tops" aria-label="Top players" hidden></section>
+    <section class="tops" id="tops" aria-label="Top players" data-reveal hidden></section>
 
-    <section class="fp-suggest-section" id="suggest" aria-label="Tell Sean"></section>
+    <section class="fp-suggest-section" id="suggest" aria-label="Tell Sean" data-reveal></section>
 
     <section class="games" aria-labelledby="games-h">
-      <div class="section-head">
+      <div class="section-head" data-reveal>
         <h2 id="games-h">All games</h2>
         <span class="count" id="count"></span>
         <div class="chips" id="chips"></div>

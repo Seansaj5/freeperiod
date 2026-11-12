@@ -188,7 +188,7 @@ function pod(b, e, place, friendsView = false) {
 
 function row(b, e, i, { pinned = false } = {}) {
   const mine = e.name.toLowerCase() === meKey();
-  return h('li', { class: 'lb-row' + (mine ? ' me' : '') + (pinned ? ' pinned' : ''), style: '--i:' + Math.min(i, 20) },
+  return h('li', { class: 'lb-row' + (mine ? ' me' : '') + (pinned ? ' pinned' : ''), style: '--i:' + Math.min(i, 20), 'data-reveal': true }, // rises in as it scrolls into view (fp/motion.js)
     h('span', { class: 'lb-pos', text: String(e.pos) }),
     avatar(e.name),
     h('span', { class: 'lb-who' }, h('span', { class: 'lb-name', text: e.name }), mine ? h('span', { class: 'lb-you', text: 'You' }) : null, roleBadge(e.role)),

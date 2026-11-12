@@ -18,6 +18,7 @@ import { mountSuggest } from './suggest.js';
 import { mountStreakCard, onStreak, peekStreak } from './streak.js';
 import { mountFriendsNow } from './chat/activity.js';
 import { mountTopPlayers } from './top-players.js';
+import { startParallax, wireMorph } from './motion.js';
 
 const GAMES = (window.GAMES || []).map(resolveGame);
 const $ = (id) => document.getElementById(id);
@@ -197,7 +198,7 @@ function renderChips() {
   if (favs.length) tags.push('Favorites');
   $('chips').replaceChildren(...tags.map((t) => h('button', {
     type: 'button', class: 'chip' + (t === tag ? ' on' : '') + (t === 'Favorites' ? ' chip-fav' : ''), 'aria-pressed': t === tag ? 'true' : 'false',
-    onclick: () => { tag = t; renderChips(); renderGrid(); },
+    onclick: () => { tag = t; renderChips(); renderGrid({ fresh: true }); },
   }, t === 'Favorites' ? icon('star') : null, t)));
 }
 
@@ -212,7 +213,7 @@ function card(g) {
     h('span', { class: 'go', 'aria-hidden': 'true' }, icon('play')),
     // The whole poster (and its green arrow) opens the game; the title link below is the keyboard/reader one.
     h('a', { class: 'thumb-go', href: playLink(g), tabindex: '-1', 'aria-hidden': 'true' }));
-  const el = h('article', { class: 'card', style: '--accent:' + accentOf(g), dataset: { id: g.id } },
+  const el = h('article', { class: 'card' + (gridShown ? ' revealed' : ''), style: '--accent:' + accentOf(g), dataset: { id: g.id }, 'data-reveal': true },
     h('i', { class: 'shine', 'aria-hidden': 'true' }),
     thumb,
     h('div', { class: 'card-body' },
@@ -225,7 +226,7 @@ function card(g) {
 }
 
 function labCard() {
-  return h('article', { class: 'card lab' },
+  return h('article', { class: 'card lab' + (gridShown ? ' revealed' : ''), 'data-reveal': true },
     h('div', { class: 'lab-art' },
       h('span', { class: 'lab-tag' }, 'In the lab'),
       h('span', { class: 'lab-flask', 'aria-hidden': 'true' }, icon('flask'), h('i', { class: 'bub b1' }), h('i', { class: 'bub b2' }), h('i', { class: 'bub b3' })),
@@ -236,7 +237,11 @@ function labCard() {
       h('button', { type: 'button', class: 'lab-cta', onclick: pitchIdea }, 'Pitch an idea', icon('arrow'))));
 }
 
-function renderGrid() {
+// The cards rise in as they scroll into view the first time (and after a filter chip); a search keystroke or a favorite
+// redraws them in place, already shown.
+let gridShown = false;
+function renderGrid({ fresh = false } = {}) {
+  if (fresh) gridShown = false;
   const q = query();
   const favs = getMeta().favs;
   const list = GAMES.filter((g) => (tag === 'All' || (tag === 'Favorites' ? favs.includes(g.id) : (g.tags || []).includes(tag))) &&
@@ -246,6 +251,7 @@ function renderGrid() {
   $('empty').hidden = !!(list.length || showLab);
   $('count').textContent = String(list.length);
   paintMeta();
+  gridShown = true;
 }
 
 // Lab card -> the suggest bar, set to "New game idea".
@@ -352,6 +358,8 @@ onStreak(streakDays);
 session.onChange(streakDays);
 streakDays();
 renderHero();
+startParallax($('hero')); // --px/--py on the banner (mouse only): themes.css moves the backdrop, poster and title
+wireMorph(); // a click on a game: its poster flies into the play page's header (View Transitions, where there are any)
 renderRecent();
 mountWhatsNew($('whatsnew'), { games: GAMES });
 mountTrophyTeaser($('trophy-teaser'));

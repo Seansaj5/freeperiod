@@ -20,6 +20,7 @@ const found = (window.GAMES || []).find((g) => g.id === id);
 const stage = $('stage');
 
 if (!found) {
+  $('now-poster').remove();
   $('title').textContent = 'Game not found';
   document.querySelector('.tools').style.display = 'none';
   const wrap = document.createElement('div');
@@ -40,6 +41,10 @@ if (!found) {
 
 async function run(rawGame) {
   const game = resolveGame(rawGame);
+  // first: the header poster is where the clicked card's poster lands (the page's first frame is the transition's end)
+  const poster = $('now-poster');
+  poster.addEventListener('error', () => poster.classList.add('broken'), { once: true });
+  if (game.thumb) poster.src = game.thumb; else poster.remove();
   const gameUrl = game.url;
   let joinUrl = '';   // set when the Join link's room checks out; used by the first load only
   let gameOrigin = '';

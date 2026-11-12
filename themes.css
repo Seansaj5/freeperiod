@@ -694,10 +694,11 @@
     radial-gradient(circle at 50% 50%, rgba(143, 211, 255, 0.18), transparent calc(var(--bh-r) * 2.8));
 }
 :root[data-theme="space"][data-fx="off"] .fp-hero-backdrop::before { animation: none; }
-/* each poster opens a soft round window onto the black hole */
+/* each poster opens a soft round window onto the black hole (--bd-x/--bd-y: the hero parallax moves the hole and its window
+   together, see Motion at the end) */
 :root[data-theme="space"] .hero-media {
-  -webkit-mask-image: radial-gradient(calc(var(--bh-r) * 7.6) calc(var(--bh-r) * 3.8) at calc(100% - var(--bh-x)) var(--bh-y), transparent 0, transparent 34%, rgba(0, 0, 0, 0.42) 62%, rgba(0, 0, 0, 0.85) 84%, #000 100%);
-  mask-image: radial-gradient(calc(var(--bh-r) * 7.6) calc(var(--bh-r) * 3.8) at calc(100% - var(--bh-x)) var(--bh-y), transparent 0, transparent 34%, rgba(0, 0, 0, 0.42) 62%, rgba(0, 0, 0, 0.85) 84%, #000 100%);
+  -webkit-mask-image: radial-gradient(calc(var(--bh-r) * 7.6) calc(var(--bh-r) * 3.8) at calc(100% - var(--bh-x) + var(--bd-x, 0px)) calc(var(--bh-y) + var(--bd-y, 0px)), transparent 0, transparent 34%, rgba(0, 0, 0, 0.42) 62%, rgba(0, 0, 0, 0.85) 84%, #000 100%);
+  mask-image: radial-gradient(calc(var(--bh-r) * 7.6) calc(var(--bh-r) * 3.8) at calc(100% - var(--bh-x) + var(--bd-x, 0px)) calc(var(--bh-y) + var(--bd-y, 0px)), transparent 0, transparent 34%, rgba(0, 0, 0, 0.42) 62%, rgba(0, 0, 0, 0.85) 84%, #000 100%);
 }
 :root[data-theme="space"] .hero {
   background: transparent; border-color: rgba(143, 211, 255, 0.22);
@@ -968,3 +969,95 @@
 :root[data-theme="minimal"] .rotate .phone { border-color: var(--soft); }
 :root[data-theme="minimal"] :is(.lb-panel::before, .lb-tab::after, .tp-card::before, .fp-me::before, .fp-me::after, .tt-ring::after) { background: none; }
 :root[data-theme="minimal"] .fp-suggest::before { background: var(--line-2); }
+
+/* =====================================================================================================================
+   Motion (every theme; fp/motion.js): page transitions, scroll reveal, the home banner's parallax, title shimmer and
+   Neon's grid glow. Transform and opacity only; no blur. Reduced motion: none of it (no transitions, no reveal, no
+   parallax, no shimmer). Minimal: fades only (no slide, no rise, no parallax, no shimmer).
+   ===================================================================================================================== */
+
+/* ---------- page transitions: cross-document View Transitions (browsers without them just navigate) ----------
+   The header stays put (old one hidden, new one shown at once), the page underneath fades and slides up, and a clicked
+   game card's poster (named fp-poster right before the page changes, fp/motion.js) flies into play.html's header poster. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+}
+.top, .bar, .cx-top { view-transition-name: fp-header; }
+::view-transition-group(fp-header) { animation: none; }
+::view-transition-old(fp-header) { display: none; }
+::view-transition-new(fp-header) { animation: none; }
+::view-transition-old(root) { animation: fp-vt-out 0.2s cubic-bezier(0.4, 0, 1, 1) both; }
+::view-transition-new(root) { animation: fp-vt-in 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) 0.06s both; }
+@keyframes fp-vt-out { to { opacity: 0; transform: translateY(-12px); } }
+@keyframes fp-vt-in { from { opacity: 0; transform: translateY(22px); } }
+::view-transition-group(fp-poster) { animation-duration: 0.5s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+::view-transition-old(fp-poster), ::view-transition-new(fp-poster) { animation-duration: 0.5s; }
+:root[data-theme="minimal"]::view-transition-old(root) { animation-name: fp-vt-fade-out; }
+:root[data-theme="minimal"]::view-transition-new(root) { animation-name: fp-vt-fade-in; }
+@keyframes fp-vt-fade-out { to { opacity: 0; } }
+@keyframes fp-vt-fade-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
+
+/* ---------- scroll reveal: [data-reveal] rises in once (fp/motion.js). Nothing is hidden until html.reveal-ready, which
+   the script adds only after marking what is already on screen; .reveal-in plays the rise, --i staggers a grid ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  html.reveal-ready [data-reveal]:not(.revealed) { opacity: 0; animation: none; }
+  html.reveal-ready [data-reveal].reveal-in { animation: fp-reveal var(--reveal-dur, 0.7s) var(--ease) calc(var(--i, 0) * 60ms) backwards; }
+}
+@keyframes fp-reveal { from { opacity: 0; translate: 0 var(--reveal-y, 24px); } }
+:root[data-theme="minimal"] { --reveal-y: 0px; --reveal-dur: 0.5s; }
+
+/* ---------- the banner's parallax: --px/--py (-1..1) on #hero from fp/motion.js, mouse only. The backdrop (Neon's grid,
+   Night Aero's bubbles and swoosh, the black hole and its window in each poster) drifts one way, the poster a little the
+   other, the title most. Wide screens only (the stacked phone layout keeps still); never in Minimal ---------- */
+.fp-hero-backdrop::before, .fp-hero-backdrop::after { translate: var(--bd-x, 0px) var(--bd-y, 0px); }
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) and (min-width: 821px) {
+  :root:not([data-theme="minimal"]) .hero-slot { --bd-x: calc(var(--px, 0) * -12px); --bd-y: calc(var(--py, 0) * -7px); }
+  :root:not([data-theme="minimal"]) .hero-slot .hero-art { translate: calc(var(--px, 0) * -5px) calc(var(--py, 0) * -3px); }
+  :root:not([data-theme="minimal"]) .hero-slot .hero-title { translate: calc(var(--px, 0) * 12px) calc(var(--py, 0) * 7px); }
+  :root:not([data-theme="minimal"]) .car-slide.is-on .hero-title { will-change: translate; }
+}
+
+/* ---------- title shimmer: a soft band of light sweeps over the shown slide's words once, a moment after it appears.
+   Overlay blending lights up the bright letters (and the Play button) and leaves the dark behind them nearly as is ---------- */
+.hero-copy::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 28%; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.8) 50%, rgba(255, 255, 255, 0));
+  mix-blend-mode: overlay; transform: translateX(-110%) skewX(-18deg);
+}
+:root:not([data-theme="minimal"])[data-fx="on"] .car-slide.is-on .hero-copy::after { animation: fp-shine 7.5s ease-in-out 1.3s infinite; }
+@keyframes fp-shine {
+  0% { opacity: 0; transform: translateX(-110%) skewX(-18deg); }
+  3%, 18% { opacity: 1; }
+  22%, 100% { opacity: 0; transform: translateX(360%) skewX(-18deg); }
+}
+
+/* ---------- Neon's banner backdrop: a glowing grid in the empty top left of the banner, drifting slowly, its glow
+   breathing. It lies over the slides (they are opaque in Neon), fades out before the words and the poster, and lets every
+   click through. Not on the stacked phone layout (the poster is up there) ---------- */
+:root[data-theme="neon"] .hero-slot { position: relative; }
+:root[data-theme="neon"] .fp-hero-backdrop {
+  display: block; position: absolute; inset: 0; z-index: 2; overflow: hidden; border-radius: 30px; pointer-events: none;
+  -webkit-mask-image: radial-gradient(64% 58% at 14% 4%, #000 0%, rgba(0, 0, 0, 0.55) 40%, transparent 76%);
+  mask-image: radial-gradient(64% 58% at 14% 4%, #000 0%, rgba(0, 0, 0, 0.55) 40%, transparent 76%);
+}
+:root[data-theme="neon"] .fp-hero-backdrop::before {      /* the grid: one cell bigger than its box on every side, so the drift never shows an edge */
+  content: ''; position: absolute; left: -48px; top: -48px; width: calc(70% + 96px); height: calc(66% + 96px);
+  background:
+    linear-gradient(90deg, rgb(var(--cyan-rgb) / 0.2) 1px, transparent 1px) 0 0 / 48px 48px,
+    linear-gradient(0deg, rgb(var(--lime-rgb) / 0.2) 1px, transparent 1px) 0 0 / 48px 48px;
+  animation: fp-grid-drift 12s linear infinite;
+}
+:root[data-theme="neon"] .fp-hero-backdrop::after {      /* the glow over it */
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(34% 44% at 16% 8%, rgb(var(--lime-rgb) / 0.14), transparent 70%), radial-gradient(26% 36% at 40% 0%, rgb(var(--cyan-rgb) / 0.1), transparent 70%);
+  animation: fp-grid-glow 5s ease-in-out infinite alternate;
+}
+@keyframes fp-grid-drift { to { transform: translate3d(48px, 48px, 0); } }
+@keyframes fp-grid-glow { from { opacity: 0.5; } to { opacity: 1; } }
+:root[data-theme="neon"][data-fx="off"] .fp-hero-backdrop::before, :root[data-theme="neon"][data-fx="off"] .fp-hero-backdrop::after { animation: none; }
+@media (max-width: 820px) {
+  :root[data-theme="neon"] .fp-hero-backdrop { display: none; }
+}
