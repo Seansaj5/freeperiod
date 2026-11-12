@@ -1022,12 +1022,14 @@
 
 /* ---------- title shimmer: a soft band of light sweeps over the shown slide's words once, a moment after it appears.
    Overlay blending lights up the bright letters (and the Play button) and leaves the dark behind them nearly as is ---------- */
-.hero-copy::after {
-  content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 28%; pointer-events: none; opacity: 0;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.8) 50%, rgba(255, 255, 255, 0));
-  mix-blend-mode: overlay; transform: translateX(-110%) skewX(-18deg);
+@media (prefers-reduced-motion: no-preference) {      /* only the shown slide has the band at all (no blend layer anywhere else) */
+  :root:not([data-theme="minimal"])[data-fx="on"] .car-slide.is-on .hero-copy::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 28%; pointer-events: none; opacity: 0;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.8) 50%, rgba(255, 255, 255, 0));
+    mix-blend-mode: overlay; transform: translateX(-110%) skewX(-18deg);
+    animation: fp-shine 7.5s ease-in-out 1.3s infinite;
+  }
 }
-:root:not([data-theme="minimal"])[data-fx="on"] .car-slide.is-on .hero-copy::after { animation: fp-shine 7.5s ease-in-out 1.3s infinite; }
 @keyframes fp-shine {
   0% { opacity: 0; transform: translateX(-110%) skewX(-18deg); }
   3%, 18% { opacity: 1; }
