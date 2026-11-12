@@ -36,10 +36,13 @@ function ensure() {
 
 /** Unlocks audio on the first pointerdown/keydown. Returns stop(). */
 export function armSfx() {
-  const targets = ['pointerdown', 'keydown'];
+  // Real activation events only: touch's pointerdown does not count (Chrome would log "not allowed to start"), so touch unlocks
+  // on pointerup/touchend/click; a mouse pointerdown does count.
+  const targets = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'];
   const off = () => { for (const t of targets) { try { globalThis.removeEventListener(t, unlock, true); } catch { /* none */ } } };
-  function unlock() {
+  function unlock(e) {
     if (unlocked) return;
+    if (e && e.type === 'pointerdown' && e.pointerType && e.pointerType !== 'mouse') return;
     unlocked = true;
     off();
     const c = ensure();
@@ -136,6 +139,8 @@ export function play(name) {
 
 // ---------- page wiring ----------
 const HOVER_SEL = '.card, .tile, .top a, .top button, .tool, [data-sfx]';
+// the chat app (and the popups/sheets it renders outside .cx-app) stays silent
+const QUIET = '.cx-app, .cx-pop, .cx-menu, .cx-sheet, .cx-picker, [class*="fpco"], [data-sfx="none"]';
 const internalLink = (a) => {
   try {
     if (!a || a.hasAttribute('download') || (a.target && a.target !== '_self')) return false;
@@ -153,16 +158,19 @@ export function wireSfx(doc = globalThis.document) {
     if (e.pointerType && e.pointerType !== 'mouse') return;
     const el = e.target && e.target.closest && e.target.closest(HOVER_SEL);
     if (!el || (e.relatedTarget && el.contains(e.relatedTarget))) return;
-    if (el.closest('.cx-app, [data-sfx="none"]')) return;
+    if (el.closest(QUIET)) return;
     play('hover');
   };
   const click = (e) => {
     const t = e.target && e.target.closest ? e.target : null;
-    if (!t) return;
+    if (!t || t.closest(QUIET)) return;
     const a = t.closest('a[href]');
     if (a && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && internalLink(a)) { play('whoosh'); return; }
     const s = t.closest('[data-sfx]');
-    if (s && (s.dataset.sfx === 'click' || s.dataset.sfx === 'toggle')) play(s.dataset.sfx);
+    if (!s) return;
+    // a toggle sounds after the button's own handler ran (capture phase comes first), so it reflects the new sound/theme state
+    if (s.dataset.sfx === 'toggle') setTimeout(() => play('toggle'), 0);
+    else if (s.dataset.sfx === 'click') play('click');
   };
   doc.addEventListener('pointerover', over, { passive: true });
   doc.addEventListener('click', click, true);

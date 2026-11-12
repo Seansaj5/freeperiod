@@ -124,3 +124,70 @@ test('armSfx stop removes listeners; unlock once', () => {
   assert.equal(handlers.pointerdown.size, 0);
   assert.equal(handlers.keydown.size, 0);
 });
+
+// ---------- page wiring (fake document) ----------
+function fakeDoc() {
+  const l = {};
+  return { l, addEventListener: (t, fn) => { (l[t] ||= new Set()).add(fn); }, removeEventListener: (t, fn) => l[t]?.delete(fn),
+    fire: (t, e) => { for (const fn of [...(l[t] || [])]) fn(e); } };
+}
+const el = (attrs = {}, quiet = false) => {
+  const n = { dataset: {}, hasAttribute: () => false, target: '', ...attrs };
+  n.closest = (sel) => {
+    if (/cx-app/.test(sel) && quiet) return n;
+    if (sel === 'a[href]') return attrs.href ? n : null;
+    if (sel === '[data-sfx]') return attrs.dataset ? n : null;
+    return null;
+  };
+  return n;
+};
+const tick = () => new Promise((r) => setTimeout(r, 5));
+globalThis.location = { href: 'http://x.test/', origin: 'http://x.test', pathname: '/', search: '' };
+
+test('a click inside the chat app plays nothing', async () => {
+  setup(); S.armSfx(); gesture();
+  const d = fakeDoc(); S.wireSfx(d);
+  const base = made.length;
+  d.fire('click', { target: el({ href: 'http://x.test/chat.html?x=1' }, true), button: 0 });
+  d.fire('click', { target: el({ dataset: { sfx: 'click' } }, true), button: 0 });
+  d.fire('click', { target: el({ dataset: { sfx: 'toggle' } }, true), button: 0 });
+  await tick();
+  assert.equal(made.length, base);
+  d.fire('click', { target: el({ href: 'http://x.test/play.html?g=a' }), button: 0 }); // outside chat: whoosh
+  assert.ok(made.length > base);
+});
+
+test('toggle sound reflects the new state: unmute chimes, mute is silent', async () => {
+  setup(); S.armSfx(); gesture();
+  const d = fakeDoc(); S.wireSfx(d);
+  T.setSounds(false);
+  const base = made.length;
+  const btn = el({ dataset: { sfx: 'toggle' } });
+  d.fire('click', { target: btn, button: 0 });
+  T.setSounds(true); // the button's own handler, after capture
+  await tick();
+  assert.ok(made.length > base, 'unmuting chimes');
+  const b2 = made.length;
+  d.fire('click', { target: btn, button: 0 });
+  T.setSounds(false);
+  await tick();
+  assert.equal(made.length, b2, 'muting is silent');
+});
+
+test('theme pick plays in the new theme timbre', async () => {
+  setup('neon'); S.armSfx(); gesture();
+  const d = fakeDoc(); S.wireSfx(d);
+  d.fire('click', { target: el({ dataset: { sfx: 'toggle' } }), button: 0 });
+  T.setTheme('space');
+  await tick();
+  assert.equal(types().length, 2);
+  assert.ok(types().every((x) => x === 'sine'));
+});
+
+test('touch pointerdown does not unlock; pointerup does', () => {
+  setup(); S.armSfx();
+  for (const fn of [...handlers.pointerdown]) fn({ type: 'pointerdown', pointerType: 'touch' });
+  assert.equal(ctxs.length, 0);
+  for (const fn of [...handlers.pointerup]) fn({ type: 'pointerup', pointerType: 'touch' });
+  assert.equal(ctxs.length, 1);
+});
