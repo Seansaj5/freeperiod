@@ -982,7 +982,7 @@
 @media (prefers-reduced-motion: no-preference) {
   @view-transition { navigation: auto; }
 }
-.top, .bar, .cx-top { view-transition-name: fp-header; }
+.top, .player > .bar, .cx-top { view-transition-name: fp-header; }      /* hub header, play bar, Messages header */
 ::view-transition-group(fp-header) { animation: none; }
 ::view-transition-old(fp-header) { display: none; }
 ::view-transition-new(fp-header) { animation: none; }
