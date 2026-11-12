@@ -4,9 +4,10 @@
 //   node tools/posters/capture.mjs shoot   <game> [--out DIR]               bursts of stills + an 8 s clip (headless Chrome, real GPU)
 //   node tools/posters/capture.mjs poster  <game> --card FILE --hero FILE   assets/<game>.jpg (1280x720) + assets/<game>-hero.jpg (1920x820)
 //                                          [--card-cfg JSON] [--hero-cfg JSON]   (layout tweaks over LOOK below, e.g. '{"focus":[0.6,0.5]}')
-//   node tools/posters/capture.mjs preview <game> [--out DIR]               assets/<game>.webm from the clip (640x360 VP9, no audio)
+//   node tools/posters/capture.mjs preview <game> [--out DIR]               assets/<game>.webm from the clip (640x360 VP9, no audio) and assets/<game>.mp4 (H.264)
+//   node tools/posters/capture.mjs mp4 <game>                               only assets/<game>.mp4, from the existing webm
 //
-// <game>: bing-ball, close-call or horror-exe. DIR (default $POSTERS_OUT or <tmp>/fp-posters) gets <game>/card-*.jpg,
+// <game>: bing-ball, close-call, horror-exe or five-nights-at-bings. DIR (default $POSTERS_OUT or <tmp>/fp-posters) gets <game>/card-*.jpg,
 // <game>/hero-*.jpg and <game>/clip/. Look at the bursts, pick a card frame and a hero frame, then run `poster`.
 // Needs puppeteer-core (not a dependency of this repo): `npm i puppeteer-core` in any scratch folder and pass
 // PUPPETEER_DIR=<that folder>. Google Chrome must be installed; ffmpeg (with libvpx-vp9) for `preview`. See README.md.
@@ -233,11 +234,14 @@ const GAMES = {
     },
     async ready(page) {
       await page.waitForFunction(() => window.__hx && window.__hxGround, { timeout: 30000 });
+      await page.waitForFunction(() => window.__bootDone, { timeout: 30000 }).catch(() => {});
       await sleep(1200);
       await page.evaluate(async () => {
         const st = document.createElement('style');
         st.textContent = 'body > *:not(canvas) { visibility: hidden !important; }';
         document.head.append(st);
+        // the pixel-art title picture covers the 3D world (and the loop skips drawing it while a title screen is up): no screen, so the world is drawn
+        window.__hx.show(null);
         const { Rig } = await import(new URL('js/rig.js', location.href).href);
         const hx = window.__hx, scene = hx.world.scene, cam = hx.camera, ground = window.__hxGround;
         const ours = (r) => { r.root.userData.poster = true; scene.add(r.root); return r; };
@@ -310,6 +314,52 @@ const GAMES = {
     ],
     poster: {
       title: ['HORROR', '~.EXE'], tag: "Find the shards · don't get caught", accent: '#ff2a3a', accent2: '#ff9a3d', glitch: true,
+    },
+  },
+  'five-nights-at-bings': {
+    // The night guard's camera feed in the game's own engine: Night 1 started through its test hook (window.__fnab), past the
+    // "12:00 AM" intro (play()), with every animatronic's level at 0 so nothing moves on its own; the script puts the three
+    // of them where each camera should see them (g.bots[x].pos on their path) and flips cameras (g.cam).
+    url: (base) => `${base}/games/five-nights-at-bings/`,
+    async prepare(page) {
+      await page.evaluateOnNewDocument(() => { window.__fnabNoPause = true; localStorage.setItem('fnab.v1', JSON.stringify({ sound: false })); });
+    },
+    async ready(page) {
+      await page.waitForFunction(() => window.__fnab && window.__fnab.mode === 'menu', { timeout: 40000 });
+      await sleep(1500);
+      await page.evaluate(() => {
+        const f = window.__fnab;
+        f.startNight(1);
+        f.play();
+        const g = f.g;
+        for (const k in g.bots) g.bots[k].lvl = 0;
+        g.tok.lvl = 0; g.sal.lvl = 0; g.box.lvl = 0; g.power = 9999;
+        window.__poster = {
+          // cam: the camera id; at: where each of dylan, gavin, bing is on his path (0 stage, 1 arcade, 2 storage/kitchen/prize, 3 hall)
+          take(cam, at) {
+            const g = window.__fnab.g;
+            if (!g.mon) window.__fnab.press('mon');
+            g.cam = cam; g.glitch = 0;
+            ['dylan', 'gavin', 'bing'].forEach((k, i) => { g.bots[k].pos = at[i]; });
+          },
+        };
+      });
+      await sleep(800);
+    },
+    async stills(page, shoot) {
+      for (const [i, [cam, at]] of [['stage', [0, 0, 0]], ['arcade', [1, 1, 0]], ['prize', [0, 0, 2]]].entries()) {
+        await page.evaluate((c, a) => window.__poster.take(c, a), cam, at);
+        await sleep(500);
+        await shoot(`c${i}`, 1.2, 6);
+      }
+    },
+    clip: [
+      { at: 0, run: (p) => p.evaluate(() => window.__poster.take('stage', [0, 0, 0])) },
+      { at: 2.4, run: (p) => p.evaluate(() => window.__poster.take('arcade', [1, 1, 0])) },
+      { at: 4.8, run: (p) => p.evaluate(() => window.__poster.take('prize', [0, 0, 2])) },
+    ],
+    poster: {
+      title: ["FIVE NIGHTS", "~AT BING'S"], tag: 'Watch the cameras · survive the night', accent: '#9dff3a', accent2: '#ff4030',
     },
   },
 };
@@ -522,10 +572,19 @@ function preview(id, out) {
   }
   for (const f of fs.readdirSync(dir)) if (f.startsWith('vp9')) fs.unlinkSync(path.join(dir, f));
   console.log(`  assets/${id}.webm: ${(fs.statSync(target).size / 1024).toFixed(0)} KB`);
+  mp4(id);
+}
+
+// The same clip as H.264 for Safari and iPhones (they need no VP9). Made from the webm so the two always match.
+function mp4(id) {
+  const src = path.join(ROOT, `assets/${id}.webm`), target = path.join(ROOT, `assets/${id}.mp4`);
+  const r = spawnSync(process.env.FFMPEG || 'ffmpeg', ['-loglevel', 'error', '-y', '-i', src, '-c:v', 'libx264', '-profile:v', 'main', '-pix_fmt', 'yuv420p', '-preset', 'slow', '-crf', '26', '-maxrate', '1000k', '-bufsize', '2000k', '-movflags', '+faststart', '-an', target], { stdio: 'inherit' });
+  if (r.status !== 0) throw new Error('ffmpeg failed');
+  console.log(`  assets/${id}.mp4: ${(fs.statSync(target).size / 1024).toFixed(0)} KB`);
 }
 
 const o = args();
-if (!['shoot', 'poster', 'preview'].includes(o.cmd) || !GAMES[o.game]) {
+if (!['shoot', 'poster', 'preview', 'mp4'].includes(o.cmd) || !GAMES[o.game]) {
   console.log(`usage: node tools/posters/capture.mjs <shoot|poster|preview> <${Object.keys(GAMES).join('|')}> [--out DIR] [--card FILE --hero FILE]`);
   process.exit(1);
 }
@@ -533,5 +592,6 @@ try {
   if (o.cmd === 'shoot') await shoot(o.game, o.out);
   if (o.cmd === 'poster') await poster(o.game, o);
   if (o.cmd === 'preview') preview(o.game, o.out);
+  if (o.cmd === 'mp4') mp4(o.game);
 } catch (e) { console.error(e.message); process.exitCode = 1; }
 process.exit();
