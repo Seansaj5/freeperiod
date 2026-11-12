@@ -282,7 +282,7 @@ function wireTilt(el) {
 // The card's preview video: <source> webm (Chrome, Firefox) then mp4 (Safari, iPhones). Returns { play, pause } so the phone
 // picker below can drive it; the hover/focus wiring is for mice and keyboards.
 function wirePreview(el, thumb, g) {
-  let timer = null, video = null;
+  let timer = null, video = null, wanted = false;
   const allowed = () => !reduced.matches && !el.dataset.nopreview;
   function ensure() {
     if (video) return video;
@@ -301,18 +301,34 @@ function wirePreview(el, thumb, g) {
       if (i === srcs.length - 1) so.addEventListener('error', fail, { once: true }); // only the last source failing means none played
       video.append(so);
     });
-    video.addEventListener('error', fail, { once: true });
+    // A webm that loads but fails to decode (Chrome does this now and then when several previews start one after another)
+    // gets one more try as the mp4 before the card gives up; the mp4 failing too leaves the poster for good.
+    let retried = false;
+    video.addEventListener('error', () => {
+      const v = video;
+      if (v && !retried && g.preview && g.previewMp4 && v.currentSrc && !v.currentSrc.endsWith(g.previewMp4)) {
+        retried = true;
+        v.replaceChildren();
+        v.src = g.previewMp4;
+        v.load();
+        if (wanted) { const p = v.play(); if (p && p.catch) p.catch(() => {}); }
+        return;
+      }
+      fail();
+    });
     thumb.querySelector('.poster').after(video);
     return video;
   }
   function play() {
     if (!allowed()) return;
+    wanted = true;
     if (video && !video.paused) return;
     const p = ensure().play();
     if (p && p.catch) p.catch(() => {});
   }
   function pause() {
     clearTimeout(timer);
+    wanted = false;
     thumb.classList.remove('previewing');
     if (video) video.pause();
   }
