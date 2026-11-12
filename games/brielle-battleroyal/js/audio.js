@@ -54,8 +54,8 @@ export const sfx = {
     if (kind === 'sniper') noise(t + 0.05, 1.2, { freq: 600, gain: 0.15, out: o, attack: 0.05 });
   },
   dry() { if (!ctx) return; const t = ctx.currentTime; noise(t, 0.03, { type: 'highpass', freq: 3000, gain: 0.2 }); },
-  reload() { if (!ctx) return; const t = ctx.currentTime; noise(t, 0.05, { type: 'bandpass', freq: 1800, q: 4, gain: 0.25 }); noise(t + 0.25, 0.06, { type: 'bandpass', freq: 1200, q: 4, gain: 0.3 }); },
-  swing() { if (!ctx) return; const t = ctx.currentTime; noise(t, 0.16, { type: 'bandpass', freq: 600, f2: 2400, q: 1.5, gain: 0.15, attack: 0.05 }); },
+  reload() { if (!ctx) return; const t = ctx.currentTime; noise(t, 0.05, { type: 'bandpass', freq: 1800, q: 4, gain: 0.6 }); noise(t + 0.25, 0.06, { type: 'bandpass', freq: 1200, q: 4, gain: 0.7 }); },
+  swing() { if (!ctx) return; const t = ctx.currentTime; noise(t, 0.16, { type: 'bandpass', freq: 600, f2: 2400, q: 1.5, gain: 0.35, attack: 0.05 }); },
   chop(mat = 0, d = 0) {
     if (!ctx) return; const t = ctx.currentTime, o = at(d);
     if (mat === 0) { tone(t, 0.12, { type: 'square', freq: 220, f2: 120, gain: 0.12, out: o }); noise(t, 0.1, { type: 'bandpass', freq: 900, q: 2, gain: 0.4, out: o }); }
@@ -72,12 +72,12 @@ export const sfx = {
   boom(d = 0, pan = 0) { if (!ctx) return; const t = ctx.currentTime, o = at(d * 0.6, pan); noise(t, 1.4, { freq: 1200, f2: 80, gain: 0.9, out: o }); tone(t, 0.9, { type: 'sine', freq: 70, f2: 28, gain: 0.8, out: o }); },
   pickup() { if (!ctx) return; const t = ctx.currentTime; tone(t, 0.08, { type: 'triangle', freq: 700, gain: 0.15 }); tone(t + 0.06, 0.1, { type: 'triangle', freq: 1050, gain: 0.12 }); },
   chest(d = 0) { if (!ctx) return; const t = ctx.currentTime, o = at(d); [784, 988, 1175, 1568].forEach((f, i) => tone(t + i * 0.07, 0.4, { type: 'triangle', freq: f, gain: 0.12, out: o })); noise(t, 0.2, { type: 'bandpass', freq: 500, q: 2, gain: 0.3, out: o }); },
-  heal(k) { if (!ctx) return; const t = ctx.currentTime; if (k === 'bandage' || k === 'medkit') { for (let i = 0; i < 4; i++) noise(t + i * 0.18, 0.12, { type: 'bandpass', freq: 2200, q: 2, gain: 0.15 }); } else { for (let i = 0; i < 6; i++) noise(t + i * 0.09, 0.07, { type: 'bandpass', freq: 500 + i * 60, q: 6, gain: 0.25 }); } },
+  heal(k) { if (!ctx) return; const t = ctx.currentTime; if (k === 'bandage' || k === 'medkit') { for (let i = 0; i < 4; i++) noise(t + i * 0.18, 0.12, { type: 'bandpass', freq: 2200, q: 2, gain: 0.35 }); } else { for (let i = 0; i < 6; i++) noise(t + i * 0.09, 0.07, { type: 'bandpass', freq: 500 + i * 60, q: 6, gain: 0.7 }); } },
   healed() { if (!ctx) return; const t = ctx.currentTime; tone(t, 0.25, { type: 'sine', freq: 520, f2: 1040, gain: 0.12 }); },
   jump() { if (!ctx) return; const t = ctx.currentTime; noise(t, 0.6, { type: 'bandpass', freq: 400, f2: 1600, q: 1, gain: 0.25, attack: 0.1 }); },
   glider() { if (!ctx) return; const t = ctx.currentTime; noise(t, 0.35, { type: 'bandpass', freq: 300, f2: 900, q: 1.5, gain: 0.35, attack: 0.02 }); tone(t, 0.2, { freq: 200, f2: 120, gain: 0.15 }); },
   land() { if (!ctx) return; const t = ctx.currentTime; noise(t, 0.15, { freq: 500, gain: 0.35 }); },
-  step(d = 0, wet = false) { if (!ctx) return; const t = ctx.currentTime; noise(t, 0.05, { type: wet ? 'bandpass' : 'lowpass', freq: wet ? 900 : 700, gain: 0.06, out: at(d) }); },
+  step(d = 0, wet = false) { if (!ctx) return; const t = ctx.currentTime; noise(t, 0.06, { type: wet ? 'bandpass' : 'lowpass', freq: wet ? 900 : 900, gain: 0.32, out: at(d) }); },
   edit() { if (!ctx) return; const t = ctx.currentTime; tone(t, 0.05, { type: 'square', freq: 1400, gain: 0.04 }); },
   click() { if (!ctx) return; const t = ctx.currentTime; tone(t, 0.04, { type: 'square', freq: 1000, gain: 0.04 }); },
   storm() { if (!ctx) return; const t = ctx.currentTime; tone(t, 1.6, { type: 'sawtooth', freq: 110, f2: 82, gain: 0.08, attack: 0.3 }); tone(t, 1.6, { type: 'sawtooth', freq: 165, f2: 123, gain: 0.05, attack: 0.3 }); },
