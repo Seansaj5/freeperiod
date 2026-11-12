@@ -104,6 +104,8 @@ window.GAMES = [
     tagline: '20 drop from the Shore Blimp over Brielle, NJ. Loot Union Landing, build and edit, and outlast the Nor\'easter. Last one standing wins.',
     url: 'games/brielle-battleroyal/',
     thumb: 'assets/brielle-battleroyal.jpg',
+    preview: 'assets/brielle-battleroyal.webm',
+    previewMp4: 'assets/brielle-battleroyal.mp4',
     tags: ['3D', 'Multiplayer', 'Battle Royale'],
     controls: 'WASD move · click shoot · right-click aim · Q/Z/X/V build · G edit · E loot · 1-5 items · F pickaxe · M map',
     accent: '#ffd23d',

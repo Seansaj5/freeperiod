@@ -186,9 +186,11 @@ function pod(b, e, place, friendsView = false) {
     step);
 }
 
-function row(b, e, i, { pinned = false } = {}) {
+// Rows rise in once per board you look at. A redraw of the same board (your role arrived, the owner hid someone) keeps them shown.
+let rowsKey = '';
+function row(b, e, i, { pinned = false, shown = false } = {}) {
   const mine = e.name.toLowerCase() === meKey();
-  return h('li', { class: 'lb-row' + (mine ? ' me' : '') + (pinned ? ' pinned' : ''), style: '--i:' + Math.min(i, 20), 'data-reveal': true }, // rises in as it scrolls into view (fp/motion.js)
+  return h('li', { class: 'lb-row' + (mine ? ' me' : '') + (pinned ? ' pinned' : '') + (shown ? ' revealed' : ''), style: '--i:' + Math.min(i, 20), 'data-reveal': true }, // rises in as it scrolls into view (fp/motion.js)
     h('span', { class: 'lb-pos', text: String(e.pos) }),
     avatar(e.name),
     h('span', { class: 'lb-who' }, h('span', { class: 'lb-name', text: e.name }), mine ? h('span', { class: 'lb-you', text: 'You' }) : null, roleBadge(e.role)),
@@ -239,11 +241,13 @@ function draw(d) {
     body.replaceChildren(emptyState(b, d, view));
   } else {
     const order = [1, 0, 2];      // second, first, third
+    const key = JSON.stringify([state, d.window, d.week, b && b.id]), shown = key === rowsKey;
+    rowsKey = key;
     body.replaceChildren(
       h('ol', { class: 'lb-podium', 'aria-label': 'Top three' }, order.map((i) => pod(b, view.podium[i], i + 1, !!friendNames))),
       view.list.length || view.pinned ? h('ol', { class: 'lb-list', 'aria-label': 'Rankings' },
-        view.list.map((e, i) => row(b, e, i)),
-        view.pinned ? [h('li', { class: 'lb-gap', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), row(b, view.pinned, view.list.length, { pinned: true })] : null) : null);
+        view.list.map((e, i) => row(b, e, i, { shown })),
+        view.pinned ? [h('li', { class: 'lb-gap', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), row(b, view.pinned, view.list.length, { pinned: true, shown })] : null) : null);
   }
   foot(d, view);
   paintTools();

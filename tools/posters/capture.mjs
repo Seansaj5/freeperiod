@@ -7,7 +7,7 @@
 //   node tools/posters/capture.mjs preview <game> [--out DIR]               assets/<game>.webm from the clip (640x360 VP9, no audio) and assets/<game>.mp4 (H.264)
 //   node tools/posters/capture.mjs mp4 <game>                               only assets/<game>.mp4, from the existing webm
 //
-// <game>: bing-ball, close-call, horror-exe or five-nights-at-bings. DIR (default $POSTERS_OUT or <tmp>/fp-posters) gets <game>/card-*.jpg,
+// <game>: bing-ball, close-call, horror-exe, five-nights-at-bings or brielle-battleroyal (preview only: its stills are skipped). DIR (default $POSTERS_OUT or <tmp>/fp-posters) gets <game>/card-*.jpg,
 // <game>/hero-*.jpg and <game>/clip/. Look at the bursts, pick a card frame and a hero frame, then run `poster`.
 // Needs puppeteer-core (not a dependency of this repo): `npm i puppeteer-core` in any scratch folder and pass
 // PUPPETEER_DIR=<that folder>. Google Chrome must be installed; ffmpeg (with libvpx-vp9) for `preview`. See README.md.
@@ -360,6 +360,29 @@ const GAMES = {
     ],
     poster: {
       title: ["FIVE NIGHTS", "~AT BING'S"], tag: 'Watch the cameras · survive the night', accent: '#9dff3a', accent2: '#ff4030',
+    },
+  },
+  'brielle-battleroyal': {
+    // Solo (offline, in the browser: you against 19 bots) from the Shore Blimp: wait until the blimp is out (past the warm-up), then
+    // jump out after a beat and fall over Brielle. Only reads the game through its own window.__br hook and the Space key.
+    url: (base) => `${base}/games/brielle-battleroyal/`,
+    async prepare(page) {
+      await page.evaluateOnNewDocument(() => { try { localStorage.setItem('brielle.v1', JSON.stringify({ vol: 0 })); } catch { /* none */ } });
+    },
+    async ready(page) {
+      await page.waitForFunction(() => window.__br && document.getElementById('bSolo'), { timeout: 60000 });
+      await sleep(1500);
+      await page.evaluate(() => window.__br.startSolo());
+      await page.waitForFunction(() => window.__br.game, { timeout: 90000 });
+      await page.waitForFunction(() => window.__br.game && window.__br.game.phase === 'blimp', { timeout: 120000 }).catch(() => {});
+      await sleep(500);
+    },
+    async stills() { /* no poster bursts: the blimp phase is short and the clip needs it; the poster art is already in assets/ */ },
+    clip: [
+      { at: 1.4, key: 'Space' },      // jump out of the blimp; the dive and the glide over Brielle follow
+    ],
+    poster: {
+      title: ['BRIELLE', '~BATTLEROYAL'], tag: 'Drop from the blimp · last one standing', accent: '#ffd23d', accent2: '#3de0ff',
     },
   },
 };
