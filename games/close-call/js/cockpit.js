@@ -218,8 +218,11 @@ function buildCabin(spec, paint, hi) {
   const secE = sh.section(eyeT), belt = secE.pts[6][1];
   const ex = clamp(0.385 * hw, 0.24, secE.pts[7][0] - 0.2), ez = tZ(eyeT);
   const zb = tZ(cab.f0) - 0.015, yb = sh.section(cab.f0 - 0.004).pts[6][1]; // the windscreen base
-  // eye height: under the roof with headroom, but high enough over the windscreen base to see out
-  const ey = Math.min(cab.h - 0.11, Math.max(Math.min(cab.h - 0.17, belt + 0.36), yb + 0.27));
+  // Eye height: a third of a metre over the windscreen base, whatever the roof. The low cars have a tall hood line
+  // at the screen and little glass above it, and an eye squeezed under their real roof sees only a slit. From the
+  // seat the outside of the roof is never drawn, so the cabin's own roof is simply lifted to give the head room.
+  const ey = Math.max(Math.min(cab.h - 0.17, belt + 0.36), yb + 0.33);
+  const lift = Math.max(0, ey + 0.21 - cab.h);
   const eye = new THREE.Vector3(ex, ey, ez);
   const floorY = b.clear + 0.07, zRear = ez - 0.55;
   const xin = (z) => sh.section(zT(z)).pts[6][0] - 0.035, beltAt = (z) => sh.section(zT(z)).pts[6][1];
@@ -228,11 +231,11 @@ function buildCabin(spec, paint, hi) {
   const yd = clamp(ey - 0.33, yb - 0.06, yb + 0.26);
   let X = 0; for (let z = zd - 0.05; z <= zb; z += 0.1) X = Math.max(X, xin(z));
   X += 0.04;
-  const rf1 = sh.section(cab.f1).pts, rx = rf1[7][0], yr = rf1[7][1];
+  const rf1 = sh.section(cab.f1).pts, rx = rf1[7][0], yr = rf1[7][1] + lift;
 
   // ---- floor, back wall
   G.box(0, floorY - 0.02, (zRear + zb) / 2, hw * 2 + 0.1, 0.04, zb - zRear + 0.3, R.carpet, 'soft');
-  G.box(0, (floorY + cab.h) / 2, zRear - 0.02, hw * 2 + 0.1, cab.h - floorY + 0.2, 0.04, shade(R.seat, -0.4), 'soft');
+  G.box(0, (floorY + cab.h + lift) / 2, zRear - 0.02, hw * 2 + 0.1, cab.h + lift - floorY + 0.2, 0.04, shade(R.seat, -0.4), 'soft');
 
   // ---- doors: a rolled top, a card, an armrest, down to the floor
   for (const sx of [1, -1]) {
@@ -257,23 +260,24 @@ function buildCabin(spec, paint, hi) {
   const roofSt = [], railL = [], railR = [];
   for (let i = 0; i <= 10; i++) {
     const t = tR + (cab.f1 - tR) * (i / 10), p = sh.section(t).pts, z = tZ(t);
-    roofSt.push([[-(p[7][0] - 0.01), p[7][1] - 0.03, z], [0, p[8][1] - 0.034, z], [p[7][0] - 0.01, p[7][1] - 0.03, z]]);
-    railL.push([p[7][0] - 0.02, p[7][1] - 0.035, z]); railR.push([-(p[7][0] - 0.02), p[7][1] - 0.035, z]);
+    const y7 = p[7][1] + lift, y8 = p[8][1] + lift;
+    roofSt.push([[-(p[7][0] - 0.01), y7 - 0.03, z], [0, y8 - 0.034, z], [p[7][0] - 0.01, y7 - 0.03, z]]);
+    railL.push([p[7][0] - 0.02, y7 - 0.035, z]); railR.push([-(p[7][0] - 0.02), y7 - 0.035, z]);
   }
   const pillar = lum(R.liner) > 0.4 ? shade(R.liner, -0.12) : shade(R.liner, 0.04);
   const head = lum(R.liner) > 0.4 ? shade(R.liner, -0.5) : pillar; // header and visors: dark even under a pale lining, so they do not glare
-  if (!glassRoof) G.loft(roofSt, R.liner, 'soft', { loop: false, ctr: [0, cab.h + 3, ez] });
+  if (!glassRoof) G.loft(roofSt, R.liner, 'soft', { loop: false, ctr: [0, cab.h + lift + 3, ez] });
   else G.rbox(0, yr - 0.02, ez - 0.12, 2 * rx, 0.03, 0.07, 0.012, pillar, 'soft', 'x'); // one cross beam under the glass
   for (const rail of [railL, railR]) G.tube(rail, 0.032, 8, pillar, 'soft', { squash: [1.1, 0.7] });
-  G.rbox(0, yr - 0.026, tZ(cab.f1) - 0.02, 2 * rx + 0.02, 0.05, 0.085, 0.02, head, 'soft', 'x');
+  G.rbox(0, yr - 0.022, tZ(cab.f1) - 0.02, 2 * rx + 0.02, 0.04, 0.08, 0.016, head, 'soft', 'x');
   for (const sx of [1, -1]) {
-    G.at(sx * Math.min(ex, rx - 0.2), yr - 0.062, tZ(cab.f1) - 0.13, 0.12, 0, 0, () => G.rbox(0, 0, 0, 0.3, 0.014, 0.13, 0.006, head, 'soft', 'x'));
+    G.at(sx * Math.min(ex, rx - 0.2), yr - 0.05, tZ(cab.f1) - 0.125, 0.06, 0, 0, () => G.rbox(0, 0, 0, 0.3, 0.012, 0.12, 0.005, head, 'soft', 'x'));
     // A pillar: from the corner of the header down to the corner of the dash
     const top = [sx * (rx - 0.012), yr - 0.03, tZ(cab.f1)], bot = [sx * (xin(zb) + 0.02), yb + 0.005, zb + 0.01], path = [];
     for (let i = 0; i <= 8; i++) { const u = i / 8, bow = Math.sin(u * PI) * 0.018; path.push([top[0] + (bot[0] - top[0]) * u + sx * bow * 0.4, top[1] + (bot[1] - top[1]) * u + bow, top[2] + (bot[2] - top[2]) * u]); }
     G.tube(path, (i, u) => 0.024 + u * 0.01, 8, pillar, 'soft', { squash: [1.3, 0.8] });
     // B pillar and the wall behind it
-    const zB = cab.b != null ? Math.min(ez - 0.16, tZ(cab.b)) : ez - 0.26, xB = xin(zB), yB = beltAt(zB), top2 = sh.section(zT(zB)).pts[7];
+    const zB = cab.b != null ? Math.min(ez - 0.16, tZ(cab.b)) : ez - 0.26, xB = xin(zB), yB = beltAt(zB), t2 = sh.section(zT(zB)).pts[7], top2 = [t2[0], t2[1] + lift];
     G.tube([[sx * (xB + 0.01), yB - 0.02, zB], [sx * (top2[0] - 0.01), top2[1] - 0.03, zB]], 0.05, 8, pillar, 'soft', { squash: [0.6, 1.2] });
     G.quad([sx * (xB + 0.03), yB, zB - 0.03], [sx * (top2[0]), top2[1], zB - 0.03], [sx * (top2[0]), top2[1], zRear], [sx * (xB + 0.03), yB, zRear], shade(pillar, -0.3), [sx * (hw + 2), yB, zB], 'soft');
   }
