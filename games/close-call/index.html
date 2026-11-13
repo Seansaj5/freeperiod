@@ -105,6 +105,28 @@
     .swatches { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 18px; }
     .sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.15); }
     .sw.on { border-color: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25); }
+    .tune-card { width: min(440px, 100%); }
+    .tu-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
+    .tu-row b { font-size: 15px; } .tu-row small { display: block; color: var(--muted); font-size: 12px; font-weight: 600; }
+    .tu-pips { display: flex; gap: 3px; margin-top: 4px; } .tu-pips i { width: 20px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); } .tu-pips i.on { background: linear-gradient(90deg, var(--amber), #ff7a1a); }
+    .tu-row { padding: 4px 0; } .tu-row b { font-size: 14px; } .tune-card { padding: 16px 20px; } .tune-card .g-cls { font-size: 12px; margin-bottom: 6px; }
+    @media (max-height: 760px) { .tu-row small { display: none; } .tu-row.sport small { display: block; } } .tu-st { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-left: 4px; }
+    .tu-row .btn { height: 36px; font-size: 12px; padding: 0 10px; min-width: 132px; justify-content: center; }
+    .tu-row.sport.on .tu-st { color: var(--green); } .tu-row.sport { border-top: 1px solid rgba(255, 176, 32, 0.4); }
+    .tune-card h2 { margin-bottom: 4px; } .tune-card .status { min-height: 18px; margin-top: 6px; font-size: 13px; }
+    #qte { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: rgba(4, 6, 14, 0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+    .qte-card { width: min(560px, 94vw); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; }
+    .qte-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; } .qte-top b { font: 400 20px 'Bungee', sans-serif; color: var(--amber); } .qte-top span { color: var(--muted); font-size: 13px; font-weight: 700; }
+    #qte canvas { display: block; width: 100%; aspect-ratio: 520 / 300; border-radius: 12px; background: rgba(0, 0, 0, 0.35); touch-action: none; }
+    .qte-tip { margin-top: 8px; font-size: 13px; color: var(--muted); text-align: center; }
+    .gbox { display: inline-block; margin-right: 8px; font: 800 10px/1 'Outfit', sans-serif; letter-spacing: 0.14em; padding: 3px 6px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.25); color: var(--muted); vertical-align: 3px; }
+    .gbox.man { color: #1a0f00; background: var(--amber); border-color: var(--amber); }
+    .gear.red { color: var(--red); text-shadow: 0 0 12px var(--red); }
+    .revs { width: 200px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); margin: 0 0 6px auto; overflow: hidden; display: none; }
+    .revs.on { display: block; } .revs i { display: block; height: 100%; width: 100%; transform-origin: left; background: linear-gradient(90deg, #6dff8a 0%, #ffb020 70%, #ff3b4e 92%); }
+    body.touch .revs { margin: 0 auto 4px; width: 130px; }
+    /* from the driver's seat the speed sits bottom left, out of the way of the gear lever and the centre screen */
+    body.seat:not(.touch) .speedo { right: auto; left: 22px; text-align: left; transform: scale(0.82); transform-origin: left bottom; } body.seat:not(.touch) .nitro, body.seat:not(.touch) .revs { margin-left: 0; }
     .count { text-align: center; font-size: 12px; color: var(--muted); margin-top: 10px; }
 
     /* route picker */
@@ -249,6 +271,9 @@
     #touch { position: fixed; inset: auto 0 0 0; height: 46vh; pointer-events: none; }
     #touch .tz { position: absolute; bottom: 18px; width: 86px; height: 86px; border-radius: 22px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); display: grid; place-items: center; font: 400 15px 'Bungee', sans-serif; pointer-events: auto; }
     #touch .tz.on { background: rgba(255, 176, 32, 0.35); }
+    #touch .tz.sh { width: 64px; height: 64px; bottom: 118px; font-size: 26px; display: none; } #t-down { right: 214px; } #t-up { right: 136px; }
+    body.manual #touch .tz.sh { display: grid; }
+    #touch .tz.sm { width: 64px; height: 40px; border-radius: 12px; bottom: auto; top: 0; font-size: 11px; } #t-gb { left: 18px; } #t-cam { left: 92px; }
     #t-left { left: 18px; } #t-right { left: 116px; } #t-brake { right: 214px; } #t-nitro { right: 116px; } #t-gas { right: 18px; height: 120px !important; }
 
     body.touch .speedo { right: auto; left: 50%; bottom: 14px; transform: translateX(-50%); text-align: center; }
@@ -290,15 +315,29 @@
       <div class="stat"><span>TOP SPEED</span><div class="bar"><i id="g-top"></i></div><span id="g-topv"></span></div>
       <div class="stat"><span>ACCEL</span><div class="bar"><i id="g-acc"></i></div><span id="g-accv"></span></div>
       <div class="stat"><span>HANDLING</span><div class="bar"><i id="g-han"></i></div><span id="g-hanv"></span></div>
+      <div class="stat"><span>BRAKES</span><div class="bar"><i id="g-brk"></i></div><span id="g-brkv"></span></div>
       <span class="lbl">Paint</span>
       <div class="swatches" id="g-sw"></div>
       <div class="row">
         <button class="btn small" id="g-back" style="flex:0 0 auto">Back</button>
+        <button class="btn small" id="g-tune" style="flex:0 0 auto">Tune</button>
         <button class="btn primary small" id="g-act" style="flex:1;justify-content:center"></button>
       </div>
       <div class="count" id="g-count"></div>
     </div>
   </section>
+
+  <!-- tuning: buy a part, then fit it yourself -->
+  <section id="tune" class="screen hidden">
+    <div class="panel g-card tune-card">
+      <h2 id="tu-name">Tune</h2>
+      <div class="g-cls" id="tu-sub">Seven stages a part, each dearer than the last. You fit them yourself: botch a job and 10% is wasted.</div>
+      <div id="tu-list"></div>
+      <div class="status" id="tu-note"></div>
+      <div class="row"><button class="btn small" id="tu-back" style="flex:0 0 auto">Back</button><div class="count" id="tu-cash" style="flex:1;margin:0;text-align:right"></div></div>
+    </div>
+  </section>
+  <div id="qte" class="hidden"></div>
 
   <!-- route: map + lanes -->
   <section id="route" class="screen menu-bg hidden">
@@ -352,11 +391,13 @@
       <span class="lbl">Speed units</span>
       <div class="row"><button class="btn small" data-u="kmh" style="flex:1">km/h</button><button class="btn small" data-u="mph" style="flex:1">mph</button></div>
       <span class="lbl">Solo traffic</span>
-      <div class="row"><button class="btn small" data-t="0.7" style="flex:1">Light</button><button class="btn small" data-t="1" style="flex:1">Normal</button><button class="btn small" data-t="1.4" style="flex:1">Rush hour</button></div>
+      <div class="row"><input type="range" id="s-den" min="0.4" max="2.4" step="0.1" style="flex:1" /><span id="s-denv" style="flex:0 0 150px;text-align:right;font-size:13px;font-weight:700;color:var(--muted)"></span></div>
       <span class="lbl">Weather</span>
       <div class="row lanes modes"><button class="btn small" data-w="map">Map's own</button><button class="btn small" data-w="clear">Clear</button><button class="btn small" data-w="rain">Rain</button><button class="btn small" data-w="snow">Snow</button><button class="btn small" data-w="fog">Fog</button></div>
       <span class="lbl">Camera <span style="text-transform:none;letter-spacing:0;font-weight:600">(C switches while driving)</span></span>
-      <div class="row"><button class="btn small" data-cam="0" style="flex:1">Chase</button><button class="btn small" data-cam="2" style="flex:1">Far chase</button><button class="btn small" data-cam="1" style="flex:1">Bonnet</button></div>
+      <div class="row"><button class="btn small" data-cam="0" style="flex:1">Chase</button><button class="btn small" data-cam="2" style="flex:1">Far chase</button><button class="btn small" data-cam="1" style="flex:1">Bonnet</button><button class="btn small" data-cam="3" style="flex:1">Cockpit</button></div>
+      <span class="lbl">Gearbox <span style="text-transform:none;letter-spacing:0;font-weight:600">(H switches while driving · Q up, E down)</span></span>
+      <div class="row"><button class="btn small" data-gb="0" style="flex:1">Automatic</button><button class="btn small" data-gb="1" style="flex:1">Manual</button></div>
       <span class="lbl">Show hitboxes</span>
       <div class="row"><button class="btn small" data-hb="0" style="flex:1">Off</button><button class="btn small" data-hb="1" style="flex:1">On</button></div>
       <div class="status" id="s-note"></div>
@@ -442,7 +483,7 @@
   <div id="liq-logo"><div class="wrap"><div class="t1">CLOSE CALL</div><div class="t2" id="liq-t2">K<i>A</i>RTS</div></div></div>
 
   <div class="wallet" id="wallet"><button class="pill acct" id="w-acct" title="Your Free Period account"><i></i><span id="w-acct-name">Sign in</span><span class="role hidden" id="w-acct-role">Owner</span><small id="w-acct-sync"></small></button><div class="pill"><span class="k">Cash</span><b id="w-cash">$0</b></div><div class="pill"><span class="k">Best combo</span><span id="w-best">0</span></div></div>
-  <div class="keys" id="keys"><kbd>W</kbd><kbd>S</kbd> gas / brake &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp; <kbd>Shift</kbd> nitro &nbsp; <kbd>C</kbd> camera &nbsp; <kbd>Esc</kbd> pause</div>
+  <div class="keys" id="keys"><kbd>W</kbd><kbd>S</kbd> gas / brake &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp; <kbd>Shift</kbd> nitro &nbsp; <kbd>C</kbd> camera &nbsp; <kbd>H</kbd> manual &nbsp; <kbd>Q</kbd><kbd>E</kbd> shift &nbsp; <kbd>Esc</kbd> pause</div>
 
   <!-- in-game HUD -->
   <div id="hud" class="hidden">
@@ -463,7 +504,8 @@
     <div id="banner"></div>
     <div id="flash"></div>
     <div class="speedo">
-      <div><span class="gear" id="h-gear">1</span><span class="kmh" id="h-kmh">0</span></div>
+      <div class="revs" id="h-revs"><i id="h-rev"></i></div>
+      <div><span class="gbox" id="h-gb">AUTO</span><span class="gear" id="h-gear">1</span><span class="kmh" id="h-kmh">0</span></div>
       <div class="unit" id="h-unit">KM/H</div>
       <div class="nitro"><i id="h-nitro"></i></div>
       <div class="nitro-l">NITRO · SHIFT</div>
@@ -480,6 +522,7 @@
   <div id="touch" class="hidden">
     <div class="tz" id="t-left">◀</div><div class="tz" id="t-right">▶</div>
     <div class="tz" id="t-brake">BRK</div><div class="tz" id="t-nitro">N2O</div><div class="tz" id="t-gas">GAS</div>
+    <div class="tz sh" id="t-down">−</div><div class="tz sh" id="t-up">+</div><div class="tz sm" id="t-gb">AUTO</div><div class="tz sm" id="t-cam">CAM</div>
   </div>
 
   <script type="module" src="js/main.js"></script>

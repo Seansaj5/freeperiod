@@ -46,6 +46,20 @@ function pickKind(col, r) {
   return 0;
 }
 
+const SET_CACHE = new Map();
+/**
+ * The lane set for a traffic density. Up to 1.5 more of the slots simply have a car in them; past that the slots
+ * themselves get shorter (down to 62% of their length), which is the only way to pack more cars in.
+ */
+function setFor(lanes, density) {
+  const k = Math.min(1.6, Math.max(1, density / 1.5));
+  if (k === 1) return SETS[lanes];
+  const key = `${lanes}:${k.toFixed(3)}`;
+  let set = SET_CACHE.get(key);
+  if (!set) SET_CACHE.set(key, (set = { ...SETS[lanes], slot: SETS[lanes].slot.map((x) => x / k) }));
+  return set;
+}
+
 /** Position of the car in slot k of lane L at time t, or NaN if the slot is empty. */
 function slotS(seed, set, fillK, L, k, t) {
   if (hash(seed, L * 7 + 1, k) >= Math.min(0.92, set.fill[L] * fillK)) return NaN;
@@ -82,7 +96,7 @@ const dsmooth01 = (a, b, x) => { const u = (x - a) / (b - a); return u <= 0 || u
  * skipMask: bit per lane to leave empty (the menus clear the left lanes for the showcase car).
  */
 export function trafficNear(road, density, t, sMin, sMax, out, skipMask = 0) {
-  const seed = road.seed, lanes = road.lanes, set = SETS[lanes];
+  const seed = road.seed, lanes = road.lanes, set = setFor(lanes, density);
   let n = 0;
   for (let L = 0; L < lanes; L++) {
     if (skipMask & (1 << L)) continue;

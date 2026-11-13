@@ -59,7 +59,7 @@ window.GAMES = [
     preview: 'assets/close-call.webm',
     previewMp4: 'assets/close-call.mp4',
     tags: ['3D', 'Multiplayer', 'Racing'],
-    controls: 'W/S gas & brake · A/D steer · Shift nitro · C camera · Esc pause',
+    controls: 'W/S gas & brake · A/D steer · Shift nitro · C camera · H manual (Q/E shift) · Esc pause',
     accent: '#ffb020',
     orientation: 'landscape',      // upright, the touch pedals overlap (steer / brake / nitro); Karts too
     beta: true,

@@ -13,6 +13,8 @@ export class Sound {
     this.buf = {};
     this.voiceId = 'i4'; this.pitch = 1;
     this.slices = [];
+    this.tune = { turbo: 0, engine: 0, ecu: 0, exhaust: 0, sport: false, stock: false, ev: false };
+    this.loud = 1; this.bright = 1; this.turboVol = 0; this.crackle = 0;
     // download now; decoding has to wait for the AudioContext, which needs a click or key press
     this.files = fetch(BASE + 'sfx.json').then((r) => r.json()).then((man) => {
       this.man = man;
@@ -41,7 +43,22 @@ export class Sound {
     this.eFilter = ctx.createBiquadFilter(); this.eFilter.type = 'lowpass'; this.eFilter.frequency.value = 2000; this.eFilter.Q.value = 0.7;
     this.eGain = ctx.createGain(); this.eGain.gain.value = 0;
     this.eDuck = ctx.createGain();
-    this.eMix.connect(this.eFilter); this.eFilter.connect(this.eDuck); this.eDuck.connect(this.eGain); this.eGain.connect(this.bus);
+    // tuned cars: more bottom end from the exhaust, more rasp from the engine map
+    this.eShelf = ctx.createBiquadFilter(); this.eShelf.type = 'lowshelf'; this.eShelf.frequency.value = 190; this.eShelf.gain.value = 0;
+    this.eRasp = ctx.createBiquadFilter(); this.eRasp.type = 'peaking'; this.eRasp.frequency.value = 2300; this.eRasp.Q.value = 0.9; this.eRasp.gain.value = 0;
+    this.eMix.connect(this.eFilter); this.eFilter.connect(this.eShelf); this.eShelf.connect(this.eRasp); this.eRasp.connect(this.eDuck); this.eDuck.connect(this.eGain); this.eGain.connect(this.bus);
+    // turbo: a whistle (two oscillators) and a rush of air (band-passed noise) that both climb with boost
+    {
+      const g = (this.tGain = ctx.createGain()); g.gain.value = 0; g.connect(this.bus);
+      this.tOsc = ['sine', 'triangle'].map((type, i) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = 1800; const og = ctx.createGain(); og.gain.value = i ? 0.22 : 0.6; o.connect(og); og.connect(g); o.start(); return o; });
+      const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = nb.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const n = ctx.createBufferSource(); n.buffer = nb; n.loop = true;
+      this.tBand = ctx.createBiquadFilter(); this.tBand.type = 'bandpass'; this.tBand.frequency.value = 3000; this.tBand.Q.value = 2.2;
+      const ng = ctx.createGain(); ng.gain.value = 1.5;
+      n.connect(this.tBand); this.tBand.connect(ng); ng.connect(g); n.start();
+    }
+    this.setTune(this.tune);
     this.files.then(async (list) => {
       await Promise.all(list.filter(Boolean).map(async ([f, b]) => { try { this.buf[f] = await ctx.decodeAudioData(b); } catch { /* skip a bad file */ } }));
       this.loops = {};
@@ -91,6 +108,41 @@ export class Sound {
     }
   }
 
+  /**
+   * How tuned the car is (stages 0..7 for turbo / engine / ecu / exhaust, sport mode, stock: has a turbo from the
+   * factory, ev: electric). A tuned car is louder and deeper, crackles on the overrun and whistles as its turbo spools.
+   */
+  setTune(t) {
+    this.tune = t = { turbo: 0, engine: 0, ecu: 0, exhaust: 0, sport: false, stock: false, ev: false, ...t };
+    const sp = t.sport ? 1 : 0;
+    this.loud = t.ev ? 1 : 1 + 0.045 * t.exhaust + 0.02 * t.engine + 0.1 * sp;
+    this.bright = 1 + 0.07 * t.exhaust + 0.03 * t.ecu + 0.15 * sp;
+    this.turboVol = t.ev ? 0 : Math.min(1, (t.stock ? 0.3 : 0) + 0.13 * t.turbo + 0.1 * sp * (t.stock || t.turbo ? 1 : 0));
+    this.crackle = t.ev ? 0 : Math.min(1.6, 0.11 * t.ecu + 0.09 * t.exhaust + 0.3 * sp);
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.eShelf.gain.setTargetAtTime(t.ev ? 0 : 0.9 * t.exhaust + 0.35 * t.engine + 2 * sp, now, 0.1);
+    this.eRasp.gain.setTargetAtTime(t.ev ? 0 : 0.5 * t.ecu + 0.45 * t.exhaust + 1.5 * sp, now, 0.1);
+  }
+  /** Per frame: how much boost the turbo is making, 0..1. */
+  turbo(boost) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime, b = Math.max(0, Math.min(1, boost)), f = 1500 + b * 5200;
+    this.tOsc[0].frequency.setTargetAtTime(f, t, 0.05); this.tOsc[1].frequency.setTargetAtTime(f * 1.503, t, 0.05);
+    this.tBand.frequency.setTargetAtTime(1800 + b * 4200, t, 0.05);
+    this.tGain.gain.setTargetAtTime(this.turboVol * 0.085 * b ** 1.6, t, 0.04);
+  }
+  /** Lifting off with boost up: the blow-off valve dumps it (a flutter on bigger turbos). */
+  blowoff(boost) {
+    if (!this.turboVol) return;
+    const big = this.tune.turbo >= 4 || Math.random() < 0.3;
+    this.play(big ? 'bov_b' : 'bov_a', { gain: Math.min(0.9, (0.25 + 0.6 * this.turboVol) * boost), rate: 0.92 + Math.random() * 0.2 });
+  }
+  /** Back on the throttle from nothing: the turbo winds up. */
+  spoolUp() { if (this.turboVol > 0.2) this.play('spool_up', { gain: 0.2 + 0.35 * this.turboVol, rate: 0.95 + Math.random() * 0.12 }); }
+  /** A run of crackles from the exhaust on the overrun. k = how lively (0..1.6). */
+  burble(k = 1) { this.play(['burble_a', 'burble_b', 'burble_c'][Math.floor(Math.random() * 3)], { gain: Math.min(0.85, 0.3 + 0.36 * k), rate: (0.88 + Math.random() * 0.3) * Math.min(1.25, Math.max(0.8, this.pitch ** 0.35)) }); }
+
   /** Per frame. rpm, load 0..1, speed m/s, on = driving (false in menus: a quiet idle), boosting. */
   engine(rpm, load, speed, on, boosting) {
     if (!this.ready) return;
@@ -111,8 +163,8 @@ export class Sound {
       a.frequency.setTargetAtTime(f, t, 0.05); b.frequency.setTargetAtTime(f * 2.01, t, 0.05); c.frequency.setTargetAtTime(f * 3.02, t, 0.05);
       this.ev.g.gain.setTargetAtTime(on ? 0.05 + load * 0.1 + Math.min(0.06, speed / 1500) : 0.015, t, 0.08);
     }
-    this.eFilter.frequency.setTargetAtTime(load > 0 ? (boosting ? 16000 : 9000) : 900 + rpm * 0.25, t, 0.06);
-    this.eGain.gain.setTargetAtTime(on ? (load > 0 ? 0.55 : 0.32) + (rpm / 7400) * 0.15 + (boosting ? 0.1 : 0) : 0.14, t, 0.08);
+    this.eFilter.frequency.setTargetAtTime(Math.min(18000, (load > 0 ? (boosting ? 16000 : 9000) : 900 + rpm * 0.25) * this.bright), t, 0.06);
+    this.eGain.gain.setTargetAtTime((on ? (load > 0 ? 0.55 : 0.32) + (rpm / 7400) * 0.15 + (boosting ? 0.1 : 0) : 0.14) * this.loud, t, 0.08);
     const L = this.loops, w = Math.min(1, speed / 95);
     if (L.wind) { L.wind.g.gain.setTargetAtTime(on ? w * w * 0.5 : 0, t, 0.1); L.wind.src.playbackRate.setTargetAtTime(0.75 + w * 0.5, t, 0.1); }
     if (L.road) { L.road.g.gain.setTargetAtTime(on ? Math.min(1, speed / 35) * 0.42 : 0, t, 0.1); L.road.src.playbackRate.setTargetAtTime(0.7 + Math.min(1.2, speed / 70) * 0.5, t, 0.1); }
@@ -125,6 +177,8 @@ export class Sound {
     const t = this.ctx.currentTime, g = this.eDuck.gain;
     g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0.3, t + 0.03); g.linearRampToValueAtTime(1, t + 0.16);
   }
+  /** Rev limiter: chop the engine note (k = 1 full, lower = cut). */
+  cut(k) { if (this.ready) this.eDuck.gain.setTargetAtTime(k, this.ctx.currentTime, 0.006); }
   /** Tyre squeal amount 0..1 and barrier scrape amount 0..1, set every frame. */
   tires(k) { if (this.ready && this.loops.squeal) { this.loops.squeal.g.gain.setTargetAtTime(k * 0.5, this.ctx.currentTime, 0.06); this.loops.squeal.src.playbackRate.setTargetAtTime(0.9 + k * 0.2, this.ctx.currentTime, 0.1); } }
   scrape(k) { if (this.ready && this.loops.scrape) this.loops.scrape.g.gain.setTargetAtTime(k * 0.6, this.ctx.currentTime, 0.04); }

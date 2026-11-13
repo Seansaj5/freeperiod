@@ -71,7 +71,7 @@ class Builder {
   geometry(crease = 38) { return merge(this.geometries(crease)); }
 }
 
-function toGeometry(p, c, cosT) {
+export function toGeometry(p, c, cosT) {
   const nt = p.length / 9;
   const fn = new Float32Array(nt * 3);
   for (let i = 0; i < nt; i++) {
@@ -166,7 +166,7 @@ function curve(pts, t) {
  *                        rear-glass base, roof rear, roof front, windscreen base (t), roof height,
  *                        roof and glass-base half-widths (fractions), fastback curve, B-pillar t
  */
-function bodyShape(b) {
+export function bodyShape(b) {
   const L = b.L, W = b.W, hl = L / 2;
   const fl = b.flare || [0, 0], fh = b.fender || [0, 0];
   const baseW = W / 2 / (1 + Math.max(fl[0], fl[1]));
@@ -468,7 +468,7 @@ export function carGeometry(b, { detail = true, bakeWheels = false } = {}) {
     for (const sx of [-1, 1]) endQuad(B, sh, 1, [[sx * w, y0], [sx * (w + 0.028), y0], [sx * (w + 0.028), y1 - 0.09], [sx * w, y1 - 0.09]], C, METAL, 0.016, false);
   }
   if (b.intakeF) endStrip(B, sh, 1, b.intakeF[0], b.intakeF[1], b.clear + 0.07, b.clear + b.intakeF[2], PLASTIC, TRIM, 0.008);
-  if (b.splitter) B.box(0, b.clear + 0.015, hl - 0.08, sh.planW(0.97) * 2 - 0.08, 0.03, 0.34, PLASTIC, TRIM);
+  if (b.splitter) B.box(0, b.clear + 0.015, hl - 0.08, sh.planW(0.97) * 2 - 0.08, 0.03, 0.34, b.splitter === true ? PLASTIC : b.splitter, TRIM);
 
   // ---- rear: tail lights, plate, diffuser, exhausts
   const tlx = b.tlx ?? [hw * 0.5, hw * 0.9], tly = b.tly ?? [yR - 0.16, yR - 0.06];
@@ -767,6 +767,7 @@ let ENV = null, HI = true;
 /** Call once before building cars: the reflection map and the quality level. */
 export function setCarLook(env, hi) { ENV = env; HI = hi; }
 export const carLookHi = () => HI;
+export const carLookEnv = () => ENV;
 
 /** Materials for the four slots. For traffic, paint is white and instance colours paint it. */
 export function slotMaterials(paint, traffic = false) {

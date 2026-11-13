@@ -1,7 +1,10 @@
 // Close Call: game flow, input, camera, HUD and menus.
 import * as THREE from 'three';
 import { World } from './world.js';
-import { CarSim } from './physics.js';
+import { CarSim, REDLINE, brakeOf, singleSpeed } from './physics.js';
+import { TUNE_PARTS, PART, MAX_STAGE, tuneOf, sportOf, setTune, stageCost, sportCost, tunedSpec, BOTCH, PERFECT_BACK } from './tuning.js';
+import { Qte } from './qte.js';
+import { Cockpit } from './cockpit.js';
 import { Scorer, COMBO_TIME } from './score.js';
 import { Sound } from './audio.js';
 import { Net } from './net.js';
@@ -35,20 +38,22 @@ const KEY = 'closecall.v1';
 const readStored = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { return {}; } };
 // lives: two lives mode on; lifeBests: best two-lives run per route; admin: the owner's switches (ignored for anyone else)
 // gm: game mode (free, lives, time, zen, hard); taBests: best time attack score per route
-const DEFAULTS = () => ({ cash: 0, owned: ['pocket'], car: 'pocket', paint: {}, best: 0, total: 0, name: '', route: { map: 'city', lanes: 4 }, bests: {}, lives: false, gm: null, lifeBests: {}, taBests: {}, admin: {} });
+const DEFAULTS = () => ({ cash: 0, owned: ['pocket'], car: 'pocket', paint: {}, best: 0, total: 0, name: '', route: { map: 'city', lanes: 4 }, bests: {}, lives: false, gm: null, lifeBests: {}, taBests: {}, admin: {}, tune: {} });
 const stored = readStored();
 const save = Object.assign(DEFAULTS(), stored);
 const routeKey = (map, lanes) => `${map}-${lanes}`;
 const weak = (navigator.hardwareConcurrency || 4) <= 4 || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent);
-// weather: 'map' (the map's own) or clear / rain / snow / fog; cam: 0 chase, 1 bonnet, 2 far chase; boxes: draw hitboxes
-save.settings = Object.assign({ vol: 0.7, quality: weak ? 'low' : 'high', units: 'kmh', density: 1, weather: 'map', cam: 0, boxes: false }, stored.settings || {});
+// weather: 'map' (the map's own) or clear / rain / snow / fog; cam: 0 chase, 1 bonnet, 2 far chase, 3 cockpit;
+// boxes: draw hitboxes; manual: manual gearbox (Q up, E down)
+save.settings = Object.assign({ vol: 0.7, quality: weak ? 'low' : 'high', units: 'kmh', density: 1, weather: 'map', cam: 0, boxes: false, manual: false }, stored.settings || {});
 function fixSave() {
   if (!MAPS[save.route?.map] || !LANE_MODES.includes(save.route?.lanes)) save.route = { map: 'city', lanes: 4 };
+  save.settings.density = clamp(+save.settings.density || 1, 0.4, 2.4);
   if (!Array.isArray(save.owned)) save.owned = ['pocket'];
   save.owned = save.owned.filter((id) => CARS.some((c) => c.id === id));
   if (!save.owned.includes('pocket')) save.owned.unshift('pocket');
   if (!save.owned.includes(save.car)) save.car = 'pocket';
-  for (const k of ['paint', 'bests', 'lifeBests', 'taBests', 'admin']) if (!save[k] || typeof save[k] !== 'object') save[k] = {};
+  for (const k of ['paint', 'bests', 'lifeBests', 'taBests', 'admin', 'tune']) if (!save[k] || typeof save[k] !== 'object') save[k] = {};
   if (!GAME_MODES[save.gm]) save.gm = save.lives ? 'lives' : 'free';
   save.lives = save.gm === 'lives';
 }
@@ -79,18 +84,25 @@ const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 24
 const world = new World(renderer, save.settings.quality);
 const scene = world.scene;
 // soft fill light riding with the camera so the car you are chasing is never a black silhouette
-const fill = new THREE.PointLight(0xffffff, hi ? 6 : 14, 20, 1.4);
+const FILL = hi ? 6 : 14;
+const fill = new THREE.PointLight(0xffffff, FILL, 20, 1.4);
 fill.position.set(0, 1.5, 0);
 camera.add(fill);
 scene.add(camera);
 const sound = new Sound();
 sound.volume = save.settings.vol;
+// the view from the driver's seat: the cabin, wheel and arms are their own little scene drawn over the world (so
+// they can sit centimetres from the camera without costing the world its depth precision)
+const cockpit = new Cockpit(hi);
+const cabPass = new RenderPass(cockpit.scene, cockpit.camera);
+cabPass.clear = false; cabPass.clearDepth = true; cabPass.enabled = false;
 // high quality: render into a multisampled HDR buffer, then bloom so lights glow
 let composer = null;
 if (hi) {
   // sharp screens get no MSAA (the pixels are already small and MSAA is the costliest part); others get 4x
   composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: renderer.getPixelRatio() >= 1.5 ? 0 : 4 }));
   composer.addPass(new RenderPass(scene, camera));
+  composer.addPass(cabPass);
   composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.45, 0.92));
   composer.addPass(new OutputPass());
   composer.setPixelRatio(renderer.getPixelRatio());
@@ -116,7 +128,7 @@ function adaptResolution(dt) {
     if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight); }
   }
 }
-addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); if (composer) composer.setSize(innerWidth, innerHeight); });
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); cockpit.resize(); renderer.setSize(innerWidth, innerHeight); if (composer) composer.setSize(innerWidth, innerHeight); });
 
 // ---------------- the player's car ----------------
 let spec = carById(save.car);
@@ -136,7 +148,9 @@ function setCarModel(s, paint) {
   headlight.target = hlTarget;
   fx.attachFlames(carMesh);
   scene.add(carMesh);
+  cockpit.setCar(s, paint ?? s.color);
   sound.setEngine(s.engine?.voice || 'i4', s.engine?.pitch || 1);
+  applyTuneSound(s);
 }
 setCarModel(spec, paintOf(spec.id));
 
@@ -179,13 +193,43 @@ addEventListener('keydown', (e) => {
     else if (mode === 'over') quitToMenu();
   }
   if (mode === 'over' && (e.code === 'KeyR' || e.code === 'Enter')) driveAgain();
-  if (e.code === 'KeyC' && mode === 'play') camMode = (camMode + 1) % 3;
+  if (e.code === 'KeyC' && mode === 'play') nextCam();
+  if (mode === 'play' && !e.repeat) {
+    if (e.code === 'KeyQ') shift(1);
+    if (e.code === 'KeyE') shift(-1);
+    if (e.code === 'KeyH') setManual(!save.settings.manual, true);
+  }
+  if (mode === 'tune' && e.code === 'Escape') closeTune();
   if (mode === 'garage') { if (e.code === 'ArrowLeft' || e.code === 'KeyA') browse(-1); if (e.code === 'ArrowRight' || e.code === 'KeyD') browse(1); }
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => { keys.clear(); if (mode === 'play' && !net) pause(true); });
 addEventListener('pointerdown', () => sound.start(), { capture: true });
+
+// ---------------- camera choice + the manual gearbox ----------------
+const CAM_ORDER = [0, 2, 1, 3], CAM_NAMES = { 0: 'Chase', 1: 'Bonnet', 2: 'Far chase', 3: 'Cockpit' };
+function nextCam() {
+  camMode = CAM_ORDER[(CAM_ORDER.indexOf(camMode) + 1) % CAM_ORDER.length];
+  save.settings.cam = camMode; persist();
+  pop(CAM_NAMES[camMode].toUpperCase(), 'camera', '#9fd4ff', false);
+}
+function setManual(on, say) {
+  save.settings.manual = !!on; persist();
+  sim.manual = save.settings.manual;
+  document.body.classList.toggle('manual', sim.manual);
+  $('h-gb').textContent = sim.manual ? 'MANUAL' : 'AUTO'; $('h-gb').classList.toggle('man', sim.manual);
+  $('t-gb').textContent = sim.manual ? 'MANUAL' : 'AUTO';
+  $('h-revs').classList.toggle('on', sim.manual);
+  if (say) pop(sim.manual ? 'MANUAL' : 'AUTOMATIC', sim.manual ? (singleSpeed(spec) ? 'electric: one gear, nothing to shift' : 'Q shifts up · E shifts down') : 'the car shifts for you', '#ffb020', false);
+}
+let gearRed = 0;
+/** Q / E (and the + / − touch buttons): one gear up or down in manual. */
+function shift(dir) {
+  if (mode !== 'play' || wreck || !sim.manual) { if (mode === 'play' && !sim.manual && !wreck) pop('AUTOMATIC', 'press H for manual', '#9aa3bd', false); return; }
+  const r = dir > 0 ? sim.shiftUp() : sim.shiftDown();
+  if (r === 'over') { gearRed = performance.now() + 350; sound.play('clank', { gain: 0.3, rate: 1.5 }); }
+}
 
 const isTouch = matchMedia('(pointer: coarse)').matches;
 if (isTouch) document.body.classList.add('touch');
@@ -194,6 +238,11 @@ for (const [id, k] of [['t-left', 'left'], ['t-right', 'right'], ['t-gas', 'gas'
   const on = (v) => (e) => { e.preventDefault(); touch[k] = v; el.classList.toggle('on', v); };
   el.addEventListener('pointerdown', on(true)); el.addEventListener('pointerup', on(false)); el.addEventListener('pointercancel', on(false)); el.addEventListener('pointerleave', on(false));
 }
+
+for (const [id, fn] of [['t-up', () => shift(1)], ['t-down', () => shift(-1)], ['t-gb', () => setManual(!save.settings.manual, true)], ['t-cam', () => nextCam()]]) {
+  $(id).addEventListener('pointerdown', (e) => { e.preventDefault(); if (mode === 'play') fn(); });
+}
+let padUp = false, padDown = false;
 
 function readInput() {
   const k = (...c) => c.some((x) => keys.has(x));
@@ -210,12 +259,17 @@ function readInput() {
     if (pad.buttons[7]?.value > 0.1 || pad.buttons[0]?.pressed) inp.gas = true;
     if (pad.buttons[6]?.value > 0.1) inp.brake = true;
     if (pad.buttons[1]?.pressed || pad.buttons[5]?.pressed) inp.nitro = true;
+    // manual: Y / triangle shifts up, X / square shifts down
+    const up = !!pad.buttons[3]?.pressed, dn = !!pad.buttons[2]?.pressed;
+    if (up && !padUp) shift(1);
+    if (dn && !padDown) shift(-1);
+    padUp = up; padDown = dn;
   }
   return inp;
 }
 
 // ---------------- screens ----------------
-const SCREENS = ['menu', 'garage', 'mp', 'settings', 'pause', 'route', 'over', 'account', 'admin'];
+const SCREENS = ['menu', 'garage', 'mp', 'settings', 'pause', 'route', 'over', 'account', 'admin', 'tune'];
 function show(name) {
   mode = name;
   for (const s of SCREENS) $(s).classList.toggle('hidden', s !== name);
@@ -301,11 +355,13 @@ function paintSettings() {
   $('s-vol').value = save.settings.vol;
   for (const b of document.querySelectorAll('[data-q]')) b.classList.toggle('primary', b.dataset.q === save.settings.quality);
   for (const b of document.querySelectorAll('[data-u]')) b.classList.toggle('primary', b.dataset.u === save.settings.units);
-  for (const b of document.querySelectorAll('[data-t]')) b.classList.toggle('primary', +b.dataset.t === save.settings.density);
+  $('s-den').value = save.settings.density; $('s-denv').textContent = densityName(save.settings.density);
   for (const b of document.querySelectorAll('[data-w]')) b.classList.toggle('primary', b.dataset.w === save.settings.weather);
   for (const b of document.querySelectorAll('[data-cam]')) b.classList.toggle('primary', +b.dataset.cam === save.settings.cam);
   for (const b of document.querySelectorAll('[data-hb]')) b.classList.toggle('primary', (b.dataset.hb === '1') === !!save.settings.boxes);
+  for (const b of document.querySelectorAll('[data-gb]')) b.classList.toggle('primary', (b.dataset.gb === '1') === !!save.settings.manual);
 }
+for (const b of document.querySelectorAll('[data-gb]')) b.onclick = () => { setManual(b.dataset.gb === '1', false); paintSettings(); };
 for (const b of document.querySelectorAll('[data-w]')) b.onclick = () => { save.settings.weather = b.dataset.w; persist(); paintSettings(); applyWeather(); };
 for (const b of document.querySelectorAll('[data-cam]')) b.onclick = () => { save.settings.cam = +b.dataset.cam; camMode = save.settings.cam; persist(); paintSettings(); };
 for (const b of document.querySelectorAll('[data-hb]')) b.onclick = () => { save.settings.boxes = b.dataset.hb === '1'; persist(); paintSettings(); };
@@ -330,7 +386,8 @@ for (const b of document.querySelectorAll('[data-q]')) b.onclick = () => {
   setTimeout(() => location.reload(), 500);
 };
 for (const b of document.querySelectorAll('[data-u]')) b.onclick = () => { save.settings.units = b.dataset.u; persist(); paintSettings(); };
-for (const b of document.querySelectorAll('[data-t]')) b.onclick = () => { save.settings.density = +b.dataset.t; persist(); paintSettings(); };
+const densityName = (d) => `${d < 0.6 ? 'Empty roads' : d < 0.9 ? 'Light' : d < 1.15 ? 'Normal' : d < 1.5 ? 'Busy' : d < 1.9 ? 'Rush hour' : d < 2.3 ? 'Jammed' : 'Gridlock'} · x${(+d).toFixed(1)}`;
+$('s-den').oninput = (e) => { save.settings.density = clamp(+e.target.value, 0.4, 2.4); $('s-denv').textContent = densityName(save.settings.density); persist(); };
 
 // ---------------- garage ----------------
 let gIdx = 0, gPaint = 0;
@@ -343,10 +400,15 @@ function paintGarage(rebuild) {
   if (rebuild) setCarModel(c, gPaint); else carMesh.userData.setPaint(gPaint);
   $('g-name').textContent = c.name;
   $('g-cls').textContent = owned ? c.cls : `${c.cls} · $${fmt(c.price)}`;
-  const top = save.settings.units === 'mph' ? `${Math.round(c.top * 0.6214)} mph` : `${c.top} km/h`;
-  $('g-top').style.width = `${(c.top / 420) * 100}%`; $('g-topv').textContent = top;
-  $('g-acc').style.width = `${(c.accel / 15.5) * 100}%`; $('g-accv').textContent = `${(100 / 3.6 / c.accel * 1.35).toFixed(1)}s`;
-  $('g-han').style.width = `${(c.grip / 1.4) * 100}%`; $('g-hanv').textContent = `${Math.round((c.grip / 1.4) * 100)}`;
+  // the numbers count the tuning parts fitted to your own car
+  const t = owned ? tunedSpec(c, tuneOf(save, c.id), sportOf(save, c.id) === 2) : c, brk = brakeOf(t);
+  const top = save.settings.units === 'mph' ? `${Math.round(t.top * 0.6214)} mph` : `${t.top} km/h`;
+  $('g-top').style.width = `${Math.min(100, (t.top / 560) * 100)}%`; $('g-topv').textContent = top;
+  $('g-acc').style.width = `${Math.min(100, (t.accel / 26) * 100)}%`; $('g-accv').textContent = `${(100 / 3.6 / t.accel * 1.35).toFixed(1)}s`;
+  $('g-han').style.width = `${Math.min(100, (t.grip / 1.9) * 100)}%`; $('g-hanv').textContent = `${Math.round((t.grip / 1.4) * 100)}`;
+  $('g-brk').style.width = `${Math.min(100, (brk / 52) * 100)}%`; $('g-brkv').textContent = `${(Math.min(56, brk) / 9.81).toFixed(1)} g`;
+  $('g-tune').disabled = !owned;
+  { const lv = tuneOf(save, c.id).reduce((a, v) => a + v, 0); $('g-tune').textContent = lv ? `Tune · ${lv}/${TUNE_PARTS.length * MAX_STAGE}${sportOf(save, c.id) === 2 ? ' · S' : ''}` : 'Tune'; }
   $('g-sw').innerHTML = PAINT_SWATCHES.map((h) => `<button class="sw${h === gPaint ? ' on' : ''}" data-c="${h}" style="background:#${h.toString(16).padStart(6, '0')}" aria-label="paint"></button>`).join('');
   const act = $('g-act');
   act.disabled = false;
@@ -379,6 +441,62 @@ $('g-act').onclick = () => {
   refreshWallet(); paintGarage(false);
 };
 
+// ---------------- tuning: buy a part, then fit it with a quick-time game ----------------
+const qte = new Qte($('qte'), sound);
+function openTune() { if (!save.owned.includes(CARS[gIdx].id)) return; show('tune'); $('tu-note').textContent = ''; paintTune(); }
+function closeTune() { if (qte.active) return; show('garage'); paintGarage(false); }
+function paintTune() {
+  const c = CARS[gIdx], lv = tuneOf(save, c.id), sp = sportOf(save, c.id);
+  $('tu-name').textContent = c.name;
+  $('tu-list').innerHTML = TUNE_PARTS.map((p, i) => {
+    const st = lv[i], max = st >= MAX_STAGE, cost = max ? 0 : stageCost(c, st + 1), can = !max && save.cash >= cost;
+    return `<div class="tu-row"><div><b>${p.name}</b> <span class="tu-st">${max ? 'Stage 7 · maxed' : st ? `Stage ${st}` : 'Stock'}</span><small>${p.what}</small><div class="tu-pips">${Array.from({ length: MAX_STAGE }, (_, k) => `<i class="${k < st ? 'on' : ''}"></i>`).join('')}</div></div><button class="btn small${can ? ' primary' : ''}" data-part="${i}" ${can ? '' : 'disabled'}>${max ? 'Maxed' : `Stage ${st + 1} · $${fmt(cost)}`}</button></div>`;
+  }).join('') + `<div class="tu-row sport${sp === 2 ? ' on' : ''}"><div><b>Sport mode</b> <span class="tu-st">${sp === 2 ? 'ON' : sp === 1 ? 'off' : 'not fitted'}</span><small>A switch that makes the whole car a lot quicker. Costs four times the car.</small></div><button class="btn small${sp || save.cash >= sportCost(c) ? ' primary' : ''}" data-sport="1" ${sp || save.cash >= sportCost(c) ? '' : 'disabled'}>${sp === 2 ? 'Turn off' : sp === 1 ? 'Turn on' : `Buy · $${fmt(sportCost(c))}`}</button></div>`;
+  $('tu-cash').textContent = `You have $${fmt(save.cash)}`;
+}
+/** After any tuning change: the car you drive picks it up, and so does its sound. */
+function tuneChanged(c) {
+  persist(); refreshWallet(); paintTune();
+  if (c.id === save.car) sim.setSpec(driveSpec());
+  applyTuneSound(c);
+}
+/** Tuned cars sound it: louder exhaust, more crackle, turbo whistle. */
+function applyTuneSound(c) {
+  const lv = tuneOf(save, c.id), own = save.owned.includes(c.id);
+  sound.setTune(own ? { turbo: lv[PART.turbo], engine: lv[PART.engine], ecu: lv[PART.ecu], exhaust: lv[PART.exhaust], sport: sportOf(save, c.id) === 2, stock: !!c.engine?.turbo, ev: singleSpeed(c) } : { turbo: 0, engine: 0, ecu: 0, exhaust: 0, sport: false, stock: !!c.engine?.turbo, ev: singleSpeed(c) });
+}
+$('g-tune').onclick = () => openTune();
+$('tu-back').onclick = () => closeTune();
+$('tu-list').onclick = async (e) => {
+  const sb = e.target.closest('[data-sport]'), c = CARS[gIdx], note = $('tu-note');
+  if (sb && !sb.disabled && !qte.active) { // sport mode: buy it once, then it is a switch
+    const sp = sportOf(save, c.id);
+    if (!sp) { if (save.cash < sportCost(c)) return; save.cash -= sportCost(c); sound.buy(); note.className = 'status'; note.innerHTML = '<b style="color:var(--green)">Sport mode fitted and switched on.</b>'; }
+    setTune(save, c.id, tuneOf(save, c.id), sp === 2 ? 1 : 2);
+    tuneChanged(c); revUntil = performance.now() + 800;
+    return;
+  }
+  const b = e.target.closest('[data-part]');
+  if (!b || b.disabled || qte.active) return;
+  const i = +b.dataset.part, p = TUNE_PARTS[i];
+  const stage = tuneOf(save, c.id)[i] + 1, cost = stageCost(c, stage);
+  if (stage > MAX_STAGE || save.cash < cost) return;
+  const r = await qte.play(p.qte, p.job);
+  const lv = tuneOf(save, c.id);
+  if (r.ok) {
+    const back = r.perfect ? Math.round(cost * PERFECT_BACK) : 0;
+    save.cash = Math.max(0, save.cash - cost + back);
+    lv[i] = stage; setTune(save, c.id, lv); sound.buy();
+    note.className = 'status'; note.innerHTML = `<b style="color:var(--green)">${p.name} stage ${stage} fitted.</b>${back ? ` A perfect job: $${fmt(back)} back.` : ''}`;
+    revUntil = performance.now() + 800;
+  } else {
+    const lost = Math.min(save.cash, Math.round(cost * BOTCH));
+    save.cash -= lost;
+    note.className = 'status err'; note.textContent = `The job went wrong and $${fmt(lost)} of parts were wasted. Try again.`;
+  }
+  tuneChanged(c);
+};
+
 enterMenuWorld();
 
 // ---------------- starting, spawning, quitting ----------------
@@ -399,7 +517,7 @@ function spawn(s, v) {
   prevS = s;
 }
 /** The car as it drives: the owner's Turbo switch makes it quicker. */
-const driveSpec = () => (cheat('turbo') ? { ...spec, top: Math.round(spec.top * 1.35), accel: spec.accel * 1.4 } : spec);
+const driveSpec = () => { const t = tunedSpec(spec, tuneOf(save, spec.id), sportOf(save, spec.id) === 2); return cheat('turbo') ? { ...t, top: Math.round(t.top * 1.35), accel: t.accel * 1.4 } : t; };
 function beginPlay() {
   clearWreck();
   scorer.reset();
@@ -414,6 +532,7 @@ function beginPlay() {
   $('h-ta').classList.toggle('hidden', gm !== 'time');
   camMode = save.settings.cam || 0;
   setCarModel(spec, paintOf(spec.id)); sim.setSpec(driveSpec());
+  setManual(save.settings.manual, false);
   show('play');
   playTime = 0;
   run.s0 = sim.s; run.cash0 = save.cash; run.best = 0; run.newBest = false;
@@ -421,7 +540,7 @@ function beginPlay() {
   $('h-hint').style.opacity = 1;
   const m = world.map, L = world.road.lanes;
   const admin = ['god', 'nitro', 'turbo', 'combo'].some(cheat);
-  $('h-route').textContent = `${m.name} · ${L} lanes${gm !== 'free' ? ` · ${G.name.toLowerCase()}` : ''}${scorer.cashMult !== 1 ? ` · cash x${+scorer.cashMult.toFixed(2)}` : ''}${weatherKind !== 'clear' ? ` · ${weatherKind}` : ''}${admin ? ' · ADMIN' : ''}`;
+  $('h-route').textContent = `${m.name} · ${L} lanes${gm !== 'free' ? ` · ${G.name.toLowerCase()}` : ''}${scorer.cashMult !== 1 ? ` · cash x${+scorer.cashMult.toFixed(2)}` : ''}${weatherKind !== 'clear' ? ` · ${weatherKind}` : ''}${sportOf(save, spec.id) === 2 ? ' · SPORT' : ''}${admin ? ' · ADMIN' : ''}`;
   const sub = { lives: 'Two lives · crash twice and you blow up', hard: 'Hardcore · one crash and you blow up', time: `Time attack · reach the checkpoints · ${TA.start}s on the clock`, zen: 'Zen cruise · crashes never cost the combo' }[gm];
   banner('GO', sub || `${m.name} · ${L} lanes`, '#ffb020');
 }
@@ -689,7 +808,11 @@ function updateHud(now) {
   const mph = save.settings.units === 'mph';
   setText('h-kmh', String(Math.round(sim.v * (mph ? 2.237 : 3.6))));
   setText('h-unit', mph ? 'MPH' : 'KM/H');
-  setText('h-gear', sim.v < 0.5 ? 'N' : String(sim.gear + 1));
+  setText('h-gear', singleSpeed(spec) ? (sim.v < 0.5 ? 'P' : 'D') : sim.manual ? String(sim.gear + 1) : sim.v < 0.5 ? 'N' : String(sim.gear + 1));
+  if (sim.manual) {
+    $('h-rev').style.transform = `scaleX(${clamp(sim.rpm / (REDLINE + 200), 0, 1)})`;
+    $('h-gear').classList.toggle('red', sim.limiter || now < gearRed);
+  } else if (hudCache.red !== false) { hudCache.red = false; $('h-gear').classList.remove('red'); }
   $('h-nitro').style.width = `${sim.nitro * 100}%`;
   // the next speed trap, once it is close
   const next = world.road.trapsIn(sim.s, sim.s + 700)[0], tEl = $('h-trap');
@@ -753,9 +876,9 @@ function updateCamera(dt) {
     right.crossVectors(fwd, UP).normalize();
     camera.lookAt(look.copy(wreckLook).addScaledVector(right, wreckOff));
     fov = damp(fov, 62, 2, dt);
-  } else if (mode === 'menu' || mode === 'garage' || mode === 'mp' || mode === 'settings' || mode === 'account' || mode === 'admin') {
+  } else if (mode === 'menu' || mode === 'garage' || mode === 'tune' || mode === 'mp' || mode === 'settings' || mode === 'account' || mode === 'admin') {
     // swing back and forth along the car's left side, staying inside the left barrier
-    const g = mode === 'garage';
+    const g = mode === 'garage' || mode === 'tune';
     menuAng += dt * (g ? 0.3 : 0.16);
     const a = 1.5 + Math.sin(menuAng) * (g ? 1.1 : 0.9);
     const r = g ? 6.4 : 9;
@@ -767,7 +890,7 @@ function updateCamera(dt) {
     right.crossVectors(fwd, UP).normalize();
     look.addScaledVector(right, g ? -2.1 : -3.4);
     camera.lookAt(look);
-    fov = damp(fov, mode === 'garage' ? 52 : 58, 4, dt);
+    fov = damp(fov, g ? 52 : 58, 4, dt);
   } else if (camMode === 0 || camMode === 2) {
     const far = camMode === 2, dist = (far ? 9.4 : 6.3) + kmh * (far ? 0.012 : 0.009), h = (far ? 3.3 : 1.95) + kmh * 0.0026;
     camD = damp(camD, sim.d, 7, dt);
@@ -784,6 +907,10 @@ function updateCamera(dt) {
     camera.lookAt(P2.x, P2.y + 0.85, P2.z);
     const target = 64 + clamp((kmh - 60) / 260, 0, 1) * 22 + (sim.boosting ? 7 : 0);
     fov = damp(fov, target, 3, dt);
+  } else if (camMode === 3) {
+    // from the driver's seat: the cockpit works out where the head is and which way it looks
+    cockpit.place(camera, carMesh, dt, sim, aLong);
+    fov = damp(fov, 70 + clamp((kmh - 60) / 260, 0, 1) * 11 + (sim.boosting ? 5 : 0), 3, dt);
   } else {
     const hd = P.h + sim.yaw;
     fwd.set(Math.sin(hd), 0, Math.cos(hd));
@@ -801,7 +928,8 @@ function updateCamera(dt) {
 // ---------------- main loop ----------------
 const clock = new THREE.Clock();
 let fpsAvg = 60;
-let inputNow = { gas: false }, lastGas = false;
+let seatWas = false;
+let inputNow = { gas: false }, lastGas = false, limiterOn = false, boostP = 0, flamePops = 0, flameAt = 0;
 const CV = new THREE.Vector3(), FV = new THREE.Vector3(), FD = new THREE.Vector3(), BV = new THREE.Vector3(), FP = {};
 function frame() {
   const dt = Math.min(0.05, clock.getDelta());
@@ -904,18 +1032,37 @@ function frame() {
       FV.set(FP.x, FP.y + 0.35 + Math.random() * 0.25, FP.z); FD.set(0, 0.3, 0); BV.copy(CV).multiplyScalar(0.72);
       fx.burst(FV, FD, 2 + Math.floor(sim.v / 25), 6, BV);
     }
-    const lifting = !inputNow.gas && lastGas && sim.rpm > 5200;
+    const ev1 = singleSpeed(spec); // electric cars have no exhaust to pop and no gears to change
+    const ck = sound.crackle; // how lively the exhaust is (ECU tune, exhaust, sport mode)
+    const lifting = !ev1 && !inputNow.gas && lastGas && sim.rpm > 5200 - ck * 900;
     if (lifting && Math.random() < 0.75) { fx.pop(); sound.pop(); }
+    // tuned cars burble: a run of crackles (and flames) when you lift, and odd pops while the revs fall
+    if (lifting && ck > 0.1 && Math.random() < Math.min(0.95, 0.3 + ck * 0.6)) { sound.burble(ck); flamePops = 2 + Math.floor(ck * 3 + Math.random() * 2); flameAt = now + 90; }
+    if (!ev1 && ck > 0.3 && !inputNow.gas && sim.rpm > 4300 && sim.v > 12 && Math.random() < dt * ck * 1.6) { fx.pop(); sound.pop(); }
+    if (flamePops > 0 && now > flameAt) { flamePops--; flameAt = now + 70 + Math.random() * 170; fx.pop(); }
+    // turbo: boost builds with the revs on the throttle and dumps through the blow-off valve when you lift
+    {
+      const want = !ev1 && (inputNow.gas || sim.boosting) && !sim.limiter ? clamp((sim.rpm - 2000) / 3000, 0, 1) : 0;
+      if (want > 0 && boostP < 0.12 && !lastGas && sim.rpm > 2400) sound.spoolUp();
+      if (want === 0 && boostP > 0.5) { sound.blowoff(boostP); boostP *= 0.2; }
+      boostP = damp(boostP, want, want > boostP ? 2.4 + (sim.spec.tuned?.lv?.[PART.turbo] || 0) * 0.3 : 8, dt);
+      sound.turbo(boostP);
+    }
     lastGas = inputNow.gas;
     // gear changes dip the engine note (and sometimes crackle); nitro kicks in with a rush
-    if (sim.gear !== lastGear) { if (sim.gear > lastGear && sim.v > 3) { sound.shift(); if (Math.random() < 0.35) { fx.pop(); sound.pop(); } } lastGear = sim.gear; }
+    if (sim.gear !== lastGear) {
+      if (sim.v > 3 && !ev1) { sound.shift(); if ((sim.gear > lastGear ? Math.random() < 0.35 : sim.manual && Math.random() < 0.6)) { fx.pop(); sound.pop(); } }
+      lastGear = sim.gear;
+    }
+    // manual: the engine stutters on the rev limiter until you shift
+    if (sim.limiter) { limiterOn = true; sound.cut(Math.floor(now / 42) % 2 ? 1 : 0.28); } else if (limiterOn) { limiterOn = false; sound.cut(1); }
     if (sim.boosting && !lastBoost) sound.nitro();
     lastBoost = sim.boosting;
     // tyres squeal when the car is pointed well off the road's line at speed or braking hard
     const slide = clamp((Math.abs(sim.yaw) - 0.12) / 0.12, 0, 1) * clamp((sim.v - 25) / 20, 0, 1) * 0.8 + (sim.braking && sim.v > 30 ? 0.45 : 0);
     sound.tires(mode === 'play' ? Math.min(1, slide) : 0);
     sound.scrape(sim.scrape && sim.v > 5 ? Math.min(1, sim.v / 30) : 0);
-  } else { sound.tires(0); sound.scrape(0); }
+  } else { sound.tires(0); sound.scrape(0); if (boostP) { boostP = 0; sound.turbo(0); } }
   sound.setTunnel(world.tunnelK);
   $('h-slip').classList.toggle('on', playing && sim.draft && !wreck);
   fx.update(dt, sim.v * 3.6, sim.boosting && !wreck, CV, playing && !wreck);
@@ -937,7 +1084,17 @@ function frame() {
   // in the garage, switching cars gives a quick rev so you hear each engine
   const rev = now < revUntil ? Math.sin(Math.PI * (1 - (revUntil - now) / 800)) : 0;
   sound.engine(playing ? sim.rpm : 1500 + rev * 5200, playing ? sim.load : rev > 0.05 ? 1 : 0, playing ? sim.v : 0, (mode === 'play' && !wreck) || rev > 0.05, sim.boosting);
-  if (composer) composer.render(dt); else renderer.render(scene, camera);
+  // the driver's seat view: cabin, dials, wheel and arms, drawn over the world
+  const seat = camMode === 3 && playing && !wreck;
+  fill.intensity = seat ? FILL * 0.2 : FILL;
+  cabPass.enabled = seat;
+  if (seat !== seatWas) { seatWas = seat; document.body.classList.toggle('seat', seat); }
+  if (seat) cockpit.update(frozen ? 0 : dt, { sim, input: inputNow, world, camera, now: now / 1000, mph: save.settings.units === 'mph', spec: sim.spec, weather: weatherKind, flash: weather.flash, crash: shake });
+  if (composer) composer.render(dt);
+  else {
+    renderer.render(scene, camera);
+    if (seat) { renderer.autoClear = false; renderer.clearDepth(); renderer.render(cockpit.scene, cockpit.camera); renderer.autoClear = true; }
+  }
   if (liquid.showing) liquid.grab(renderer.domElement); // the kart button's water shows this view through it
 }
 // ---------------- time attack ----------------
@@ -1164,7 +1321,7 @@ for (const b of document.querySelectorAll('[data-k]')) b.onclick = () => {
   persist(); paintAdmin();
 };
 account.on(() => { paintAccount(); ownerPerks(); });
-initAccount({ reload: reloadSave, pullOk: () => !['play', 'pause', 'garage', 'over'].includes(mode) });
+initAccount({ reload: reloadSave, pullOk: () => !['play', 'pause', 'garage', 'tune', 'over'].includes(mode) });
 
 function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
 
@@ -1213,4 +1370,4 @@ if (framed && /^[A-Z]{4}$/.test(joinCode)) {
 }
 
 // handy for testing in the console
-window.__cc = { sim, scorer, world, save, persist, sound, setRoute, get timeLeft() { return timeLeft; }, set timeLeft(v) { timeLeft = v; }, weather, get fps() { return fpsAvg; }, get mode() { return mode; }, startSolo, quitToMenu, get net() { return net; }, account, get lives() { return lives; }, get wreck() { return wreck; }, blowUp, loseLife, driveAgain, fire, smoke };
+window.__cc = { cockpit, qte, setManual, shift, nextCam, openGarage, openTune, get camMode() { return camMode; }, set camMode(v) { camMode = v; }, get spec() { return spec; }, sim, scorer, world, save, persist, sound, setRoute, get timeLeft() { return timeLeft; }, set timeLeft(v) { timeLeft = v; }, weather, get fps() { return fpsAvg; }, get mode() { return mode; }, startSolo, quitToMenu, get net() { return net; }, account, get lives() { return lives; }, get wreck() { return wreck; }, blowUp, loseLife, driveAgain, fire, smoke };

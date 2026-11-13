@@ -37,3 +37,5 @@ Credit isn't required under CC0, but thanks to the recordists:
 | horn_b | [170243](https://freesound.org/people/BeatsbyCasper/sounds/170243/) | BeatsbyCasper |
 | horn_c | [423990](https://freesound.org/people/AmishRob/sounds/423990/) | AmishRob |
 | squeak | [104026](https://freesound.org/people/RutgerMuller/sounds/104026/) | RutgerMuller |
+| bov_a, bov_b, spool_up (turbo spool, blow-off flutter) | [659544](https://freesound.org/people/EwanPenman11/sounds/659544/) | EwanPenman11 |
+| burble_a/b/c (anti-lag crackle) | [797835](https://freesound.org/people/modusmogulus/sounds/797835/) | modusmogulus |

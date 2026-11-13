@@ -8,6 +8,7 @@
 import * as store from './store.js';
 
 export const WHATS_NEW = Object.freeze([
+  { id: 'cc-cockpit', date: '2026-11-12', game: 'close-call', title: "Close Call: the driver's seat", text: 'Sit inside 45 cars, shift by hand, tune 7 parts, hear the turbo spool. 23 new cars, and the Claude Car.', href: 'play.html?g=close-call' },
   { id: 'brielle-launch', date: '2026-11-11', game: 'brielle-battleroyal', title: 'Brielle Battleroyal is out', text: 'A battle royale on Brielle, NJ: drop from the Shore Blimp, loot, build, edit and outlast the storm.', href: 'play.html?g=brielle-battleroyal' },
   { id: 'fnab-withered', date: '2026-11-11', game: 'five-nights-at-bings', title: "Five Nights at Bing's: they got worse", text: 'Withered robots: torn fur, bare metal, black eyes, extra teeth. Some walk right up to the camera.', href: 'play.html?g=five-nights-at-bings' },
   { id: 'fnab-map', date: '2026-11-11', game: 'five-nights-at-bings', title: "Five Nights at Bing's: a real building", text: 'Real furniture and kitchen gear in every room, photo-real walls and floors, furrier robots and a floor-plan camera map.', href: 'play.html?g=five-nights-at-bings' },

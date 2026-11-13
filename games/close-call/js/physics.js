@@ -3,7 +3,15 @@
 import { clamp, damp } from './util.js';
 
 export const GEAR_TOPS = [0.22, 0.38, 0.53, 0.68, 0.84, 1.0];
-const REDLINE = 7400;
+export const REDLINE = 7400;
+const LIMIT = REDLINE + 200; // the rev limiter cuts in here (manual gearbox)
+/** Electric cars have one gear: nothing to shift. */
+export const singleSpeed = (spec) => spec?.engine?.voice === 'ev';
+/**
+ * How hard a car brakes (m/s²) when cars.js doesn't say: dearer cars get bigger brakes. Everyday cars stop at about
+ * 1.5 g, supercars well over 2 g, the top hypercars over 3 g.
+ */
+export const brakeOf = (spec) => spec.brake ?? 15 + 17 * Math.min(1, (spec.price || 0) / 260000) ** 0.6;
 // a crash needs the bodies to overlap by more than this (metres): paint-trading touches and mirror brushes don't count
 export const HIT_SLACK = 0.05;
 
@@ -47,10 +55,27 @@ export class CarSim {
     this.yaw = 0; this.steer = 0;
     this.ghost = 0; this.nitro = 0.35; this.boosting = false;
     this.gear = 0; this.rpm = 1000; this.load = 0;
+    this.limiter = false; // manual: bouncing off the rev limiter
+    this.shiftDir = 0; this.shiftAge = 9; // the last gear change (1 up, -1 down) and how long ago, for sound and hands
     this.braking = false;
     this.wallCool = 0;
     this.scrape = 0;
     this.draft = false; // in another car's slipstream (set by the game each frame)
+  }
+
+  /** Manual gearbox: one gear up. False when there is nothing to change (top gear, or an electric car). */
+  shiftUp() {
+    if (singleSpeed(this.spec) || this.gear >= GEAR_TOPS.length - 1) return false;
+    this.gear++; this.shiftDir = 1; this.shiftAge = 0;
+    return true;
+  }
+  /** Manual gearbox: one gear down. Refused ('over') when the lower gear would spin the engine past its limit. */
+  shiftDown() {
+    if (singleSpeed(this.spec) || this.gear <= 0) return false;
+    const top = this.spec.top / 3.6;
+    if ((REDLINE * this.v) / (GEAR_TOPS[this.gear - 1] * top) > LIMIT + 500) return 'over';
+    this.gear--; this.shiftDir = -1; this.shiftAge = 0;
+    return true;
   }
 
   /** Half width across the road, counting the car's angle. */
@@ -66,28 +91,48 @@ export class CarSim {
     const boost = input.nitro && this.nitro > 0.02 && this.v > 5;
     this.boosting = boost;
     if (boost) this.nitro = Math.max(0, this.nitro - dt * 0.28);
-    const vmax = (sp.top / 3.6) * (boost ? 1.1 : 1) * (this.draft ? 1.04 : 1);
+    const vmax = (sp.top / 3.6) * (boost ? 1 + 0.1 * (sp.nitroPush ?? 1) : 1) * (this.draft ? 1.04 : 1);
+
+    // --- gearbox: automatic picks the gear from the speed; manual keeps yours and has a rev limiter ---
+    const top = sp.top / 3.6;
+    const manual = this.manual && !singleSpeed(sp);
+    let pull = 1, engBrake = 0;
+    this.limiter = false;
+    if (manual) {
+      const g = this.gear, last = g >= GEAR_TOPS.length - 1;
+      const r = (REDLINE * this.v) / (GEAR_TOPS[g] * top);
+      if (g > 0 && r < 3200) pull = 0.3 + 0.7 * Math.max(0, r / 3200); // too high a gear: the engine bogs (first gear slips the clutch)
+      if (!last && r >= LIMIT) pull = 0; // on the limiter: no more speed in this gear
+      this.limiter = !last && r >= LIMIT - 110 && (input.gas || boost);
+      if (!input.gas && !boost) engBrake = 0.9 + 3.4 * Math.min(1.3, r / REDLINE) ** 2; // lifting off in a low gear slows you
+      if (!last && r > LIMIT + 60) engBrake += 7; // over-revved after a downshift
+    }
 
     // --- speed ---
     let a = 0;
-    if (input.gas) a += sp.accel * Math.max(0, 1 - Math.pow(Math.max(0, this.v) / vmax, 2.4)) * (boost ? 1.75 : 1) * (this.draft ? 1.15 : 1);
-    if (boost && !input.gas) a += sp.accel * 0.6;
-    if (input.brake) a -= 17;
+    if (input.gas) a += sp.accel * pull * Math.max(0, 1 - Math.pow(Math.max(0, this.v) / vmax, 2.4)) * (boost ? 1.75 : 1) * (this.draft ? 1.15 : 1);
+    if (boost && !input.gas) a += sp.accel * 0.6 * pull;
+    // brakes: every car has its own, and they bite harder at speed (downforce and air brakes on the fast ones)
+    if (input.brake) a -= Math.min(56, brakeOf(sp) * (1 + 0.3 * Math.min(1, this.v / 95)));
     a -= 9.81 * road.grade(this.s) * 0.45; // hills: a little slower up, a little faster down
     // air drag only when coasting, so every car reaches its listed top speed on the gas
-    a -= 0.25 + (input.gas || boost ? 0 : 0.00034 * this.v * this.v);
+    a -= 0.25 + (input.gas || boost ? 0 : 0.00034 * this.v * this.v) + engBrake;
     if (this.v > vmax) a = Math.min(a, -3);
     this.v = clamp(this.v + a * dt, 0, vmax * 1.03);
     this.accel = a;
     this.braking = !!input.brake && this.v > 1;
     this.load = input.gas || boost ? 1 : 0;
 
-    // gear + rpm (for sound and the HUD)
-    const top = sp.top / 3.6;
-    let g = 0;
-    while (g < GEAR_TOPS.length - 1 && this.v > GEAR_TOPS[g] * top * 0.985) g++;
-    this.gear = g;
-    this.rpm = clamp((REDLINE * this.v) / (GEAR_TOPS[g] * top), 950, REDLINE + 200);
+    // gear + rpm (for sound, the HUD and the dials)
+    this.shiftAge += dt;
+    if (!manual) {
+      let g = 0;
+      if (!singleSpeed(sp)) while (g < GEAR_TOPS.length - 1 && this.v > GEAR_TOPS[g] * top * 0.985) g++;
+      if (g !== this.gear) { this.shiftDir = g > this.gear ? 1 : -1; this.shiftAge = 0; }
+      this.gear = g;
+    }
+    this.rpm = clamp((REDLINE * this.v) / (GEAR_TOPS[this.gear] * top), 950, manual ? LIMIT + 700 : LIMIT);
+    if (this.limiter) this.rpm = LIMIT - 260 * Math.abs(Math.sin(this.shiftAge * 38)); // the needle chatters on the limiter
 
     // --- steering ---
     const target = clamp(input.steer, -1, 1);
