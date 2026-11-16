@@ -115,4 +115,18 @@ window.GAMES = [
     joins: true,
     added: '2026-11-11',
   },
+  {
+    id: 'nova-party',
+    title: 'Nova Party',
+    tagline: 'Name an answer and pass the nova before it blows. 75 categories, rare answers score big, last one in orbit wins.',
+    url: 'games/nova-party/',
+    thumb: 'assets/nova-party.jpg',
+    preview: 'assets/nova-party.webm',
+    previewMp4: 'assets/nova-party.mp4',
+    tags: ['Party', 'Multiplayer', 'Trivia'],
+    controls: 'Type an answer · Enter to send · pass the nova before it blows',
+    accent: '#7c9cff',
+    joins: true,
+    added: '2026-11-16',
+  },
 ];

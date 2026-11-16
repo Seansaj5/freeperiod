@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#070a1c">
+<title>Nova Party</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/pressstart2p.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face { font-family: 'PS2P'; src: url('fonts/pressstart2p.woff2') format('woff2'); font-display: swap; }
+:root { --u: 4px; --bg: #070a1c; --panel: #141a3c; --panel2: #1d2552; --line: #2c3672; --ink: #f5efe0; --dim: #8d96c2; --hot: #ff9d2e; --cy: #5ad1ff; --ok: #7dff8a; --bad: #ff5a6a; --gold: #ffd23d;
+  --bd: 0 -4px 0 0 #000, 0 4px 0 0 #000, -4px 0 0 0 #000, 4px 0 0 0 #000; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: 'PS2P', ui-monospace, Menlo, monospace; font-size: 10px; line-height: 1.6; overflow: hidden; -webkit-font-smoothing: none; -webkit-tap-highlight-color: transparent; }
+canvas { image-rendering: pixelated; }
+button, input { font: inherit; }
+[hidden] { display: none !important; }
+#sky { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+main { position: relative; z-index: 1; height: 100vh; height: 100dvh; }
+.scr { display: none; height: 100%; }
+.scr.on { display: flex; }
+.px { background: var(--panel); box-shadow: var(--bd), inset 0 4px 0 0 rgba(255,255,255,.06); margin: 4px; }
+.btn { color: #1a0f00; background: var(--hot); border: 0; padding: 12px 16px; margin: 4px; cursor: pointer; text-transform: uppercase; box-shadow: var(--bd), inset 0 -4px 0 0 rgba(0,0,0,.28), inset 0 4px 0 0 rgba(255,255,255,.35); }
+.btn:hover { filter: brightness(1.12); }
+.btn:active { transform: translateY(2px); box-shadow: var(--bd), inset 0 4px 0 0 rgba(0,0,0,.2); }
+.btn:focus-visible, .mini:focus-visible, .link:focus-visible, input:focus-visible { outline: 4px solid #fff; outline-offset: 4px; }
+.btn.cy { background: var(--cy); }
+.btn.dim { background: #3a4378; color: var(--ink); }
+.btn.red { background: var(--bad); color: #fff; }
+.btn.big { font-size: 14px; padding: 16px 24px; }
+.btn.sm { font-size: 8px; padding: 9px 10px; }
+.btn:disabled { filter: grayscale(1) brightness(.6); cursor: default; }
+.mini { color: var(--ink); background: var(--panel2); border: 0; width: 28px; height: 28px; cursor: pointer; box-shadow: var(--bd); margin: 4px; }
+.mini:active { transform: translateY(2px); }
+.link { background: none; border: 0; color: var(--dim); cursor: pointer; padding: 6px; text-transform: uppercase; }
+.link:hover { color: var(--ink); }
+.field { color: var(--ink); background: #0b0f26; border: 0; outline: 0; padding: 10px; margin: 4px; box-shadow: 0 -4px 0 0 var(--line), 0 4px 0 0 var(--line), -4px 0 0 0 var(--line), 4px 0 0 0 var(--line); text-transform: uppercase; min-width: 0; }
+.row { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+
+/* ---------- title ---------- */
+#title { flex-direction: column; align-items: center; gap: 10px; padding: 12px 12px 16px; overflow-y: auto; }
+#title > :first-child { margin-top: auto; }
+#title > :last-child { margin-bottom: auto; }
+.hero { display: flex; flex-direction: column; align-items: center; }
+#logoNova { width: 96px; height: 96px; animation: bob 1.2s steps(4) infinite; margin-bottom: -6px; }
+.logo { margin: 0; font-size: clamp(34px, 9vw, 72px); line-height: 1.05; text-align: center; font-weight: 400; }
+.logo .l1 { display: block; color: var(--gold); text-shadow: 0 .08em 0 var(--hot), 0 .16em 0 #b8501a, .08em .24em 0 #000; letter-spacing: .06em; }
+.logo .l2 { display: block; color: var(--cy); text-shadow: 0 .1em 0 #3b8fd0, 0 .2em 0 #1f4a8a, .1em .3em 0 #000; font-size: .6em; letter-spacing: .34em; margin: .3em 0 0 .34em; }
+.tag { margin: 14px 0 0; text-align: center; color: var(--ink); max-width: 560px; }
+.pilot { display: flex; align-items: center; gap: 14px; padding: 12px 16px; }
+#meAv { width: 80px; height: 110px; animation: bob 1.6s steps(4) infinite; }
+.pf { display: flex; flex-direction: column; gap: 4px; }
+.pf label { color: var(--dim); font-size: 8px; display: flex; align-items: center; gap: 6px; }
+.pf .field { width: 170px; }
+.pf .field[readonly] { color: var(--gold); }
+.pick { display: flex; align-items: center; }
+.pick span { width: 108px; text-align: center; text-transform: uppercase; }
+.menu { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: min(430px, 100%); }
+.menu #bSolo { grid-column: 1 / -1; }
+.join { grid-column: 1 / -1; display: flex; }
+.join .field { flex: 1; text-align: center; letter-spacing: .4em; font-size: 14px; }
+.foot { color: var(--dim); text-align: center; display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+#acct { color: var(--dim); text-align: center; font-size: 8px; }
+#acct b { color: var(--gold); font-weight: 400; }
+#stats { color: var(--dim); font-size: 8px; text-align: center; }
+
+/* ---------- lobby ---------- */
+#lobby { flex-direction: column; align-items: center; gap: 12px; padding: 18px 12px; overflow-y: auto; }
+#lobby > :first-child { margin-top: auto; }
+#lobby > :last-child { margin-bottom: auto; }
+#lobby h2 { margin: 0; font-size: 18px; font-weight: 400; color: var(--gold); text-shadow: 0 3px 0 #b8501a, 3px 6px 0 #000; }
+#lobby h2 b { color: var(--cy); font-weight: 400; letter-spacing: .3em; }
+#lbSub, #lbWait { margin: 0; color: var(--dim); text-align: center; min-height: 16px; }
+.slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; width: min(620px, 100%); }
+.slot { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px 8px; min-height: 124px; position: relative; }
+.slot canvas { width: 48px; height: 66px; }
+.slot .n { font-size: 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot .tg { font-size: 8px; color: var(--dim); }
+.slot .tg.own { color: var(--gold); }
+.slot.empty { opacity: .45; justify-content: center; color: var(--dim); }
+.slot .kick { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; font-size: 8px; margin: 0; background: var(--bad); }
+.opts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 22px; padding: 10px 16px; }
+.opt { display: flex; align-items: center; gap: 2px; }
+.opt > span { color: var(--dim); margin-right: 6px; }
+.opt b { min-width: 76px; text-align: center; font-weight: 400; text-transform: uppercase; }
+.opt small { color: var(--dim); font-size: 8px; margin-left: 4px; }
+
+/* ---------- game ---------- */
+#game { flex-direction: column; }
+.top { display: flex; align-items: center; gap: 8px; padding: 10px 10px 4px; }
+.cat { flex: 1; text-align: center; min-width: 0; }
+#rnd, #cnt { color: var(--dim); font-size: 8px; display: block; }
+#q { margin: 4px 0; font-size: clamp(13px, 3.1vw, 26px); font-weight: 400; color: var(--gold); text-shadow: 0 3px 0 #b8501a, 3px 6px 0 #000; text-transform: uppercase; }
+#q.flip { animation: flip .5s steps(6); }
+.body { flex: 1; display: flex; min-height: 0; }
+#stage { position: relative; flex: 1; min-width: 0; }
+#stage.shake { animation: quake .45s steps(8); }
+#fx { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; }
+#mid { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 46%; text-align: center; pointer-events: none; z-index: 4; }
+#mid.pop { animation: popin .35s steps(5); }
+#midA { font-size: clamp(11px, 2.4vw, 20px); text-transform: uppercase; text-shadow: 3px 3px 0 #000; overflow-wrap: anywhere; }
+#midB { font-size: 10px; margin-top: 8px; text-shadow: 2px 2px 0 #000; color: var(--ink); }
+#flash { position: fixed; inset: 0; z-index: 6; background: #fff4d6; opacity: 0; pointer-events: none; }
+#flash.go { animation: flash .4s steps(5); }
+#nova { position: absolute; width: calc(32 * var(--u) * .75); height: calc(32 * var(--u) * .75); margin: calc(-16 * var(--u) * .75) 0 0 calc(-16 * var(--u) * .75); transition: left .3s steps(6), top .3s steps(6); z-index: 3; pointer-events: none; left: 50%; top: 50%; }
+#nova.h1 { animation: wob .3s steps(2) infinite; }
+#nova.h2 { animation: wob .12s steps(2) infinite; }
+.pl { position: absolute; width: 136px; margin-left: -68px; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; z-index: 2; }
+.pl .bub { min-height: 24px; max-width: 100%; padding: 5px 7px; background: var(--ink); color: #10142a; font-size: 8px; line-height: 1.4; text-transform: uppercase; overflow-wrap: anywhere; box-shadow: var(--bd); visibility: hidden; margin-bottom: 4px; }
+.pl .bub.on { visibility: visible; }
+.pl .bub.ok { background: var(--tc, var(--ok)); }
+.pl .bub.no { background: var(--bad); color: #fff; animation: shake .3s steps(6); }
+.pl .av { width: calc(16 * var(--u)); height: calc(22 * var(--u)); animation: bob 1.6s steps(4) infinite; }
+.pl:nth-child(2n) .av { animation-delay: -.7s; }
+.pl.hold .av { animation: jit .25s steps(2) infinite; }
+.pl .nm { font-size: 8px; padding: 3px 6px; background: rgba(8,10,28,.82); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl.me .nm { color: var(--cy); }
+.pl.own .nm { color: var(--gold); }
+.pl.hold .nm { background: var(--hot); color: #1a0f00; }
+.pl .hp { display: flex; gap: 3px; align-items: center; height: 12px; }
+.heart { width: 14px; height: 12px; background-size: 100% 100%; image-rendering: pixelated; display: inline-block; }
+.pl .sc { font-size: 8px; color: var(--gold); }
+.pl.out { opacity: .5; }
+.pl.out .av { animation: drift 7s linear infinite; }
+.pl.sab .nm::after { content: ' ?'; color: var(--bad); }
+.float { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); white-space: nowrap; font-size: 10px; color: var(--tc, #fff); text-shadow: 2px 2px 0 #000; animation: rise 1.1s steps(11) forwards; pointer-events: none; z-index: 6; }
+#log { width: 240px; display: flex; flex-direction: column; margin: 4px 10px 4px 4px; }
+#log h3 { margin: 0; padding: 8px; font-size: 8px; font-weight: 400; color: var(--dim); background: var(--panel2); }
+#logList { list-style: none; margin: 0; padding: 8px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 5px; }
+#logList li { display: flex; gap: 6px; align-items: baseline; font-size: 8px; }
+#logList li b { flex: 1; font-weight: 400; text-transform: uppercase; overflow-wrap: anywhere; color: var(--tc); }
+#logList li span { color: var(--dim); max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#logList li.sep { color: var(--dim); justify-content: center; text-align: center; margin: 4px 0; text-transform: uppercase; }
+.bar { padding: 4px 10px calc(10px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+#status { min-height: 16px; color: var(--dim); text-align: center; text-transform: uppercase; }
+#status.me { color: var(--ok); animation: blink .8s steps(2) infinite; }
+#status.bad { color: var(--bad); }
+#f { display: flex; width: min(640px, 100%); }
+#ans { flex: 1; font-size: 14px; padding: 12px; }
+#ans:focus-visible { outline: 0; box-shadow: 0 -4px 0 0 var(--cy), 0 4px 0 0 var(--cy), -4px 0 0 0 var(--cy), 4px 0 0 0 var(--cy); }
+#ans.mine, #ans.mine:focus-visible { box-shadow: 0 -4px 0 0 var(--ok), 0 4px 0 0 var(--ok), -4px 0 0 0 var(--ok), 4px 0 0 0 var(--ok); }
+#ans.shake { animation: shake .3s steps(6); }
+#game.watch #f { visibility: hidden; }
+
+/* ---------- results ---------- */
+#over { flex-direction: column; align-items: center; gap: 12px; padding: 18px 12px; overflow-y: auto; }
+#over > :first-child { margin-top: auto; }
+#over > :last-child { margin-bottom: auto; }
+#over h2 { margin: 0; font-size: clamp(16px, 4vw, 28px); font-weight: 400; color: var(--gold); text-shadow: 0 3px 0 #b8501a, 3px 6px 0 #000; text-align: center; text-transform: uppercase; }
+#ovAv { width: 96px; height: 132px; animation: bob .8s steps(4) infinite; }
+#ovTable { list-style: none; margin: 0; padding: 8px; width: min(600px, 100%); display: flex; flex-direction: column; gap: 6px; }
+#ovTable li { display: flex; align-items: center; gap: 10px; padding: 4px 6px; }
+#ovTable li.me { background: var(--panel2); }
+#ovTable .pc { width: 28px; color: var(--gold); }
+#ovTable canvas { width: 24px; height: 33px; }
+#ovTable .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ovTable .bst { font-size: 8px; color: var(--tc, var(--dim)); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; }
+#ovTable .s { color: var(--gold); min-width: 56px; text-align: right; }
+#ovNote { margin: 0; color: var(--dim); text-align: center; }
+
+/* ---------- windows ---------- */
+.win { position: fixed; z-index: 20; }
+.wt { display: flex; align-items: center; justify-content: space-between; padding: 6px 6px 6px 10px; background: var(--panel2); color: var(--gold); font-size: 8px; }
+.wt .mini { width: 22px; height: 22px; background: var(--bad); margin: 2px; }
+#adm { right: 14px; bottom: 100px; width: 244px; max-height: min(430px, calc(100dvh - 200px)); display: flex; flex-direction: column; }
+#adm .wb { padding: 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; font-size: 8px; }
+#adm .ln { color: var(--dim); margin-top: 4px; }
+#adm .ln b { color: var(--ink); font-weight: 400; }
+#adm .btn { margin: 4px; }
+.reveal { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 2px; }
+.reveal .a { flex: 1; min-width: 0; color: var(--tc, var(--ink)); text-transform: uppercase; overflow-wrap: anywhere; }
+.reveal .a small { display: block; color: var(--dim); font-size: 8px; }
+.sabrow { display: flex; align-items: center; gap: 6px; }
+.sabrow .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sabrow small { display: block; color: var(--bad); font-size: 8px; white-space: normal; }
+#bAdm { background: var(--gold); }
+.modal { position: fixed; inset: 0; z-index: 30; background: rgba(4,6,18,.8); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.sheet { width: min(560px, 100%); max-height: 100%; overflow-y: auto; }
+.sheet .wb { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.sheet p { margin: 0; }
+.tiers { display: grid; grid-template-columns: 36px 1fr auto; gap: 8px 10px; align-items: center; }
+.tiers i { width: 36px; height: 36px; background-size: 100% 100%; image-rendering: pixelated; }
+.tiers b { font-weight: 400; }
+.tiers small { display: block; color: var(--dim); font-size: 8px; }
+#toast { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 40; padding: 10px 14px; background: var(--ink); color: #10142a; box-shadow: var(--bd); max-width: 90vw; text-align: center; display: none; }
+#toast.on { display: block; animation: popin .25s steps(4); }
+#veil { position: fixed; inset: 0; z-index: 35; background: rgba(4,6,18,.86); display: none; align-items: center; justify-content: center; text-align: center; padding: 20px; flex-direction: column; gap: 16px; }
+#veil.on { display: flex; }
+#veil .dots::after { content: ''; animation: dots 1.2s steps(4) infinite; }
+
+#turn { display: none; }
+@media (max-height: 430px) and (orientation: landscape) and (pointer: coarse) {
+  #turn:not(.off) { display: flex; position: fixed; inset: 0; z-index: 50; background: rgba(4,6,18,.94); align-items: center; justify-content: center; padding: 12px; text-align: center; }
+}
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes jit { 0% { transform: translate(-1px, 0); } 100% { transform: translate(1px, -1px); } }
+@keyframes drift { 0% { transform: rotate(0) translateY(0); } 50% { transform: rotate(180deg) translateY(-6px); } 100% { transform: rotate(360deg) translateY(0); } }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+@keyframes blink { 0% { opacity: 1; } 100% { opacity: .35; } }
+@keyframes flip { 0% { transform: scaleY(0); } 100% { transform: scaleY(1); } }
+@keyframes popin { 0% { transform: translate(-50%, -50%) scale(.3); } 100% { transform: translate(-50%, -50%) scale(1); } }
+#toast.on { animation-name: toastin; }
+@keyframes toastin { 0% { transform: translateX(-50%) scale(.5); } 100% { transform: translateX(-50%) scale(1); } }
+@keyframes quake { 0%, 100% { transform: translate(0, 0); } 20% { transform: translate(-8px, 4px); } 40% { transform: translate(8px, -4px); } 60% { transform: translate(-4px, -8px); } 80% { transform: translate(4px, 8px); } }
+@keyframes rise { 0% { transform: translate(-50%, 0); opacity: 1; } 100% { transform: translate(-50%, -44px); opacity: 0; } }
+@keyframes flash { 0% { opacity: .75; } 100% { opacity: 0; } }
+@keyframes wob { 0% { transform: rotate(-5deg); } 100% { transform: rotate(5deg); } }
+@keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+
+@media (max-width: 820px) {
+  :root { --u: 3px; }
+  .body { flex-direction: column; }
+  #log { width: auto; margin: 0 8px 4px; order: -1; flex-direction: row; }
+  #log h3 { display: none; }
+  #logList { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 6px; gap: 12px; white-space: nowrap; }
+  #logList li.sep { margin: 0; }
+  #logList li span { display: none; }
+  .pl { width: 104px; margin-left: -52px; }
+  .pl .you { display: none; }
+  .top .btn { padding: 8px 8px; }
+  .slots { grid-template-columns: repeat(4, 1fr); }
+  .slot { min-height: 104px; }
+  .slot canvas { width: 32px; height: 44px; }
+  #adm { left: 8px; right: 8px; width: auto; bottom: auto; top: 104px; max-height: 44dvh; }
+  #ans { font-size: 16px; }
+  .pf .field, .join .field { font-size: 16px; }
+}
+@media (max-height: 620px) {
+  :root { --u: 2px; }
+  #logoNova { width: 64px; height: 64px; }
+  .logo { font-size: clamp(26px, 7vw, 48px); }
+  .tag { margin-top: 8px; }
+  #title, #lobby, #over { gap: 8px; padding-top: 8px; }
+  #meAv { width: 48px; height: 66px; }
+  .pl .bub { min-height: 18px; padding: 3px 5px; }
+  .top { padding-top: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pl .av, #meAv, #logoNova, #ovAv, #nova.h1, #nova.h2, #status.me { animation: none !important; }
+  #stage.shake, #flash.go { animation: none; }
+}
+</style>
+</head>
+<body>
+<canvas id="sky" aria-hidden="true"></canvas>
+<main>
+  <section id="title" class="scr on">
+    <div class="hero">
+      <canvas id="logoNova" aria-hidden="true"></canvas>
+      <h1 class="logo"><span class="l1">NOVA</span><span class="l2">PARTY</span></h1>
+      <p class="tag">Name an answer. Pass the nova before it blows.<br>Rare answers score big. Last one in orbit wins.</p>
+    </div>
+    <div class="pilot px">
+      <canvas id="meAv" aria-hidden="true"></canvas>
+      <div class="pf">
+        <label>PILOT <input id="name" class="field" maxlength="14" autocomplete="off" spellcheck="false" aria-label="Your name"></label>
+        <div class="pick"><button class="mini" data-k="c" data-d="-1" aria-label="Previous suit colour">&lt;</button><span id="suitName"></span><button class="mini" data-k="c" data-d="1" aria-label="Next suit colour">&gt;</button></div>
+        <div class="pick"><button class="mini" data-k="top" data-d="-1" aria-label="Previous helmet">&lt;</button><span id="topName"></span><button class="mini" data-k="top" data-d="1" aria-label="Next helmet">&gt;</button></div>
+      </div>
+    </div>
+    <div class="menu">
+      <button id="bSolo" class="btn big">Play solo</button>
+      <button id="bQuick" class="btn cy">Quick play</button>
+      <button id="bCreate" class="btn cy">Create room</button>
+      <div class="join"><input id="code" class="field" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" aria-label="Room code"><button id="bJoin" class="btn cy">Join</button></div>
+    </div>
+    <div class="foot"><button id="bHow" class="link">How to play</button><button id="bSnd" class="link"></button><button id="bMus" class="link"></button></div>
+    <div id="acct"></div>
+    <div id="stats"></div>
+  </section>
+
+  <section id="lobby" class="scr">
+    <h2 id="lbTitle"></h2>
+    <p id="lbSub"></p>
+    <div id="slots" class="slots"></div>
+    <div class="opts px">
+      <div class="opt"><span>LIVES</span><button class="mini" data-o="lives" data-d="-1" aria-label="Fewer lives">&lt;</button><b id="oLives"></b><button class="mini" data-o="lives" data-d="1" aria-label="More lives">&gt;</button></div>
+      <div class="opt"><span>FUSE</span><button class="mini" data-o="fuse" data-d="-1" aria-label="Previous fuse">&lt;</button><b id="oFuse"></b><button class="mini" data-o="fuse" data-d="1" aria-label="Next fuse">&gt;</button><small id="oFuseHint"></small></div>
+      <div class="opt"><span>BOTS</span><button class="mini" data-o="bots" data-d="-1" aria-label="Fewer bots">&lt;</button><b id="oBots"></b><button class="mini" data-o="bots" data-d="1" aria-label="More bots">&gt;</button></div>
+    </div>
+    <div class="row"><button id="bStart" class="btn big">Start</button><button id="bLeave" class="btn dim">Leave</button></div>
+    <p id="lbWait"></p>
+  </section>
+
+  <section id="game" class="scr">
+    <div class="top">
+      <button id="bQuit" class="btn dim sm">Leave</button>
+      <div class="cat"><span id="rnd"></span><h2 id="q"></h2><span id="cnt"></span></div>
+      <button id="bAdm" class="btn sm" hidden>Control</button>
+      <button id="bSnd2" class="btn dim sm" aria-label="Sound"></button>
+    </div>
+    <div class="body">
+      <div id="stage">
+        <div id="ring"></div>
+        <canvas id="nova" aria-hidden="true"></canvas>
+        <div id="mid"><div id="midA"></div><div id="midB"></div></div>
+        <canvas id="fx" aria-hidden="true"></canvas>
+      </div>
+      <aside id="log" class="px"><h3>ANSWERS SO FAR</h3><ol id="logList"></ol></aside>
+    </div>
+    <div class="bar">
+      <div id="status" role="status" aria-live="polite"></div>
+      <form id="f" autocomplete="off"><input id="ans" class="field" maxlength="40" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Type an answer" aria-label="Your answer" enterkeyhint="send"><button class="btn" type="submit">Send</button></form>
+    </div>
+  </section>
+
+  <section id="over" class="scr">
+    <h2 id="ovTitle"></h2>
+    <canvas id="ovAv" aria-hidden="true"></canvas>
+    <ol id="ovTable" class="px"></ol>
+    <div class="row"><button id="bAgain" class="btn big">Play again</button><button id="bMenu" class="btn dim">Menu</button></div>
+    <p id="ovNote"></p>
+  </section>
+</main>
+
+<div id="adm" class="win px" hidden>
+  <div class="wt"><span>MISSION CONTROL</span><button id="admX" class="mini" aria-label="Close">X</button></div>
+  <div class="wb">
+    <div class="ln">FUSE LEFT <b id="admFuse">--</b></div>
+    <button id="admBest" class="btn sm">Show best answer</button>
+    <div id="admBestOut" class="reveal"></div>
+    <button id="admNext" class="btn sm cy">Next best answer &gt;</button>
+    <div id="admNextOut" class="reveal"></div>
+    <div class="ln">SABOTAGE: SHOW THEM A WRONG CATEGORY</div>
+    <div id="admSab"></div>
+  </div>
+</div>
+
+<div id="how" class="modal" hidden>
+  <div class="sheet px">
+    <div class="wt"><span>HOW TO PLAY</span><button id="howX" class="mini" aria-label="Close">X</button></div>
+    <div class="wb">
+      <p>Everyone floats in a ring. A category comes up and one player holds the nova, a star about to blow.</p>
+      <p>On your turn, type an answer nobody has used yet. Got one? The nova jumps to the next player.</p>
+      <p>The fuse is hidden and it does not reset when the nova is passed. Holding it when it blows costs a life. Last one in orbit wins.</p>
+      <p>Rarer answers score more:</p>
+      <div id="tiers" class="tiers"></div>
+      <p style="color:var(--dim)">Spelling is forgiving: capitals, spaces and one small typo are fine.</p>
+    </div>
+  </div>
+</div>
+<div id="veil"><div id="veilText"></div><button id="veilX" class="btn dim">Cancel</button></div>
+<div id="turn"><div class="sheet px"><div class="wb"><p>Nova Party plays best with your phone held upright.</p><button id="turnX" class="btn">Play anyway</button></div></div></div>
+<div id="flash" aria-hidden="true"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

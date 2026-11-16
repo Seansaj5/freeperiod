@@ -56,3 +56,22 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+
+  # Nova Party multiplayer: the server runs each game with the game's shared code (games/nova-party/shared)
+  - type: web
+    name: freeperiod-nova
+    runtime: node
+    plan: free
+    # Virginia (US East) is the closest to New Jersey. Render can't move a service to another region later.
+    region: virginia
+    rootDir: games/nova-party
+    buildCommand: cd server && npm install --omit=dev
+    startCommand: node server/index.js
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - games/nova-party/server/**
+        - games/nova-party/shared/**
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
