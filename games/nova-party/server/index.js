@@ -1,4 +1,6 @@
 // Nova Party multiplayer server: rings of up to 8, by quick play or a 4-letter room code.
+// A room outlives its games: when one ends the results stay up, anyone can ask to play again, and the room keeps
+// count of who has won.
 // The server runs each game with the same shared code the browser uses for solo (games/nova-party/shared), so every
 // answer is judged here and nobody's browser can see the fuse or the answer list of a live game.
 import http from 'node:http';
@@ -10,8 +12,11 @@ const PORT = process.env.PORT || 8797;
 const TICK_MS = 100;
 const QUICK_WAIT = 20000;            // quick-play rings start on their own after this long
 const QUICK_MIN = 3;                 // and are filled with bots up to this many
+const OVER_ROOM = 90000;             // results stay up this long in a private room, then it is back to the lobby
+const OVER_QUICK = 14000;            // ...and this long in a quick-play ring
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const ACCOUNTS_API = (process.env.ACCOUNTS_API || 'https://bing-ball.onrender.com').replace(/\/+$/, '');
+const SPEED = Math.max(1, Math.min(60, +process.env.NOVA_SPEED || 1));   // tests run games fast-forward; always 1 when live
 const OWNER_NAMES = new Set((process.env.OWNER_USERNAMES || 'Saj,Sean_0,Sean0').split(',').map((n) => n.trim().toLowerCase()).filter(Boolean));
 
 const rooms = new Map();
@@ -50,7 +55,7 @@ const wss = new WebSocketServer({ server, maxPayload: 2048 });
 
 const makeCode = () => { for (;;) { let c = ''; for (let i = 0; i < 4; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; if (!rooms.has(c)) return c; } };
 function makeRoom(isPublic) {
-  const room = { code: makeCode(), public: isPublic, players: new Map(), host: 0, state: 'lobby', startAt: 0, party: null, last: Date.now(), kicked: new Set(), bots: 0, set: { lives: 2, fuse: 'normal' } };
+  const room = { code: makeCode(), public: isPublic, players: new Map(), host: 0, state: 'lobby', startAt: 0, party: null, last: Date.now(), kicked: new Set(), bots: 0, set: { lives: 2, fuse: 'normal', twist: 1, bar: 'normal' }, overAt: 0, games: 0, wins: new Map() };
   rooms.set(room.code, room);
   return room;
 }
@@ -60,13 +65,15 @@ const guestName = (n) => { const c = cleanName(n); return OWNER_NAMES.has(c.toLo
 const cleanLook = (l) => ({ c: Math.max(0, Math.min(7, (l && l.c) | 0)), top: Math.max(0, Math.min(4, (l && l.top) | 0)) });
 const send = (ws, m) => { if (ws.readyState === 1) ws.send(JSON.stringify(m)); };
 const broadcast = (room, m) => { const s = JSON.stringify(m); for (const p of room.players.values()) if (p.ws.readyState === 1) p.ws.send(s); };
-const pinfo = (p) => ({ id: p.id, name: p.name, look: p.look, own: p.own ? 1 : 0, acct: p.acct ? 1 : 0, playing: p.playing ? 1 : 0 });
-const lobbyMsg = (room) => ({
-  t: 'lobby', code: room.code, public: room.public, host: room.host, state: room.state, bots: room.bots, set: room.set,
-  startIn: room.startAt ? Math.max(0, (room.startAt - Date.now()) / 1000) : null,
-  players: [...room.players.values()].map(pinfo),
-});
 const whoKey = (p) => (p.acct ? 'a:' + p.acct.toLowerCase() : 'n:' + p.name.toLowerCase());
+const pinfo = (room, p) => ({ id: p.id, name: p.name, look: p.look, own: p.own ? 1 : 0, acct: p.acct ? 1 : 0, playing: p.playing ? 1 : 0, again: p.again ? 1 : 0, wins: room.wins.get(whoKey(p)) || 0 });
+// over: seconds the results stay up (null when no results are showing); again on a player: they asked to play again
+const lobbyMsg = (room) => ({
+  t: 'lobby', code: room.code, public: room.public, host: room.host, state: room.state, bots: room.bots, set: room.set, games: room.games,
+  startIn: room.startAt ? Math.max(0, (room.startAt - Date.now()) / 1000) : null,
+  over: room.overAt ? Math.max(0, (room.overAt - Date.now()) / 1000) : null,
+  players: [...room.players.values()].map((p) => pinfo(room, p)),
+});
 const fits = (room) => room.players.size + room.bots < RULES.MAX;
 
 function startMatch(room) {
@@ -78,8 +85,8 @@ function startMatch(room) {
   const people = humans.map((p) => ({ id: p.id, name: p.name, look: p.look, own: p.own }));
   for (const b of makeBots(bots, 0, Math.random, humans.map((p) => p.name))) { b.id = nextId++; people.push(b); }
   for (let i = people.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [people[i], people[j]] = [people[j], people[i]]; }
-  room.state = 'match'; room.startAt = 0;
-  for (const p of humans) p.playing = true;
+  room.state = 'match'; room.startAt = 0; room.overAt = 0;
+  for (const p of humans) { p.playing = true; p.again = false; }
   room.party = new Party({ people, cats: CATS, settings: room.set });
   room.party.drain();
   room.last = Date.now();
@@ -88,8 +95,8 @@ function startMatch(room) {
 }
 
 function endMatch(room) {
-  room.state = 'lobby'; room.party = null;
-  for (const p of room.players.values()) p.playing = false;
+  room.state = 'lobby'; room.party = null; room.overAt = 0;
+  for (const p of room.players.values()) { p.playing = false; p.again = false; }
   if (room.public && room.players.size) room.startAt = Date.now() + QUICK_WAIT;
   broadcast(room, { t: 'back' });
   broadcast(room, lobbyMsg(room));
@@ -114,12 +121,23 @@ function tickRoom(room) {
   }
   const m = room.party;
   if (!m) return;
-  const dt = Math.min(0.5, (now - room.last) / 1000);
+  const dt = Math.min(0.5, (now - room.last) / 1000) * SPEED;
   room.last = now;
   m.update(dt);
   flush(room);
-  if (m.phase === 'over' && m.t <= 0) endMatch(room);
-  else if (![...room.players.values()].some((p) => p.playing)) endMatch(room);   // only watchers left
+  if (m.phase === 'over') {
+    if (!room.overAt) gameOver(room);
+    else if (now >= room.overAt) endMatch(room);
+  } else if (![...room.players.values()].some((p) => p.playing)) endMatch(room);   // only watchers left
+}
+
+/** A game just ended: count the win, and hold the results until someone plays again or the time runs out. */
+function gameOver(room) {
+  room.overAt = Date.now() + (room.public ? OVER_QUICK : OVER_ROOM);
+  room.games++;
+  const w = room.players.get(room.party.winner);
+  if (w) room.wins.set(whoKey(w), (room.wins.get(whoKey(w)) || 0) + 1);
+  broadcast(room, lobbyMsg(room));
 }
 
 setInterval(() => {
@@ -164,7 +182,10 @@ wss.on('connection', (ws) => {
       if (room.public && !room.startAt && room.state === 'lobby') room.startAt = Date.now() + QUICK_WAIT;
       if (room.public && room.players.size >= RULES.MAX && room.state === 'lobby') room.startAt = Date.now() + 3000;
       send(ws, { ...lobbyMsg(room), t: 'welcome', id: me.id, name: me.name, acct: me.acct, own: me.own });   // t last: lobbyMsg has its own t
-      if (room.party) send(ws, { t: 'start', me: me.id, view: room.party.view(0), watch: 1 });           // a game is on: watch until it ends
+      if (room.party) {
+        send(ws, { t: 'start', me: me.id, view: room.party.view(0), watch: 1 });                         // a game is on: watch until it ends
+        if (room.party.phase === 'over') send(ws, { t: 'ev', ev: [room.party.overEvent()] });            // ...or see how it ended
+      }
       broadcast(room, lobbyMsg(room));
       return;
     }
@@ -178,11 +199,24 @@ wss.on('connection', (ws) => {
         break;
       }
       case 'adm': if (party && me.playing && me.own) { party.admin(me.id, { c: m.c, id: m.id, on: m.on }); flush(room); } break;
+      case 'emo': if (party && me.playing && party.emote(me.id, m.k)) flush(room); break;
       case 'start': if (room.state === 'lobby' && isHost) startMatch(room); break;
+      // Play again, from the results. In a private room the host starts the next game at once and anyone else is
+      // marked ready. A quick-play ring has no real host: it starts when everyone in it is ready.
+      case 'again': {
+        if (!party || party.phase !== 'over' || !room.overAt) break;
+        me.again = true;
+        if ((room.public ? me.own : isHost) || [...room.players.values()].every((p) => p.again)) startMatch(room);
+        else broadcast(room, lobbyMsg(room));
+        break;
+      }
+      case 'room': if (party && party.phase === 'over' && isHost) endMatch(room); break;   // the host takes everyone back to the lobby
       case 'set': {
         if (room.state !== 'lobby' || !isHost) break;
-        if ([1, 2, 3].includes(m.lives)) room.set.lives = m.lives;
+        if (Number.isInteger(m.lives) && m.lives >= 1 && m.lives <= RULES.MAX_LIVES) room.set.lives = m.lives;
         if (RULES.FUSES[m.fuse]) room.set.fuse = m.fuse;
+        if (m.twist === 0 || m.twist === 1) room.set.twist = m.twist;
+        if (typeof m.bar === 'string' && Object.hasOwn(RULES.BARS, m.bar)) room.set.bar = m.bar;
         if (Number.isInteger(m.bots)) room.bots = Math.max(0, Math.min(RULES.MAX - room.players.size, m.bots));
         broadcast(room, lobbyMsg(room));
         break;

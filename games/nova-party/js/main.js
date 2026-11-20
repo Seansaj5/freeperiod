@@ -2,7 +2,7 @@
 // this file only shows what the session (solo or online) says happened.
 import { TIERS } from '../shared/words.js';
 import { RULES } from '../shared/party.js';
-import { SUITS, TOPS, drawAstro, drawNova, heartUrl, emblemUrl, Blast } from './pix.js';
+import { SUITS, TOPS, drawAstro, drawNova, heartUrl, emblemUrl, crownUrl, Blast } from './pix.js';
 import { Sky } from './sky.js';
 import { sfx, unlock, setSound, setMusic, startMusic } from './audio.js';
 import { LocalSession, NetSession } from './net.js';
@@ -12,11 +12,11 @@ import { SERVER_URL } from './config.js';
 const $ = (id) => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 const KEY = 'novaparty.v1';
-const FUSES = ['chill', 'normal', 'chaos'];
+const FUSES = ['chill', 'normal', 'chaos'], BARS = Object.keys(RULES.BARS);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 
 // ---------- save ----------
-const DEFAULTS = { name: '', look: { c: Math.floor(Math.random() * SUITS.length), top: 1 }, snd: true, mus: true, solo: { bots: 3, lives: 2, fuse: 'normal' }, stats: { games: 0, wins: 0, pts: 0, blue: 0 } };
+const DEFAULTS = { name: '', look: { c: Math.floor(Math.random() * SUITS.length), top: 1 }, snd: true, mus: true, solo: { bots: 3, lives: 2, fuse: 'normal', twist: 1, bar: 'normal' }, stats: { games: 0, wins: 0, pts: 0, blue: 0 } };
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -28,9 +28,9 @@ const save = load();
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* private window */ } };
 if (!save.name) save.name = 'Pilot' + Math.floor(100 + Math.random() * 900);
 
-const app = { screen: 'title', session: null, acct: account(), own: false, me: 0, watch: false, lobbyAt: 0 };
+const app = { screen: 'title', session: null, acct: account(), own: false, me: 0, watch: false, lobbyAt: 0, joinedAt: 0, over: null };
 let g = null;   // the game on screen
-const HEART = [heartUrl(false), heartUrl(true)];
+const HEART = [heartUrl(false), heartUrl(true)], CROWN = crownUrl();
 const serverUrl = (() => { const v = qs.get('server'); return onLocalhost() && v && /^wss?:\/\//.test(v) ? v : SERVER_URL; })();
 
 // ---------- small helpers ----------
@@ -95,12 +95,24 @@ $('how').addEventListener('click', (e) => { if (e.target === $('how')) $('how').
 // ---------- sessions ----------
 function wire(s) {
   app.session = s;
-  s.on.lobby = (m) => { s.lobby = m; app.lobbyAt = performance.now(); if (app.screen === 'lobby') paintLobby(); reportRoom(m.code); };
+  s.on.lobby = (m) => { s.lobby = m; app.lobbyAt = performance.now(); if (app.screen === 'lobby') paintLobby(); else if (app.screen === 'over') paintOver(); reportRoom(m.code); };
   s.on.start = (m) => startGame(m);
   s.on.ev = onEv;
   s.on.back = () => { if (app.screen === 'game' || app.screen === 'over') { endGameView(); show('lobby'); paintLobby(); } };
   s.on.err = (msg) => { toast(msg, 4000); toTitle(); };
-  s.on.close = () => { toast('Lost the connection to the room.', 4000); toTitle(); };
+  s.on.close = () => lostRoom(s);
+}
+/** The connection dropped. If we had been in the room a while, walk straight back in (once); you sit out the game
+ *  that was on and are in the next one. */
+function lostRoom(s) {
+  const code = s.lobby && s.lobby.code;
+  if (s.online && code && app.session === s && performance.now() - app.joinedAt > 8000) {
+    app.session = null; s.close(); endGameView();
+    toast('Connection dropped. Rejoining the room', 3500);
+    goOnline({ mode: 'join', code }, true);
+    return;
+  }
+  toast('Lost the connection to the room.', 4000); toTitle();
 }
 function toTitle() {
   if (app.session) { const s = app.session; app.session = null; s.close(); }
@@ -109,21 +121,21 @@ function toTitle() {
 }
 function openLocal() {
   unlock(); sfx.click();
-  const s = new LocalSession({ name: myName(), look: save.look, own: app.own, bots: save.solo.bots, set: { lives: save.solo.lives, fuse: save.solo.fuse } });
+  const s = new LocalSession({ name: myName(), look: save.look, own: app.own, bots: save.solo.bots, set: { lives: save.solo.lives, fuse: save.solo.fuse, twist: save.solo.twist ? 1 : 0, bar: save.solo.bar } });
   wire(s); app.me = 1;
   s.connect().then(() => { app.lobbyAt = performance.now(); show('lobby'); paintLobby(); });
 }
-function goOnline(hello) {
-  unlock(); sfx.click();
+function goOnline(hello, quiet) {
+  unlock(); if (!quiet) sfx.click();
   const s = new NetSession(serverUrl);
   wire(s);
   veil('Calling the server. If it was asleep this takes up to a minute');
   s.connect({ name: myName(), look: save.look, token: app.acct.token || undefined, ...hello }).then((m) => {
     if (app.session !== s) return;
-    veil(null); app.me = m.id; app.lobbyAt = performance.now();
+    veil(null); app.me = m.id; app.lobbyAt = app.joinedAt = performance.now();
     reportRoom(m.code);
-    if (app.screen !== 'game') { show('lobby'); paintLobby(); }
-  }).catch((e) => { if (app.session !== s) return; app.session = null; veil(null); toast(e.message, 4500); show('title'); });
+    if (app.screen !== 'game' || !g) { show('lobby'); paintLobby(); }
+  }).catch((e) => { if (app.session !== s) return; app.session = null; veil(null); reportRoom(null); toast(e.message, 4500); show('title'); paintAccount(); });
 }
 $('bSolo').addEventListener('click', openLocal);
 $('bQuick').addEventListener('click', () => goOnline({ mode: 'quick' }));
@@ -155,6 +167,7 @@ function paintLobby() {
     const d = el('div', 'slot px');
     d.append(drawAstro(el('canvas'), p.look, 'idle', !!p.own), el('div', 'n', p.name));
     d.append(el('div', 'tg' + (p.own ? ' own' : ''), p.own ? 'OWNER' : p.id === app.me ? 'YOU' : p.id === m.host ? 'HOST' : ''));
+    if (p.wins) d.append(winTag(p.wins));
     if (!local && host && p.id !== app.me && !p.own) { const k = el('button', 'mini kick', 'X'); k.title = 'Remove ' + p.name; k.addEventListener('click', () => s.kick(p.id)); d.append(k); }
     slots.append(d); n++;
   }
@@ -168,9 +181,17 @@ function paintLobby() {
   $('oFuse').textContent = m.set.fuse;
   const f = RULES.FUSES[m.set.fuse]; $('oFuseHint').textContent = `${f[0]}-${f[1]} s`;
   $('oBots').textContent = m.bots;
+  $('oTwist').textContent = m.set.twist ? 'on' : 'off';
+  $('oBar').textContent = m.set.bar || 'off';
   for (const b of document.querySelectorAll('.opt .mini')) b.disabled = !host || m.state !== 'lobby';
   $('bStart').hidden = !host; $('bStart').disabled = m.state !== 'lobby';
   paintWait();
+}
+/** A little crown and a count: games won in this room. */
+function winTag(n) {
+  const w = el('span', 'wn', 'x' + n), i = el('i');
+  i.style.backgroundImage = `url(${CROWN})`; w.prepend(i); w.title = n + (n === 1 ? ' win' : ' wins') + ' in this room';
+  return w;
 }
 function paintWait() {
   const s = app.session, m = s && s.lobby;
@@ -183,12 +204,14 @@ function paintWait() {
   else if (s.online && m.players.length + m.bots < 2) t = 'Alone? Start anyway and a bot joins you.';
   $('lbWait').textContent = t;
 }
-setInterval(paintWait, 500);
+setInterval(() => { paintWait(); paintOverNote(); }, 500);
 for (const b of document.querySelectorAll('.opt .mini')) b.addEventListener('click', () => {
   const s = app.session, m = s && s.lobby; if (!m) return;
   const d = +b.dataset.d, o = {};
-  if (b.dataset.o === 'lives') o.lives = Math.max(1, Math.min(3, m.set.lives + d));
+  if (b.dataset.o === 'lives') o.lives = Math.max(1, Math.min(RULES.MAX_LIVES, m.set.lives + d));
+  else if (b.dataset.o === 'bar') o.bar = BARS[(Math.max(0, BARS.indexOf(m.set.bar)) + d + BARS.length) % BARS.length];
   else if (b.dataset.o === 'fuse') o.fuse = FUSES[(FUSES.indexOf(m.set.fuse) + d + 3) % 3];
+  else if (b.dataset.o === 'twist') o.twist = m.set.twist ? 0 : 1;
   else o.bots = Math.max(s.online ? 0 : 1, Math.min(RULES.MAX - m.players.filter((p) => !p.bot).length, m.bots + d));
   sfx.click(); s.setOpts(o);
   if (!s.online) { Object.assign(save.solo, o); persist(); }
@@ -203,17 +226,18 @@ const FX = 3;   // one blast pixel = this many screen pixels
 
 function startGame(m) {
   const v = m.view;
-  app.me = m.me; app.watch = !!m.watch;
-  g = { players: new Map(), order: [], holder: v.holder, q: v.q, phase: v.phase, round: v.round, total: v.total, used: v.total - v.left, age: 0, set: v.set, adm: null, admAt: 0, showBest: false, idx: -1, frame: 0, novaT: 0, tickT: 0, heat: 0, sent: '' };
+  app.me = m.me; app.watch = !!m.watch; app.over = null;
+  g = { players: new Map(), order: [], holder: v.holder, q: v.q, phase: v.phase, round: v.round, total: v.total, used: v.total - v.left, age: 0, set: v.set, dir: v.dir === -1 ? -1 : 1, hot: v.hot || 1, adm: null, admAt: 0, showBest: false, idx: -1, frame: 0, novaT: 0, tickT: 0, heat: 0, sent: '' };
   ring.textContent = '';
   // me at the bottom of the ring, everyone else clockwise in turn order
   const at = Math.max(0, v.players.findIndex((p) => p.id === app.me));
   const list = v.players.slice(at).concat(v.players.slice(0, at));
   for (const p of list) {
     const d = el('div', 'pl' + (p.id === app.me ? ' me' : '') + (p.own ? ' own' : ''));
-    const P = { ...p, out: !!p.out, el: d, bub: el('div', 'bub'), av: el('canvas', 'av'), nm: el('div', 'nm', p.name), hp: el('div', 'hp'), sc: el('div', 'sc'), mood: '', x: 0, y: 0 };
+    const P = { ...p, out: !!p.out, el: d, bub: el('div', 'bub'), av: el('canvas', 'av'), nm: el('div', 'nm', p.name), hp: el('div', 'hp'), lb: el('div', 'lb'), sc: el('div', 'sc'), mood: '', x: 0, y: 0 };
     if (p.id === app.me) P.nm.append(el('span', 'you', ' (YOU)'));
-    d.append(P.bub, P.av, P.nm, P.hp, P.sc);
+    P.lb.append(el('i')); P.lb.title = 'Life bar: rarer answers fill it faster. Full = one more heart';
+    d.append(P.bub, P.av, el('div', 'nx', 'NEXT'), P.nm, P.hp, P.lb, P.sc);
     ring.append(d);
     g.players.set(p.id, P); g.order.push(p.id);
   }
@@ -227,19 +251,21 @@ function startGame(m) {
   novaCv.style.visibility = 'visible';
   show('game');
   setQ(v.q, true); paintCount();
-  layout();
   for (const P of g.players.values()) paintPlayer(P);
-  moveNova(); paintStatus();
+  layout();                     // after the first paint: the ring is sized from how tall a player really is
+  paintAll();
   if (isOwn() && !app.watch) app.session.admin({ c: 'peek', on: 1 });
   unlock(); startMusic(); sfx.round();
   if (!app.watch) setTimeout(() => $('ans').focus({ preventScroll: true }), 50);
 }
-function endGameView() { g = null; ring.textContent = ''; $('adm').hidden = true; }
+function endGameView() { g = null; app.over = null; ring.textContent = ''; $('adm').hidden = true; }
 
 function layout() {
   if (!g) return;
   const W = stage.clientWidth, H = stage.clientHeight, n = g.order.length;
-  const rx = Math.max(60, Math.min(W * 0.42, W / 2 - 74)), ry = Math.max(50, Math.min(H * 0.37, H / 2 - 84));
+  let tall = 150;
+  for (const P of g.players.values()) tall = Math.max(tall, P.el.offsetHeight);
+  const rx = Math.max(60, Math.min(W * 0.42, W / 2 - 74)), ry = Math.max(50, Math.min(H * 0.37, H / 2 - tall / 2 - 3));
   g.order.forEach((id, k) => {
     const P = g.players.get(id), th = Math.PI / 2 + (k / n) * Math.PI * 2;
     P.x = W / 2 + Math.cos(th) * rx; P.y = H / 2 + Math.sin(th) * ry;
@@ -249,6 +275,8 @@ function layout() {
   moveNova();
 }
 addEventListener('resize', layout);
+// the stage also changes size without the window doing so (on phones the strip of answers grows above it)
+if (window.ResizeObserver) new ResizeObserver(() => layout()).observe(stage);
 function moveNova() {
   if (!g) return;
   const P = g.players.get(g.holder), W = stage.clientWidth, H = stage.clientHeight;
@@ -264,17 +292,36 @@ function paintPlayer(P) {
   if (mood !== P.mood) { P.mood = mood; drawAstro(P.av, P.look, mood, !!P.own); }
   P.el.classList.toggle('hold', holding && !P.out);
   P.el.classList.toggle('out', P.out);
-  const slots = Math.max(g.set.lives, P.lives);
+  const slots = Math.max(RULES.MAX_LIVES, P.lives);      // always five heart slots: that is the most anyone can hold
+  const bar = g.set.bar && g.set.bar !== 'off' ? Math.max(0, Math.min(100, P.bar || 0)) : -1;
+  P.lb.hidden = bar < 0 || P.out;
+  P.lb.firstChild.style.width = Math.max(0, bar) + '%';
+  P.lb.classList.toggle('full', bar >= 100);
   if (P.hp.childElementCount !== slots) { P.hp.textContent = ''; for (let i = 0; i < slots; i++) P.hp.append(el('i', 'heart')); }
   [...P.hp.children].forEach((h, i) => { h.style.backgroundImage = `url(${HEART[i < P.lives ? 1 : 0]})`; });
   P.sc.textContent = P.score + ' PTS';
 }
-function paintAll() { for (const P of g.players.values()) paintPlayer(P); moveNova(); paintStatus(); }
+/** Who the nova goes to after the holder, the way the ring is turning. */
+function nextUp() {
+  const n = g.order.length;
+  let i = g.order.indexOf(g.holder);
+  if (i < 0) return 0;
+  for (let k = 1; k < n; k++) { i = (i + g.dir + n) % n; const P = g.players.get(g.order[i]); if (!P.out) return P.id; }
+  return 0;
+}
+function paintAll() {
+  let alive = 0;
+  for (const P of g.players.values()) { paintPlayer(P); if (!P.out) alive++; }
+  // with three or more still in, mark who is up next (it changes when the ring is reversed)
+  const nx = alive > 2 && (g.phase === 'play' || g.phase === 'intro') ? nextUp() : 0;
+  for (const P of g.players.values()) P.el.classList.toggle('next', P.id === nx);
+  moveNova(); paintStatus();
+}
 function setQ(q, flip) {
   g.q = q;
   const h = $('q'); h.textContent = q;
   if (flip) { h.classList.remove('flip'); void h.offsetWidth; h.classList.add('flip'); }
-  $('rnd').textContent = 'CATEGORY ' + g.round;
+  $('rnd').textContent = 'CATEGORY ' + g.round + (g.hot < 1 ? ' · THE NOVA RUNS HOT' : '');
 }
 function paintCount() { $('cnt').textContent = `${g.total} ANSWERS ON THE LIST · ${g.used} USED`; }
 function paintStatus(note, bad) {
@@ -296,6 +343,10 @@ function bubble(P, text, cls, color) {
   P.bub.textContent = text;
   P.bub.className = 'bub' + (text ? ' on' : '') + (cls ? ' ' + cls : '');
   if (color) P.bub.style.setProperty('--tc', color); else P.bub.style.removeProperty('--tc');
+}
+function shout(P, text) {
+  const f = el('div', 'shout', text);
+  P.el.append(f); setTimeout(() => f.remove(), 1700);
 }
 function floatText(P, text, color) {
   const f = el('div', 'float', text); f.style.setProperty('--tc', color);
@@ -323,6 +374,7 @@ function onEv(e) {
   switch (e.e) {
     case 'round': {
       g.round = e.n; g.total = e.total; g.used = 0; g.holder = e.holder; g.idx = -1;
+      if (!e.keep) { const was = g.hot; g.hot = e.hot || 1; if (g.hot < 1 && was >= 1) setTimeout(() => { if (g && g.round === e.n && g.phase === 'intro') mid('THE NOVA RUNS HOT', 'From here every fuse is shorter than the last', '#ff5a6a'); }, 900); }
       if (!e.keep) { g.phase = 'intro'; g.age = 0; }
       for (const p of g.players.values()) bubble(p, '');
       setQ(e.q, true); paintCount(); addLog(0, e.q, 0, true);
@@ -337,12 +389,15 @@ function onEv(e) {
     case 'ok': {
       if (!P) break;
       const T = TIERS[e.tier];
-      P.score = e.score; P.lives = e.lives;
+      P.score = e.score; P.lives = e.lives; if (e.bar != null) P.bar = e.bar;
+      if (e.up) { P.lb.classList.remove('won'); void P.lb.offsetWidth; P.lb.classList.add('won'); }
       bubble(P, e.a, 'ok', T.color); floatText(P, '+' + e.pts, T.color);
-      mid(e.a, `${T.name} +${e.pts}` + (e.up ? ' · +1 LIFE' : ''), T.color);
+      mid(e.a, `${T.name} +${e.pts}` + (e.up ? ' · +1 LIFE' : '') + (e.rev ? ' · REVERSE!' : ''), T.color);
       addLog(e.id, e.a, e.tier);
       g.used = g.total - e.left; g.holder = e.next; paintCount();
+      if (e.dir) g.dir = e.dir;
       sfx.ok(e.tier); sfx.pass();
+      if (e.rev) { setTimeout(() => { sfx.rev(); if (g && g.players.get(e.id) === P) floatText(P, 'REVERSE!', T.color); }, 260); ring.classList.remove('rev'); void ring.offsetWidth; ring.classList.add('rev'); setTimeout(() => ring.classList.remove('rev'), 650); }
       if (e.tier >= 3) blast.sparkle(P.x / FX, (P.y - 30) / FX, T.color);
       if (e.up) { sfx.life(); setTimeout(() => floatText(P, '+1 LIFE', '#ff4a6a'), 250); }
       if (e.id === app.me) {
@@ -350,8 +405,10 @@ function onEv(e) {
         save.stats.pts += e.pts; if (e.tier === 4) save.stats.blue++; persist();
       }
       paintAll(); myTurnCheck();
+      if (e.rev && e.next === app.me) paintStatus('Reversed! The nova is back with you');
       break;
     }
+    case 'emo': if (P && RULES.EMOTES[e.k]) { shout(P, RULES.EMOTES[e.k]); if (app.screen === 'game') sfx.emo(); } break;
     case 'no': {
       if (!P) break;
       bubble(P, e.s, 'no'); sfx.no();
@@ -384,8 +441,8 @@ function onEv(e) {
       if (!app.watch && g.players.has(app.me)) { save.stats.games++; if (e.win === app.me) save.stats.wins++; persist(); }
       if (e.win === app.me) sfx.win();
       $('adm').hidden = true;
-      const table = e.table, mine = g;
-      setTimeout(() => { if (g === mine) showOver(e.win, table); }, 1700);
+      const mine = g;
+      setTimeout(() => { if (g === mine) showOver(e.win, e.table, e.awards || []); }, 1700);
       break;
     }
     case 'adm': g.adm = e; g.admAt = performance.now(); paintAdm(); break;
@@ -412,26 +469,99 @@ $('ans').addEventListener('input', () => {
   app.session.typing($('ans').value); sfx.key();
 });
 $('bQuit').addEventListener('click', toTitle);
+// quick shouts: tap one and it pops up over your astronaut for everyone (even after you are out)
+RULES.EMOTES.forEach((text, k) => {
+  const b = el('button', 'btn dim sm', text); b.type = 'button';
+  b.addEventListener('mousedown', (e) => e.preventDefault());      // the answer box keeps the keyboard
+  b.addEventListener('click', () => { if (g && app.session && !app.watch) app.session.emote(k); });
+  $('emo').append(b);
+});
 
 // ---------- results ----------
-function showOver(win, table) {
+const AWARDS = {
+  close: ['CLOSE CALL', (v) => `passed with ${v} s left`],
+  quick: ['QUICK DRAW', (v) => `${v} s per answer`],
+  deep: ['DEEP DIVER', (v) => `${v} rare finds`],
+  score: ['TOP SCORE', (v) => `${v} pts`],
+  oops: ['BUTTERFINGERS', (v) => `${v} wrong tries`],
+  most: ['CHATTERBOX', (v) => `${v} answers`],
+};
+function showOver(win, table, awards) {
   const W = table.find((r) => r.id === win) || table[0];
+  app.over = { win, table, awards };
   $('ovTitle').textContent = win === app.me ? 'You win!' : `${W.name} wins!`;
   drawAstro($('ovAv'), W.look, 'win', !!W.own);
   const t = $('ovTable'); t.textContent = '';
   for (const r of table) {
-    const li = el('li', r.id === app.me ? 'me' : '');
+    const li = el('li', r.id === app.me ? 'me' : ''); li.dataset.id = r.id;
     const best = el('span', 'bst', r.best ? r.best.a : '');
     if (r.best) { best.style.setProperty('--tc', TIERS[r.best.tier].color); best.title = 'Best find: ' + TIERS[r.best.tier].name; }
-    li.append(el('span', 'pc', '#' + r.place), drawAstro(el('canvas'), r.look, r.place === 1 ? 'win' : 'out', !!r.own), el('span', 'n', r.name + (r.bot ? ' (BOT)' : '')), best, el('span', 's', r.score + ' PTS'));
+    li.append(el('span', 'pc', '#' + r.place), drawAstro(el('canvas'), r.look, r.place === 1 ? 'win' : 'out', !!r.own), el('span', 'n', r.name + (r.bot ? ' (BOT)' : '')), el('span', 'tags'), best, el('span', 's', r.score + ' PTS'));
     t.append(li);
   }
-  const online = app.session && app.session.online;
-  $('bAgain').hidden = online;
-  $('ovNote').textContent = online ? 'Back to the room in a few seconds' : '';
+  const aw = $('ovAwards'); aw.textContent = '';
+  for (const a of awards) {
+    const def = AWARDS[a.k], r = table.find((x) => x.id === a.id);
+    if (!def || !r) continue;
+    const d = el('div', 'aw px');
+    d.append(el('b', '', def[0]), drawAstro(el('canvas'), r.look, 'win', !!r.own), el('span', 'n', r.name), el('small', '', def[1](a.v)));
+    aw.append(d);
+  }
   show('over');
+  paintOver();
 }
-$('bAgain').addEventListener('click', () => { sfx.click(); endGameView(); app.session && app.session.start(); });
+/** The parts of the results that change while they are up: who is ready for another game, wins, the buttons. */
+function paintOver() {
+  const s = app.session;
+  if (!s || !app.over || app.screen !== 'over') return;
+  const m = s.lobby, online = !!s.online;
+  const byId = new Map((m ? m.players : []).map((p) => [p.id, p]));
+  for (const li of $('ovTable').children) {
+    const p = byId.get(+li.dataset.id), tags = li.querySelector('.tags');
+    tags.textContent = '';
+    if (p && p.wins) tags.append(winTag(p.wins));
+    if (online && p && p.again) tags.append(el('span', 'rd', 'READY'));
+  }
+  const me = byId.get(app.me), ready = online && !!(me && me.again);
+  const host = !online || (m && (m.host === app.me || isOwn()));
+  $('bAgain').textContent = ready ? 'Ready!' : 'Play again'; $('bAgain').disabled = ready;
+  $('bRoom').hidden = !host || (online && m.public); $('bRoom').textContent = online ? 'Room' : 'Setup';
+  $('bRoom').title = online ? 'Take everyone back to the room to change the settings' : 'Change the bots, lives and fuse';
+  $('bMenu').textContent = online ? 'Leave' : 'Menu';
+  paintOverNote();
+}
+function paintOverNote() {
+  const s = app.session;
+  if (!s || !app.over || app.screen !== 'over') return;
+  const m = s.lobby;
+  let t = '';
+  if (s.online && m) {
+    const me = m.players.find((p) => p.id === app.me), hostP = m.players.find((p) => p.id === m.host);
+    const n = m.players.length, r = m.players.filter((p) => p.again).length;
+    const host = m.host === app.me || isOwn();
+    if (m.over == null) t = 'Back to the room in a few seconds';      // a server from before Play again
+    else {
+      const left = Math.max(0, Math.ceil(m.over - (performance.now() - app.lobbyAt) / 1000));
+      if (m.public && !isOwn()) t = (me && me.again ? 'You are in. ' : '') + 'The next game starts when everyone presses Play again';
+      else if (host) t = n > 1 ? 'Play again starts the next game for everyone' : 'Play again starts the next game';
+      else if (me && me.again) t = `You are in. Waiting for ${hostP ? hostP.name : 'the host'} to start`;
+      else t = `Press Play again to say you are in. ${hostP ? hostP.name : 'The host'} starts it`;
+      if (r && n > 1) t += ` · ${r} of ${n} ready`;
+      if (m.public || left <= 30) t += ` · back to the room in ${left} s`;
+    }
+  }
+  $('ovNote').textContent = t;
+}
+$('bAgain').addEventListener('click', () => {
+  const s = app.session; if (!s) return;
+  unlock();
+  if (s.online) { sfx.ready(); s.again(); } else { sfx.click(); endGameView(); s.again(); }
+});
+$('bRoom').addEventListener('click', () => {
+  const s = app.session; if (!s) return;
+  sfx.click();
+  if (s.online) s.toRoom(); else { endGameView(); s.toRoom(); show('lobby'); paintLobby(); }
+});
 $('bMenu').addEventListener('click', () => { sfx.click(); toTitle(); });
 
 // ---------- the owner's control panel ----------
@@ -487,7 +617,7 @@ function frame(now) {
   if (app.screen === 'title') { logoT += dt; if (logoT > 0.16) { logoT = 0; drawNova($('logoNova'), 0, ++logoF); } }
   if (g && app.screen === 'game') {
     if (g.phase === 'play') g.age += dt;
-    const f = RULES.FUSES[g.set.fuse], heat = g.phase !== 'play' ? 0 : g.age > (f[0] + f[1]) / 2 ? 2 : g.age > f[0] * 0.8 ? 1 : 0;
+    const f = RULES.FUSES[g.set.fuse], heat = g.phase !== 'play' ? 0 : g.age > (f[0] + f[1]) / 2 * g.hot ? 2 : g.age > f[0] * 0.8 * g.hot ? 1 : 0;
     g.novaT += dt;
     if (g.novaT > 0.12 || heat !== g.heat) { g.novaT = 0; g.heat = heat; drawNova(novaCv, heat, ++g.frame); novaCv.className = heat ? 'h' + heat : ''; }
     if (g.phase === 'play') { g.tickT += dt; if (g.tickT >= [1, 0.5, 0.25][heat]) { g.tickT = 0; sfx.tick(heat === 2); } }
@@ -514,4 +644,4 @@ refreshAccount(app.acct).then((a) => { app.acct = a; app.own = isOwnerAcct(a); i
   if (framed && /^[A-Z]{4}$/.test(code)) { $('code').value = code; setTimeout(() => goOnline({ mode: 'join', code }), 300); }
 }
 requestAnimationFrame(frame);
-window.__nova = { app, save, get g() { return g; }, openLocal, goOnline, toTitle, onEv, startGame, showOver, layout };
+window.__nova = { app, save, get g() { return g; }, openLocal, goOnline, toTitle, onEv, startGame, showOver, paintOver, layout };

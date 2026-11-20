@@ -118,7 +118,7 @@ window.GAMES = [
   {
     id: 'nova-party',
     title: 'Nova Party',
-    tagline: 'Name an answer and pass the nova before it blows. 75 categories, rare answers score big, last one in orbit wins.',
+    tagline: 'Name an answer and pass the nova before it blows. 75 categories, rare answers fill your life bar, last one in orbit wins.',
     url: 'games/nova-party/',
     thumb: 'assets/nova-party.jpg',
     preview: 'assets/nova-party.webm',

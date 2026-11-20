@@ -50,6 +50,9 @@ export const sfx = {
   round() { arp([-2, 5, 10, 17], 0.07, { vol: 0.08, type: 'triangle' }); },
   win() { arp([3, 7, 10, 15, 10, 15, 19, 22], 0.11, { vol: 0.1 }); },
   lose() { arp([10, 7, 3, -2, -9], 0.14, { vol: 0.1, type: 'triangle' }); },
+  rev() { tone(1040, 0, 0.13, { to: 390, vol: 0.1, type: 'triangle' }); tone(390, 0.12, 0.16, { to: 1170, vol: 0.1, type: 'triangle' }); },
+  emo() { tone(740, 0, 0.05, { vol: 0.05 }); tone(990, 0.05, 0.07, { vol: 0.05 }); },
+  ready() { arp([7, 12], 0.07, { vol: 0.09 }); },
 };
 
 // A quiet four-bar loop: bass and a sparkle on top.

@@ -8,7 +8,7 @@ export const TIERS = [
   { id: 'sat', name: 'SATELLITE', pts: 30, color: '#5ad1ff', blurb: 'A solid pick' },
   { id: 'comet', name: 'COMET', pts: 60, color: '#7dff8a', blurb: 'Not many think of it' },
   { id: 'deep', name: 'DEEP SPACE', pts: 85, color: '#d08bff', blurb: 'A real deep cut' },
-  { id: 'blue', name: 'BLUE MOON', pts: 100, color: '#5d86ff', blurb: 'Once in a blue moon: +1 life' },
+  { id: 'blue', name: 'BLUE MOON', pts: 100, color: '#5d86ff', blurb: 'Once in a blue moon: fills your life bar' },
 ];
 
 /** The comparable form of a name: lower case, no accents, no punctuation or spaces, no leading "the". */

@@ -2,24 +2,27 @@
 //   LocalSession runs the shared Party right here against bots (no server needed);
 //   NetSession talks to the multiplayer server, which runs the Party for the whole room.
 // Both call on.lobby(m), on.start({ me, view, watch }), on.ev(e), on.back(), on.err(msg), on.close().
+// After a game: again() asks for the next one, toRoom() goes back to the setup screen (online: the host only).
 import { Party, RULES, makeBots } from '../shared/party.js';
 import { CATS } from '../shared/cats.js';
 
 export class LocalSession {
-  /** opts: { name, look, own, bots, set: { lives, fuse } } */
+  /** opts: { name, look, own, bots, set: { lives, fuse, twist, bar } } */
   constructor(opts) {
     this.online = false; this.on = {}; this.meId = 1; this.own = !!opts.own; this.name = opts.name;
-    this.o = opts; this.bots = Math.max(1, Math.min(RULES.MAX - 1, opts.bots || 3)); this.set = { lives: 2, fuse: 'normal', ...opts.set };
-    this.state = 'lobby'; this.party = null; this.timer = null;
+    this.o = opts; this.bots = Math.max(1, Math.min(RULES.MAX - 1, opts.bots || 3)); this.set = { lives: 2, fuse: 'normal', twist: 1, bar: 'normal', ...opts.set };
+    this.state = 'lobby'; this.party = null; this.timer = null; this.games = 0; this.wins = 0;
   }
   lobbyMsg() {
     const bots = Array.from({ length: this.bots }, (_, i) => ({ id: 100 + i, name: 'BOT', look: { c: (i * 3 + 1) % 8, top: i % 5 }, bot: 1 }));
-    return { t: 'lobby', code: null, public: false, host: 1, state: this.state, bots: this.bots, set: this.set, startIn: null, players: [{ id: 1, name: this.name, look: this.o.look, own: this.own ? 1 : 0, acct: 0 }, ...bots] };
+    return { t: 'lobby', code: null, public: false, host: 1, state: this.state, bots: this.bots, set: this.set, games: this.games, startIn: null, over: null, players: [{ id: 1, name: this.name, look: this.o.look, own: this.own ? 1 : 0, acct: 0, wins: this.wins }, ...bots] };
   }
   connect() { this.lobby = this.lobbyMsg(); return Promise.resolve(this.lobby); }
   setOpts(o) {
-    if ([1, 2, 3].includes(o.lives)) this.set.lives = o.lives;
+    if (Number.isInteger(o.lives) && o.lives >= 1 && o.lives <= RULES.MAX_LIVES) this.set.lives = o.lives;
     if (RULES.FUSES[o.fuse]) this.set.fuse = o.fuse;
+    if (o.twist === 0 || o.twist === 1) this.set.twist = o.twist;
+    if (Object.hasOwn(RULES.BARS, o.bar ?? '')) this.set.bar = o.bar;
     if (Number.isInteger(o.bots)) this.bots = Math.max(1, Math.min(RULES.MAX - 1, o.bots));
     this.on.lobby && this.on.lobby(this.lobbyMsg());
   }
@@ -41,13 +44,19 @@ export class LocalSession {
   }
   flush() {
     if (!this.party) return;
-    for (const e of this.party.drain()) { if (e.to && e.to !== 1) continue; this.on.ev && this.on.ev(e); }
+    for (const e of this.party.drain()) {
+      if (e.to && e.to !== 1) continue;
+      if (e.e === 'over') { this.games++; if (e.win === 1) this.wins++; this.lobby = this.lobbyMsg(); }
+      this.on.ev && this.on.ev(e);
+    }
   }
   answer(s) { this.party && this.party.answer(1, s); this.flush(); }
   typing(s) { this.party && this.party.typing(1, s); this.flush(); }
   admin(c) { this.party && this.party.admin(1, c); this.flush(); }
-  /** Back to the setup screen (after the results, or walking out mid-game). */
-  again() { clearInterval(this.timer); this.party = null; this.state = 'lobby'; this.on.lobby && this.on.lobby(this.lobbyMsg()); }
+  emote(k) { this.party && this.party.emote(1, k); this.flush(); }
+  again() { this.start(); }
+  /** Back to the setup screen (after the results). */
+  toRoom() { clearInterval(this.timer); this.party = null; this.state = 'lobby'; this.on.lobby && this.on.lobby(this.lobbyMsg()); }
   kick() {}
   close() { clearInterval(this.timer); this.party = null; this.on = {}; }
 }
@@ -102,6 +111,8 @@ export class NetSession {
   start() { this.send({ t: 'start' }); }
   setOpts(o) { this.send({ t: 'set', ...o }); }
   kick(id) { this.send({ t: 'kick', id }); }
-  again() {}
+  emote(k) { this.send({ t: 'emo', k }); }
+  again() { this.send({ t: 'again' }); }
+  toRoom() { this.send({ t: 'room' }); }
   close() { clearInterval(this.pinger); clearTimeout(this.typeTimer); this.on = {}; try { this.send({ t: 'leave' }); this.ws && this.ws.close(); } catch { /* closed */ } this.ws = null; }
 }

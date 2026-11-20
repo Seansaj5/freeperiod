@@ -115,6 +115,14 @@ export function heartUrl(full) {
   return cv.toDataURL();
 }
 
+const CROWN_ICON = ['k.k.k.k', 'kykykyk', 'kyyyyyk', 'kyryryk', 'kyyyyyk', 'kkkkkkk'];
+/** A data URL of a small crown (7x6): games won in a room. */
+export function crownUrl() {
+  const cv = document.createElement('canvas'); cv.width = 7; cv.height = 6;
+  put(cv.getContext('2d'), CROWN_ICON, 0, 0, PAL);
+  return cv.toDataURL();
+}
+
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 const dith = (x, y) => (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
 
