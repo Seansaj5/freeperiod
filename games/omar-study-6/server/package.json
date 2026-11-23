@@ -1,0 +1,11 @@
+{
+  "name": "omar-study-6-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Online city sessions for Omar Study 6 (Free Period)",
+  "main": "index.js",
+  "scripts": { "start": "node index.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "ws": "^8.18.0" }
+}

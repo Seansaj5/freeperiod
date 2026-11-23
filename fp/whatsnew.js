@@ -8,6 +8,7 @@
 import * as store from './store.js';
 
 export const WHATS_NEW = Object.freeze([
+  { id: 'os6-launch', date: '2026-11-23', game: 'omar-study-6', title: 'Omar Study 6 is out', text: 'An open city: take any car, outrun the cops and pull four heists solo or with a crew online.', href: 'play.html?g=omar-study-6' },
   { id: 'cc-neon-keys', date: '2026-11-23', game: 'close-call', title: 'Close Call: Neon Keys', text: "A new road: a neon beach city at dusk with palms, flamingos and causeways. Plus a clean view from every driver's seat.", href: 'play.html?g=close-call' },
   { id: 'nova-rematch', date: '2026-11-20', game: 'nova-party', title: 'Nova Party: play again', text: 'Rooms get Play again and win crowns. A life bar earns hearts (max 5), plus shouts, awards and a reverse twist.', href: 'play.html?g=nova-party' },
   { id: 'nova-launch', date: '2026-11-16', game: 'nova-party', title: 'Nova Party is out', text: 'A pixel party game: name an answer and pass the nova before it blows. Rare answers score big.', href: 'play.html?g=nova-party' },

@@ -75,3 +75,22 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+
+  # Omar Study 6 online: the server runs each city with the game's shared code (games/omar-study-6/shared)
+  - type: web
+    name: freeperiod-omar
+    runtime: node
+    plan: free
+    # Virginia (US East) is the closest to New Jersey. Render can't move a service to another region later.
+    region: virginia
+    rootDir: games/omar-study-6
+    buildCommand: cd server && npm install --omit=dev
+    startCommand: node server/index.js
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - games/omar-study-6/server/**
+        - games/omar-study-6/shared/**
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

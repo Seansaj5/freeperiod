@@ -129,4 +129,20 @@ window.GAMES = [
     joins: true,
     added: '2026-11-16',
   },
+  {
+    id: 'omar-study-6',
+    title: 'Omar Study 6',
+    tagline: 'Port Omar is yours: take any car, outrun the cops, rob registers and pull four heists alone or with a crew of friends.',
+    url: 'games/omar-study-6/',
+    thumb: 'assets/omar-study-6.jpg',
+    preview: 'assets/omar-study-6.webm',
+    previewMp4: 'assets/omar-study-6.mp4',
+    tags: ['3D', 'Multiplayer', 'Open World'],
+    controls: 'WASD move or drive · F get in a car · click shoot · right-click aim · E use · Tab phone · M map',
+    accent: '#ffb53d',
+    orientation: 'landscape',      // third-person driving and shooting need the width
+    beta: true,
+    joins: true,
+    added: '2026-11-23',
+  },
 ];
