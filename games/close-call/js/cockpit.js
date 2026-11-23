@@ -429,15 +429,18 @@ function buildCabin(spec, paint, hi) {
 
   // ---- roll cage
   if (R.extras.cage) {
-    const cc = lum(paint) < 0.12 ? 0xc8ccd4 : paint, r = 0.021;
+    // The front hoops hug the A pillars and the header: standing out in the windscreen they read as a beam across
+    // the view. A shade under the paint, so the tubes sit back in the cabin.
+    const cc = shade(lum(paint) < 0.12 ? 0xc8ccd4 : paint, -0.3), r = 0.017;
+    const zt = tZ(cab.f1) - 0.045, yt = yr - 0.05;
     for (const sx of [1, -1]) {
-      const a = [sx * (X - 0.1), yd + 0.02, zd + 0.24], t = [sx * (rx - 0.075), yr - 0.07, tZ(cab.f1) - 0.02], e = [sx * (rx - 0.075), yr - 0.075, zRear];
-      G.tube([a, [(a[0] + t[0]) / 2, (a[1] + t[1]) / 2 + 0.02, (a[2] + t[2]) / 2], t, e], r, 8, cc, 'trim');
+      const a = [sx * (xin(zb) - 0.03), yb - 0.005, zb - 0.03], t = [sx * (rx - 0.05), yt, zt], e = [sx * (rx - 0.05), yt - 0.005, zRear];
+      G.tube([a, [(a[0] + t[0]) / 2, (a[1] + t[1]) / 2 + 0.014, (a[2] + t[2]) / 2], t, e], r, 8, cc, 'trim');
       const zq = zd + 0.12, x0 = xin(zq) - 0.075, zr = ez - 0.3;
       G.tube([[sx * x0, beltAt(zq) - 0.03, zq], [sx * (xin(zr) - 0.075), floorY + 0.14, zr]], r, 8, cc, 'trim');
       G.tube([[sx * x0, floorY + 0.2, zq], [sx * (xin(zr) - 0.075), beltAt(zr) - 0.04, zr]], r, 8, cc, 'trim');
     }
-    G.tube([[rx - 0.075, yr - 0.07, tZ(cab.f1) - 0.02], [-(rx - 0.075), yr - 0.07, tZ(cab.f1) - 0.02]], r, 8, cc, 'trim');
+    G.tube([[rx - 0.05, yt, zt], [-(rx - 0.05), yt, zt]], r, 8, cc, 'trim');
   }
 
   for (const m of G.meshes(mats)) group.add(m);

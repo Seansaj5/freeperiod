@@ -16,13 +16,17 @@ const HEAD = 0xfff4dc, TAIL = 0xff1830, AMBER = 0xffa020;
 // ---------------------------------------------------------------- mesh builder
 
 class Builder {
-  constructor() { this.s = Array.from({ length: NSLOT }, () => ({ p: [], c: [] })); this.off = [0, 0, 0]; }
+  constructor() { this.s = Array.from({ length: NSLOT }, () => ({ p: [], c: [], sp: [], sc: [] })); this.off = [0, 0, 0]; this.shell = false; }
+  /**
+   * While `shell` is on, triangles are kept apart as the cabin shell (roof, glass, pillars) and go last in each
+   * geometry, so the view from the driver's seat can leave them out (see buildCar's seat()).
+   */
   tri(a, b, c, col, slot) {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
     const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
     if (cx * cx + cy * cy + cz * cz < 1e-12) return; // skip degenerate triangles
-    const o = this.off, S = this.s[slot];
-    for (const v of [a, b, c]) { S.p.push(v[0] + o[0], v[1] + o[1], v[2] + o[2]); S.c.push(col.r, col.g, col.b); }
+    const o = this.off, S = this.s[slot], P = this.shell ? S.sp : S.p, C = this.shell ? S.sc : S.c;
+    for (const v of [a, b, c]) { P.push(v[0] + o[0], v[1] + o[1], v[2] + o[2]); C.push(col.r, col.g, col.b); }
   }
   /** A quad facing away from `ctr`, whatever order the corners come in. */
   quad(a, b, c, d, col, ctr, slot) {
@@ -66,7 +70,12 @@ class Builder {
   /** One BufferGeometry per material slot (null when empty), with creased smooth normals. */
   geometries(crease = 38) {
     const cosT = Math.cos((crease * Math.PI) / 180);
-    return this.s.map((S) => (S.p.length ? toGeometry(S.p, S.c, cosT) : null));
+    return this.s.map((S) => {
+      if (!S.p.length && !S.sp.length) return null;
+      const g = toGeometry(S.sp.length ? S.p.concat(S.sp) : S.p, S.sc.length ? S.c.concat(S.sc) : S.c, cosT);
+      g.userData.outer = S.p.length / 3; // vertices before the cabin shell starts
+      return g;
+    });
   }
   geometry(crease = 38) { return merge(this.geometries(crease)); }
 }
@@ -206,7 +215,10 @@ export function bodyShape(b) {
     else if (t > cab.f1) { const u = (cab.f0 - t) / (cab.f0 - cab.f1); k = 1 - (1 - u) ** 1.5; }
     else k = 1;
     const mid = (cab.r1 + cab.f1) / 2, half = (cab.f1 - cab.r1) / 2 || 1;
-    const h = cab.h - (k >= 1 ? 0.025 * ((t - mid) / half) ** 2 : 0);
+    // The roof sags 2.5 cm towards its ends, and the screens start from that same height. (They used to start
+    // from the full roof height: a little step up at the top of each screen, which faced the driver's seat and
+    // drew a line across the view from inside.)
+    const h = cab.h - 0.025 * Math.min(1, ((t - mid) / half) ** 2);
     return [deck[0] + (h - deck[0]) * k, deck[1] + (rx - deck[1]) * Math.min(1, k * 1.6), k, hoodCrown + (roofCrown - hoodCrown) * k];
   };
   /** Right half of the cross-section at t, bottom centre round to top centre. */
@@ -280,9 +292,11 @@ function loftBody(B, b) {
       }
       if (tone && slot === PAINT && tm > b.twoTone.t + (k >= 5 ? 0.04 : 0)) col = tone;
       const ctr = [0, (A.yb + A.yt) / 2, (A.z + C.z) / 2];
+      B.shell = !!inCab && k >= 6; // windows, pillars and roof: the cabin shell
       for (const sx of [1, -1]) {
         B.quad([A.pts[k][0] * sx, A.pts[k][1], A.z], [A.pts[k + 1][0] * sx, A.pts[k + 1][1], A.z], [C.pts[k + 1][0] * sx, C.pts[k + 1][1], C.z], [C.pts[k][0] * sx, C.pts[k][1], C.z], col, ctr, slot);
       }
+      B.shell = false;
     }
   }
   // end caps
@@ -567,7 +581,9 @@ export function carGeometry(b, { detail = true, bakeWheels = false } = {}) {
       for (const sx of [-1, 1]) {
         const xa = 0.07, xb = 0.25;
         const P = (t, x) => [sx * x, sh.topAt(t, x) + 0.005, tZ(t)];
+        B.shell = !!cab && tb > cab.r0 && ta < cab.f0; // the stripes over the roof belong to the cabin shell
         B.quad(P(ta, xa), P(ta, xb), P(tb, xb), P(tb, xa), col, [sx * 0.16, sh.topAt(ta, 0.16) - 1, tZ(ta)], TRIM);
+        B.shell = false;
       }
     }
   }
@@ -810,7 +826,8 @@ export function buildCar(spec, paint) {
   const geo = carGeometry(spec.body, { detail: true });
   const group = new THREE.Group();
   const mats = slotMaterials(paint ?? spec.color);
-  geo.parts.forEach((g, i) => { if (g) group.add(new THREE.Mesh(g, mats[i])); });
+  const slots = [];
+  geo.parts.forEach((g, i) => { if (g) { const m = new THREE.Mesh(g, mats[i]); slots.push(m); group.add(m); } });
   const headMat = lightMaterial(HI ? 2.6 : 1), tailMat = lightMaterial(HI ? 0.9 : 0.62);
   const headGlowMat = glowMaterial(0.7), tailGlowMat = glowMaterial(0.4);
   group.add(new THREE.Mesh(geo.head, headMat), new THREE.Mesh(geo.tail, tailMat), new THREE.Mesh(geo.headGlow, headGlowMat), new THREE.Mesh(geo.tailGlow, tailGlowMat));
@@ -840,6 +857,9 @@ export function buildCar(spec, paint) {
       shadow.visible = false;
     },
     setBrake: (on) => { tailMat.color.setScalar(on ? (HI ? 3 : 1) : (HI ? 0.9 : 0.62)); tailGlowMat.opacity = on ? 1 : 0.4; },
+    // From the driver's seat the cabin is its own model (cockpit.js), so the real roof, glass and pillars are left
+    // out: any piece of them that happens to face the seat would draw a line or a band across the view.
+    seat: (on) => { for (const m of slots) m.geometry.setDrawRange(0, on ? m.geometry.userData.outer : Infinity); },
     spin: (dt, v, steer) => {
       roll = (roll + (v / W.r) * dt) % (Math.PI * 2);
       for (const w of wheels) { w.spin.rotation.x = roll; if (w.front) w.pivot.rotation.y = -steer * 0.35; }

@@ -8,6 +8,7 @@
 import * as store from './store.js';
 
 export const WHATS_NEW = Object.freeze([
+  { id: 'cc-neon-keys', date: '2026-11-23', game: 'close-call', title: 'Close Call: Neon Keys', text: "A new road: a neon beach city at dusk with palms, flamingos and causeways. Plus a clean view from every driver's seat.", href: 'play.html?g=close-call' },
   { id: 'nova-rematch', date: '2026-11-20', game: 'nova-party', title: 'Nova Party: play again', text: 'Rooms get Play again and win crowns. A life bar earns hearts (max 5), plus shouts, awards and a reverse twist.', href: 'play.html?g=nova-party' },
   { id: 'nova-launch', date: '2026-11-16', game: 'nova-party', title: 'Nova Party is out', text: 'A pixel party game: name an answer and pass the nova before it blows. Rare answers score big.', href: 'play.html?g=nova-party' },
   { id: 'cc-cockpit', date: '2026-11-12', game: 'close-call', title: "Close Call: the driver's seat", text: 'Sit inside 45 cars, shift by hand, tune 7 parts, hear the turbo spool. 23 new cars, and the Claude Car.', href: 'play.html?g=close-call' },

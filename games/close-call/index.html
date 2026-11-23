@@ -140,6 +140,7 @@
     .mapc[data-m='canyon']::before { background: linear-gradient(170deg, #060a1c 0%, #1b2140 40%, #a8461f 41%, #5a2412 70%, #1a0e0a 100%); }
     .mapc[data-m='alpine']::before { background: linear-gradient(170deg, #22324f 0%, #5d6e8c 38%, #eef3fb 39%, #a9b6c9 60%, #183626 61%, #0d1a14 100%); }
     .mapc[data-m='storm']::before { background: linear-gradient(165deg, #06090f 0%, #232c3b 36%, #b8c8e0 37%, #1a2230 39%, #ffd49a 55%, #0c1119 68%, #05070b 100%); }
+    .mapc[data-m='keys']::before { background: linear-gradient(172deg, #1d1250 0%, #b03a8c 34%, #ff8a5a 50%, #ffd27a 53%, #1fb8b0 55%, #0e5a6a 74%, #2a1640 100%); }
     @media (max-height: 860px) { .maps { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .maps .mapc { padding-left: 62px; } .maps .mapc::before { width: 42px; } .maps .mapc b { font-size: 14px; } .maps .mapc small { font-size: 11px; } }
     .mapc b { display: block; font-family: 'Bungee', sans-serif; font-weight: 400; font-size: 17px; }
     .mapc span { display: block; font-size: 13px; color: var(--muted); line-height: 1.35; margin-top: 3px; }
@@ -167,10 +168,10 @@
       #r-note { display: none; }
       #route .btn.small, #route .btn { height: 38px; }
       /* phones sideways: the maps side by side, compact results, a slimmer top bar */
-      .maps { flex-direction: row; grid-template-columns: repeat(5, 1fr); }
-      .maps .mapc, .mapc { flex: 1; padding: 8px 10px; }
+      .maps { flex-direction: row; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+      .maps .mapc, .mapc { flex: 1; padding: 8px 5px; text-align: center; }
       .mapc::before, .mapc small { display: none; }
-      .mapc b { font-size: 13px; }
+      .mapc b { font-size: 11.5px; }
       .wallet .pill:not(.acct):last-child { display: none; }
       .ac-note, .o-sub, .tog small { display: none; }
       .ostats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
@@ -363,7 +364,7 @@
       <span class="lbl" style="margin-top:0">Your name</span>
       <input class="field" id="mp-name" maxlength="16" spellcheck="false" autocomplete="off" />
       <span class="lbl">Map and lanes <span style="text-transform:none;letter-spacing:0;font-weight:600">(for quick play and new rooms)</span></span>
-      <div class="seg" id="mp-maps"><button class="btn small" data-mm="city">Night City</button><button class="btn small" data-mm="coast">Sunset Coast</button><button class="btn small" data-mm="canyon">Red Canyon</button><button class="btn small" data-mm="alpine">Alpine Pass</button><button class="btn small" data-mm="storm">Storm City</button></div>
+      <div class="seg" id="mp-maps"><button class="btn small" data-mm="city">Night City</button><button class="btn small" data-mm="coast">Sunset Coast</button><button class="btn small" data-mm="canyon">Red Canyon</button><button class="btn small" data-mm="alpine">Alpine Pass</button><button class="btn small" data-mm="storm">Storm City</button><button class="btn small" data-mm="keys">Neon Keys</button></div>
       <div class="seg" style="margin-top:6px" id="mp-lanes"><button class="btn small" data-ml="2">2 lanes</button><button class="btn small" data-ml="3">3 lanes</button><button class="btn small" data-ml="4">4 lanes</button></div>
       <div class="seg" style="margin-top:6px" id="mp-modes"><button class="btn small" data-mlv="0">Free drive</button><button class="btn small" data-mlv="1">Two lives · x1.5 cash</button></div>
       <div class="stack" style="width:100%;margin-top:16px">

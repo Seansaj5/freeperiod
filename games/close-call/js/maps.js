@@ -1,6 +1,6 @@
 // The routes. Each map is its own place: road shape (bends, hills), features (tunnels, bridges, road works)
 // and look (sky, light, scenery, weather). Lane modes change how many lanes the highway has.
-//   look: which scenery family builds it (city, coast, canyon, alpine)   weather: what it is like by default
+//   look: which scenery family builds it (city, coast, canyon, alpine, keys)   weather: what it is like by default
 //   grip: how well tyres hold (snow and rain are slippier)   work: chance per kilometre of road works on the shoulder
 
 export const LANE_MODES = [2, 3, 4];
@@ -72,8 +72,22 @@ export const MAPS = {
     lamps: { gap: 20, both: true, color: 0xffd49a }, rail: 'jersey', tube: 'glass',
     paint: 'white', far: 'city', weather: 'rain', grip: 0.92, work: 0.3, noMoon: true,
   },
+  keys: {
+    id: 'keys', look: 'keys', name: 'Neon Keys', blurb: 'Beach-city boulevard at dusk under a pink sky. Neon hotels, palm rows, flamingos in the shallows and long causeways over the bay.',
+    curve: { k: 1 / 330, w: [720, 1900, 300], a: [0.6, 0.4, 0.15], th: 0.3 },
+    hills: { base: 5, a: [1.3, 0.6], w: [460, 170] },
+    feat: { seg: 1500, tunnel: 0, bridge: 0.5, tunnelLen: [0, 0], bridgeLen: [560, 900] },
+    trapEvery: 2000,
+    sea: 0,
+    sky: { top: [0.09, 0.05, 0.28], mid: [0.6, 0.19, 0.5], glow: [1.0, 0.44, 0.3], cloud: [1.0, 0.48, 0.62], stars: 0.3, sun: { dir: [0.5, 0.045, 0.86], col: [1.7, 0.62, 0.5], size: 0.9985 } },
+    fog: [0x8a4a86, 130, 1150], bg: 0x4a2a66,
+    hemi: [0xffb0d8, 0x3a2c58, 1.35], light: [0xff9078, 1.5, [260, 45, 440]],
+    // lamps: tint = the colour of the heads and their pools of light, power = how hard they light the cars
+    lamps: { gap: 26, both: true, color: 0xff7ad0, tint: [1, 0.5, 0.82], power: 18 }, rail: 'guard', tube: 'rock',
+    paint: 'white', far: 'neon', work: 0.2, roadGlow: 1.0,
+  },
 };
-export const MAP_LIST = ['city', 'coast', 'canyon', 'alpine', 'storm'];
+export const MAP_LIST = ['city', 'coast', 'canyon', 'alpine', 'storm', 'keys'];
 /** Weather you can pick in settings ('map' = whatever the map has). */
 export const WEATHERS = ['map', 'clear', 'rain', 'snow', 'fog'];
 /** Grip for each kind of weather (rain and snow make the road slippier). */

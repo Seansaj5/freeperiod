@@ -1,5 +1,5 @@
 // Everything you see except the player cars: sky, the road and its barriers, tunnels, speed traps,
-// street lights and traffic. Map-specific scenery (city, coast, canyon) lives in scenery.js.
+// street lights and traffic. Map-specific scenery (city, coast, canyon, alpine, keys) lives in scenery.js.
 // The road is built in 160 m chunks ahead of the player and recycled behind.
 import * as THREE from 'three';
 import { Road } from './road.js';
@@ -203,6 +203,11 @@ export class World {
     this.matTunnelIn.color.setHex(m.look === 'city' ? 0x5d6878 : 0x9a958c);
     this.matTunnelOut.color.setHex(m.look === 'city' ? 0x262b35 : m.look === 'coast' ? 0x8c7c68 : m.look === 'alpine' ? 0x8a8e96 : 0x8e4a2c);
     this.matTunnelLight.color.set(this.hi ? (m.look === 'city' ? new THREE.Color(1.15, 1.3, 1.45) : new THREE.Color(1.5, 1.05, 0.5)) : (m.look === 'city' ? 0xdfeeff : 0xffcf86));
+    // street lights: warm white unless the map tints them (the pink lamps of Neon Keys)
+    const tint = m.lamps?.tint, head = this.heads.m.material.color;
+    if (tint) head.setRGB(tint[0], tint[1], tint[2]).multiplyScalar(this.hi ? 3 : 1);
+    else if (this.hi) head.setRGB(3, 2.3, 1.4); else head.setHex(0xffd28a);
+    for (const pl of [this.pools, this.halos]) pl.m.material.color.setRGB(1, tint ? tint[1] * 1.15 : 1, tint ? tint[2] * 2.2 : 1); // their glow is drawn warm
     if (this.scenery) this.scenery.dispose();
     this.scenery = new Scenery(this, m);
   }
@@ -220,7 +225,7 @@ export class World {
         : new THREE.MeshLambertMaterial({ map: t.map, emissive: 0xffffff, emissiveMap: t.glow, emissiveIntensity: 1.2 });
     } else { this.matRoad.map = t.map; this.matRoad.emissiveMap = t.glow; this.matRoad.needsUpdate = true; }
     // the daylight coast needs less glow from the studs and paint
-    this.matRoad.emissiveIntensity = this.map.look === 'coast' ? 0.5 : this.hi ? 1.6 : 1.2;
+    this.matRoad.emissiveIntensity = this.map.roadGlow ?? (this.map.look === 'coast' ? 0.5 : this.hi ? 1.6 : 1.2);
   }
 
   // ---------- chunks ----------
@@ -605,7 +610,7 @@ export class World {
       const k = k0 + i, side = m.lamps.both ? (k % 2 === 0 ? -1 : 1) : 1;
       this.road.toWorld(k * gap, side * (this.road.wall + 0.45 - LAMP_IN), p);
       this.lamps[i].position.set(p.x, p.y + LAMP_Y - 0.6, p.z);
-      this.lamps[i].intensity = m.look === 'coast' ? 12 : 24;
+      this.lamps[i].intensity = m.lamps.power ?? (m.look === 'coast' ? 12 : 24);
       this.lamps[i].color.setHex(m.lamps.color);
     }
   }
@@ -698,7 +703,7 @@ function buildEnv(renderer, m) {
   const col = (a) => new THREE.Vector3(...a);
   s.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), new THREE.ShaderMaterial({
     side: THREE.BackSide,
-    uniforms: { uTop: { value: col(sk.top) }, uMid: { value: col(sk.mid) }, uGlow: { value: col(sk.glow) }, uGround: { value: col(m.look === 'coast' ? [0.05, 0.08, 0.14] : [0.03, 0.03, 0.04]) } },
+    uniforms: { uTop: { value: col(sk.top) }, uMid: { value: col(sk.mid) }, uGlow: { value: col(sk.glow) }, uGround: { value: col(m.look === 'coast' ? [0.05, 0.08, 0.14] : m.look === 'keys' ? [0.07, 0.05, 0.12] : [0.03, 0.03, 0.04]) } },
     vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: `varying vec3 vP; uniform vec3 uTop, uMid, uGlow, uGround; void main(){
       float y = vP.y;
@@ -708,7 +713,7 @@ function buildEnv(renderer, m) {
       gl_FragColor = vec4(c, 1.0); }`,
   })));
   if (m.lamps) { // street lights overhead, stretched into strips so they reflect as streaks rather than dots
-    const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.9, 1.15) });
+    const lamp = new THREE.MeshBasicMaterial({ color: m.lamps.tint ? new THREE.Color(2.6 * m.lamps.tint[0], 2.6 * m.lamps.tint[1], 2.6 * m.lamps.tint[2]) : new THREE.Color(2.6, 1.9, 1.15) });
     for (const x of m.lamps.both ? [-7, 7] : [7]) { const mm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 90), lamp); mm.position.set(x, 11, 0); s.add(mm); }
   }
   if (m.look === 'city') { // city windows round the horizon
@@ -718,6 +723,15 @@ function buildEnv(renderer, m) {
     for (let i = 0; i < 220; i++) {
       const a = r() * Math.PI * 2, d = 38 + r() * 8, h = -1 + r() * 9;
       const mm = new THREE.Mesh(new THREE.PlaneGeometry(0.6 + r() * 1.4, 0.3 + r() * 0.5), new THREE.MeshBasicMaterial({ color: cols[i % 3], side: THREE.DoubleSide }));
+      mm.position.set(Math.cos(a) * d, h, Math.sin(a) * d); mm.lookAt(0, h, 0); s.add(mm);
+    }
+  }
+  if (m.look === 'keys') { // neon along the street: lines of pink, cyan and violet low round the horizon
+    const cols = [new THREE.Color(2.4, 0.4, 1.4), new THREE.Color(0.3, 1.9, 2.3), new THREE.Color(1.5, 0.7, 2.4), new THREE.Color(2.3, 1.7, 0.5)];
+    const r = rng(11);
+    for (let i = 0; i < 46; i++) {
+      const a = r() * Math.PI * 2, d = 36 + r() * 9, h = r() * 7, wide = r() < 0.6;
+      const mm = new THREE.Mesh(new THREE.PlaneGeometry(wide ? 3 + r() * 7 : 0.35, wide ? 0.3 : 2 + r() * 5), new THREE.MeshBasicMaterial({ color: cols[i % 4], side: THREE.DoubleSide }));
       mm.position.set(Math.cos(a) * d, h, Math.sin(a) * d); mm.lookAt(0, h, 0); s.add(mm);
     }
   }

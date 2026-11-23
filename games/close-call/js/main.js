@@ -928,7 +928,7 @@ function updateCamera(dt) {
 // ---------------- main loop ----------------
 const clock = new THREE.Clock();
 let fpsAvg = 60;
-let seatWas = false;
+let seatWas = false, seatCar = null;
 let inputNow = { gas: false }, lastGas = false, limiterOn = false, boostP = 0, flamePops = 0, flameAt = 0;
 const CV = new THREE.Vector3(), FV = new THREE.Vector3(), FD = new THREE.Vector3(), BV = new THREE.Vector3(), FP = {};
 function frame() {
@@ -1088,7 +1088,8 @@ function frame() {
   const seat = camMode === 3 && playing && !wreck;
   fill.intensity = seat ? FILL * 0.2 : FILL;
   cabPass.enabled = seat;
-  if (seat !== seatWas) { seatWas = seat; document.body.classList.toggle('seat', seat); }
+  if (seat !== seatWas) { seatWas = seat; document.body.classList.toggle('seat', seat); seatCar = null; }
+  if (seatCar !== carMesh) { seatCar = carMesh; carMesh.userData.seat(seat); } // from the seat, the car's own roof and glass are not drawn
   if (seat) cockpit.update(frozen ? 0 : dt, { sim, input: inputNow, world, camera, now: now / 1000, mph: save.settings.units === 'mph', spec: sim.spec, weather: weatherKind, flash: weather.flash, crash: shake });
   if (composer) composer.render(dt);
   else {

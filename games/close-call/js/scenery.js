@@ -3,6 +3,7 @@
 //   coast  - sea with the setting sun on it, cliffs and hills, palm trees, suspension bridges, islands
 //   canyon - red rock walls, mesas, cacti, boulders and reflector posts, under a starry sky
 //   alpine - snowy mountain walls and valleys, pine forest, rocks and snow poles, jagged peaks far off
+//   keys   - a beach city at dusk: neon hotels and signs, palm rows, a beach with flamingos, causeways over the bay
 // Terrain is built per chunk as strips beside the road; props are instanced (gfx.js Pool).
 import * as THREE from 'three';
 import { CHUNK, Pool, triMesh, mergeGeos, radialTexture } from './gfx.js';
@@ -31,6 +32,7 @@ export class Scenery {
     if (look === 'city') this.buildCity();
     else if (look === 'coast') this.buildCoast();
     else if (look === 'alpine') this.buildAlpine();
+    else if (look === 'keys') this.buildKeys();
     else this.buildCanyon();
   }
 
@@ -66,6 +68,7 @@ export class Scenery {
     if (this.look === 'city') this.cityChunk(i, slot, s0, s1, base, meshes);
     else if (this.look === 'coast') this.coastChunk(i, slot, s0, s1, base, meshes, feats);
     else if (this.look === 'alpine') this.alpineChunk(i, slot, s0, s1, base, meshes, feats);
+    else if (this.look === 'keys') this.keysChunk(i, slot, s0, s1, base, meshes, feats);
     else this.canyonChunk(i, slot, s0, s1, base, meshes, feats);
   }
 
@@ -73,6 +76,7 @@ export class Scenery {
     this.time = time;
     if (this.beaconMat) { const on = Math.sin(time * 3.2) > 0.3 ? (this.hi ? 2.5 : 1) : 0.1; this.beaconMat.color.setRGB(on, on * 0.06, on * 0.06); }
     if (this.seaMat) this.seaMat.uniforms.uT.value = time;
+    if (this.flickMat) { const on = Math.sin(time * 2.1) > 0.82 && Math.sin(time * 37) > 0.2 ? 0.25 : 1; this.flickMat.color.setScalar(on * this.flickK); }
   }
 
   follow(cam) {
@@ -87,7 +91,7 @@ export class Scenery {
    * Terrain beside the road on one side (side -1 left, 1 right) from s0 to s1.
    * prof(s) -> [[dOffset, y], ...] with dOffset measured outward from the barrier; color(s, dOff, y, k) -> [r, g, b].
    */
-  strip(s0, s1, side, base, prof, color, mat, meshes) {
+  strip(s0, s1, side, base, prof, color, mat, meshes, flat = false) {
     const road = this.w.road, p = {};
     const rows = Math.round((s1 - s0) / ROW) + 1;
     let cols = 0;
@@ -95,7 +99,7 @@ export class Scenery {
     for (let r = 0; r < rows; r++) {
       const s = s0 + r * ROW;
       const k = road.kappa(s), inside = side * k < 0 && Math.abs(k) > 1e-5 ? 0.62 / Math.abs(k) : 1e9; // never fold over the inside of a bend
-      const pr = densify(prof(s), s);
+      const pr = flat ? prof(s) : densify(prof(s), s); // flat: the profile as given (built-up ground), no rough terrain added
       cols = pr.length;
       pr.forEach(([dd, y], j) => {
         const d = Math.min(road.wall + dd, inside);
@@ -210,10 +214,18 @@ export class Scenery {
   buildCoast() {
     const hi = this.hi, m = this.m;
     this.farRing(islandTexture(), m.sea + 40, 110);
-    // the sea: waves and the sun's glitter, fading into the haze
-    const sun = m.sky.sun, fog = this.w.scene.fog;
+    this.addSea([0.008, 0.045, 0.09], [0.16, 0.24, 0.4]);
+    this.landMat = this.mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    this.palms = this.pool(palmGeometry(), this.mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })), 16);
+    this.rocks = this.pool(rockGeometry(3), this.mat(new THREE.MeshLambertMaterial({ color: 0xffffff })), 12, true);
+    this.addBridgeKit(0x8e8a84, 0xb04a2a, 0xc0582f, hi ? new THREE.Color(3, 0.2, 0.15) : 0xff3020);
+  }
+
+  /** The sea: waves and the sun's glitter, fading into the haze. deep / sky = the water's own colour and what it mirrors. */
+  addSea(deep, sky) {
+    const hi = this.hi, m = this.m, sun = m.sky.sun, fog = this.w.scene.fog;
     this.seaMat = this.mat(new THREE.ShaderMaterial({
-      uniforms: { uT: { value: 0 }, uDeep: { value: new THREE.Vector3(0.008, 0.045, 0.09) }, uSky: { value: new THREE.Vector3(0.16, 0.24, 0.4) }, uSunDir: { value: new THREE.Vector3(...sun.dir).normalize() }, uSunCol: { value: new THREE.Vector3(...sun.col) }, uFog: { value: fog.color }, uNear: { value: fog.near }, uFar: { value: fog.far * 1.6 }, uHi: { value: hi ? 1 : 0 } },
+      uniforms: { uT: { value: 0 }, uDeep: { value: new THREE.Vector3(...deep) }, uSky: { value: new THREE.Vector3(...sky) }, uSunDir: { value: new THREE.Vector3(...sun.dir).normalize() }, uSunCol: { value: new THREE.Vector3(...sun.col) }, uFog: { value: fog.color }, uNear: { value: fog.near }, uFar: { value: fog.far * 1.6 }, uHi: { value: hi ? 1 : 0 } },
       vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
       fragmentShader: `uniform float uT, uNear, uFar, uHi; uniform vec3 uDeep, uSky, uSunDir, uSunCol, uFog; varying vec3 vW;
         void main(){
@@ -236,14 +248,14 @@ export class Scenery {
     this.sea.rotation.x = -Math.PI / 2;
     this.sea.position.y = m.sea;
     this.group.add(this.sea);
-    this.landMat = this.mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
-    this.palms = this.pool(palmGeometry(), this.mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })), 16);
-    this.rocks = this.pool(rockGeometry(3), this.mat(new THREE.MeshLambertMaterial({ color: 0xffffff })), 12, true);
-    // bridges: piers, towers and cables
-    this.matConcrete = this.mat(new THREE.MeshLambertMaterial({ color: 0x8e8a84 }));
-    this.matTower = this.mat(new THREE.MeshLambertMaterial({ color: 0xb04a2a }));
-    this.matCable = this.mat(new THREE.MeshLambertMaterial({ color: 0xc0582f, side: THREE.DoubleSide }));
-    this.matBeacon = this.mat(new THREE.MeshBasicMaterial({ color: hi ? new THREE.Color(3, 0.2, 0.15) : 0xff3020 }));
+  }
+
+  /** What bridge() builds from: piers, towers, cables and their beacons. */
+  addBridgeKit(concrete, tower, cable, beacon) {
+    this.matConcrete = this.mat(new THREE.MeshLambertMaterial({ color: concrete }));
+    this.matTower = this.mat(new THREE.MeshLambertMaterial({ color: tower }));
+    this.matCable = this.mat(new THREE.MeshLambertMaterial({ color: cable, side: THREE.DoubleSide }));
+    this.matBeacon = this.mat(new THREE.MeshBasicMaterial({ color: beacon }));
     this.piers = this.pool(new THREE.BoxGeometry(2.2, 1, 3.2).translate(0, 0.5, 0), this.matConcrete, 10);
     this.hangers = this.pool(new THREE.BoxGeometry(0.08, 1, 0.08).translate(0, 0.5, 0), this.matCable, 70);
   }
@@ -361,6 +373,169 @@ export class Scenery {
         if (y1 - y0 < 0.6) continue;
         for (const sx of [-1, 1]) { road.toWorld(s, sx * dC, p); this.hangers.add(slot, p.x, y0, p.z, p.h, 1, y1 - y0, 1); }
       }
+    }
+  }
+
+  // ---------------------------------------------------------------- keys (a neon beach city at dusk)
+
+  buildKeys() {
+    const hi = this.hi, m = this.m, glow = hi ? 2.4 : 1;
+    this.farRing(neonSkylineTexture(), m.sea + 58, 150);
+    this.addSea([0.0, 0.1, 0.13], [0.5, 0.26, 0.46]);
+    this.landMat = this.mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    this.palms = this.pool(palmGeometry(), this.mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })), 36);
+    // causeways: pale towers, mint cables, and a tube of neon along each rail
+    this.addBridgeKit(0xb4a8b0, 0xf0e6ee, 0x8fd9d2, hi ? new THREE.Color(3, 0.3, 1.8) : 0xff3aa8);
+    this.matNeon = [[1, 0.16, 0.6], [0.1, 0.85, 1]].map((c) => this.mat(new THREE.MeshBasicMaterial({ color: new THREE.Color(c[0] * glow, c[1] * glow, c[2] * glow), side: THREE.DoubleSide })));
+    // hotels: pastel walls (each its own colour), lit windows, and a matching set of neon lines
+    const winTex = this.tex(windowTexture());
+    winTex.anisotropy = 4;
+    const wall = this.mat(new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveMap: winTex, emissiveIntensity: hi ? 0.85 : 0.8 }));
+    const neon = this.mat(new THREE.MeshBasicMaterial({ color: new THREE.Color(glow, glow, glow) }));
+    this.hShapes = [[34, 21, 22], [26, 31.5, 20]];
+    this.hotels = this.hShapes.map(([w, h, d]) => this.pool(hotelGeometry(w, h, d), wall, 4, true));
+    this.hotelNeon = this.hShapes.map(([w, h, d]) => this.pool(hotelNeonGeometry(w, h, d), neon, 4, true));
+    // glass towers behind them, each with a lit crown
+    const glass = this.mat(new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveMap: winTex, emissiveIntensity: hi ? 1.0 : 0.9 }));
+    this.towers = this.pool(boxWithTiledUV(24, 84, 24), glass, 5, true);
+    this.crowns = this.pool(mergeGeos([new THREE.BoxGeometry(24.8, 0.9, 24.8).translate(0, 84.4, 0), new THREE.BoxGeometry(0.5, 9, 0.5).translate(0, 89, 0)]), neon, 5, true);
+    // roadside neon: tall motel signs and billboards for made-up brands
+    this.signTex = [['MOTEL', '#ff3aa8', '#3de0ff'], ['HOTEL', '#3de0ff', '#ff3aa8'], ['DINER', '#ffd23a', '#ff3aa8'], ['ARCADE', '#b56bff', '#3de0ff']].map((a) => this.tex(pylonTexture(...a)));
+    const signMats = this.signTex.map((t) => this.mat(new THREE.MeshBasicMaterial({ map: t, color: new THREE.Color(hi ? 1.7 : 1, hi ? 1.7 : 1, hi ? 1.7 : 1), side: THREE.DoubleSide })));
+    this.flickMat = signMats[0]; this.flickK = hi ? 1.7 : 1;
+    this.signFaces = signMats.map((mt) => this.pool(new THREE.PlaneGeometry(3.4, 10.2).translate(0, 9.4, 0), mt, 2));
+    this.signPosts = this.pool(mergeGeos([new THREE.BoxGeometry(3.9, 10.7, 0.5).translate(0, 9.4, 0), new THREE.BoxGeometry(0.55, 4.2, 0.55).translate(0, 2.1, 0)]), this.mat(new THREE.MeshLambertMaterial({ color: 0x2a2233 })), 3);
+    this.adTex = [['CORAL COLA', '#ff5a8a', 'taste the sunset'], ['FLAMINGO FM', '#ff3aa8', '99.9 · beach all night'], ['WAVE RIDER', '#3de0ff', 'surf · skate · arcade'], ['NEON PALMS', '#6dff8a', 'motel · pool · vacancy']].map((a) => this.tex(adTexture(...a)));
+    this.adFaces = this.adTex.map((t) => this.pool(new THREE.PlaneGeometry(12, 5.2), this.mat(new THREE.MeshBasicMaterial({ map: t, color: hi ? new THREE.Color(1.5, 1.5, 1.5) : 0xffffff, side: THREE.DoubleSide })), 2));
+    this.adFrames = this.pool(mergeGeos([new THREE.BoxGeometry(12.6, 5.8, 0.4).translate(0, 0, -0.25), new THREE.BoxGeometry(0.6, 1, 0.6).translate(0, -3.4, -0.3)]), this.mat(new THREE.MeshLambertMaterial({ color: 0x2a2233 })), 2);
+    this.adPoles = this.pool(new THREE.CylinderGeometry(0.45, 0.6, 1, 8).translate(0, 0.5, 0), this.mat(new THREE.MeshLambertMaterial({ color: 0x3a3144 })), 2);
+    // the beach: flamingos in the shallows, umbrellas, lifeguard huts, boats out on the bay
+    this.flamingos = this.pool(flamingoGeometry(), this.mat(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x3a0c1c })), 9);
+    this.umbrellas = this.pool(umbrellaGeometry(), this.mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })), 8, true);
+    this.huts = this.pool(hutGeometry(), this.mat(new THREE.MeshLambertMaterial({ vertexColors: true })), 1, true);
+    this.boats = this.pool(boatGeometry(), this.mat(new THREE.MeshLambertMaterial({ vertexColors: true })), 2);
+  }
+
+  keysProfile(s, side, ry, feats) {
+    const seed = this.w.seed, sea = this.m.sea;
+    const n = (k) => vnoise(seed + side * 5 + k, s * 0.02, k * 0.9);
+    let pr;
+    if (side > 0) pr = [[0.3, ry - 0.05], [3, ry - 0.03], [9, ry - 0.03], [40, ry], [95, ry + 0.5 * n(1)], [180, ry], [300, ry - 1.5], [420, sea - 3]]; // the city: built-up and flat
+    else pr = [[0.3, ry - 0.05], [2.4, ry - 0.04], [5, ry - 0.5], [14, sea + 1.5 + 0.7 * n(1)], [30, sea + 0.55 + 0.25 * n(2)], [44, sea - 0.5], [70, sea - 3], [420, sea - 9]]; // the beach, down into the bay
+    const bk = this.bridgeAmt(s, feats);
+    if (bk > 0) pr = pr.map(([dd, y], j) => [dd, j === 0 ? y : lerp(y, sea - 9, bk)]);
+    return pr;
+  }
+
+  keysChunk(i, slot, s0, s1, base, meshes, feats) {
+    const road = this.w.road, p = {}, sea = this.m.sea, seed = this.w.seed, W = road.wall;
+    const q = {}, ryAt = (s) => road.center(s, q).y; // its own scratch point: p holds the spot a prop is being placed at
+    const land = (s) => this.bridgeAmt(s, feats) < 0.03;
+    const mix3 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+    const kerb = [0.66, 0.6, 0.64], walk = [0.72, 0.58, 0.62], sand = [0.84, 0.7, 0.54], wet = [0.5, 0.42, 0.38], bed = [0.1, 0.3, 0.32], lot = [0.17, 0.15, 0.2], lawn = [0.14, 0.3, 0.17];
+    for (const side of [-1, 1]) {
+      this.strip(s0, s1, side, base, (s) => this.keysProfile(s, side, ryAt(s), feats), (s, dd, y, j) => {
+        if (j === 0) return kerb;
+        if (y < sea + 0.3) return mix3(wet, bed, Math.min(1, (sea + 0.3 - y) / 2.5));
+        if (dd < 9.5) return walk;
+        const tint = 0.92 + hash(Math.round(s), Math.round(dd)) * 0.16;
+        if (side < 0) return [sand[0] * tint, sand[1] * tint, sand[2] * tint];
+        const c = vnoise(seed + 17, s * 0.02, dd * 0.03) > 0.55 ? lawn : lot;
+        return [c[0] * tint, c[1] * tint, c[2] * tint];
+      }, this.landMat, meshes, true);
+    }
+    const r = rng(i * 92821 + seed * 13);
+    // palm rows along both kerbs, like a boulevard
+    for (let s = Math.ceil(s0 / 13) * 13; s < s1; s += 13) {
+      if (!land(s)) continue;
+      const ry = ryAt(s);
+      for (const side of [-1, 1]) {
+        const h = hash(seed + 41, Math.round(s), side), k = 0.9 + h * 0.35;
+        road.toWorld(s, side * (W + 3.1), p);
+        this.palms.add(slot, p.x, ry - 0.25, p.z, h * 6.28, k, k * (0.95 + h * 0.3), k);
+      }
+    }
+    // the city side: a row of hotels facing the road, glass towers behind
+    for (let j = 0; j < 4; j++) {
+      const s = s0 + 20 + j * 40 + (r() - 0.5) * 6, which = r() < 0.55 ? 0 : 1, dd = 25 + r() * 7, sx = 0.92 + r() * 0.2, sy = 0.78 + r() * 0.5, turn = 0.16 + r() * 0.3;
+      const wallCol = PASTEL[Math.floor(r() * PASTEL.length)], neonCol = NEON[Math.floor(r() * NEON.length)];
+      if (!land(s) || !land(s - 22) || !land(s + 22)) continue;
+      road.toWorld(s, W + dd, p);
+      const rot = p.h + Math.PI / 2 + turn, y = ryAt(s) - 0.4;
+      this.hotels[which].add(slot, p.x, y, p.z, rot, sx, sy, 1, 0, wallCol);
+      this.hotelNeon[which].add(slot, p.x, y, p.z, rot, sx, sy, 1, 0, neonCol);
+    }
+    for (let j = 0; j < 5; j++) {
+      const s = s0 + r() * CHUNK, dd = 78 + r() * 150, sx = 0.8 + r() * 0.6, sy = 0.5 + r() * 0.75, col = GLASS_TINT[Math.floor(r() * GLASS_TINT.length)], crown = NEON[Math.floor(r() * NEON.length)];
+      if (!land(s) || r() < 0.25) continue;
+      road.toWorld(s, W + dd, p);
+      const rot = p.h + (r() - 0.5) * 0.5, y = ryAt(s) - 0.5;
+      this.towers.add(slot, p.x, y, p.z, rot, sx, sy, sx, 0, col);
+      this.crowns.add(slot, p.x, y, p.z, rot, sx, sy, sx, 0, crown);
+    }
+    // one tall neon sign and maybe a billboard, turned to face the cars coming
+    {
+      const s = s0 + 30 + r() * (CHUNK - 60), which = Math.floor(r() * this.signFaces.length);
+      if (land(s) && !road.trapsIn(s - 40, s + 40).length) {
+        road.toWorld(s, W + 6.4, p);
+        const y = ryAt(s) - 0.1, rot = p.h + Math.PI - 0.22;
+        this.signPosts.add(slot, p.x, y, p.z, rot);
+        this.signFaces[which].add(slot, p.x - Math.sin(rot) * 0.27, y, p.z - Math.cos(rot) * 0.27, rot + Math.PI);
+        this.signFaces[which].add(slot, p.x + Math.sin(rot) * 0.27, y, p.z + Math.cos(rot) * 0.27, rot);
+      }
+    }
+    if (r() < 0.6) {
+      const s = s0 + 20 + r() * (CHUNK - 40), which = Math.floor(r() * this.adFaces.length);
+      if (land(s)) {
+        road.toWorld(s, W + 12 + r() * 3, p);
+        const g = ryAt(s) - 0.3, rot = p.h - 0.4, top = g + 15 + r() * 4;
+        this.adPoles.add(slot, p.x, g, p.z, rot, 1, top - 3.4 - g, 1);
+        this.adFrames.add(slot, p.x, top, p.z, rot + Math.PI);
+        this.adFaces[which].add(slot, p.x, top, p.z, rot + Math.PI);
+      }
+    }
+    // the beach side: umbrellas, a lifeguard hut, flamingos wading, a boat out on the bay
+    for (let j = 0; j < 8; j++) {
+      const s = s0 + r() * CHUNK, dd = 11 + r() * 16, col = BEACH[Math.floor(r() * BEACH.length)], k = 0.9 + r() * 0.3, a = r() * 6.28;
+      if (!land(s)) continue;
+      road.toWorld(s, -(W + dd), p);
+      this.umbrellas.add(slot, p.x, profileY(this.keysProfile(s, -1, ryAt(s), feats), dd) - 0.05, p.z, a, k, k, k, (r() - 0.5) * 0.2, col);
+    }
+    if (r() < 0.55) {
+      const s = s0 + 20 + r() * (CHUNK - 40), dd = 17 + r() * 5, col = PASTEL[Math.floor(r() * PASTEL.length)];
+      if (land(s)) { road.toWorld(s, -(W + dd), p); this.huts.add(slot, p.x, profileY(this.keysProfile(s, -1, ryAt(s), feats), dd) - 0.1, p.z, p.h + Math.PI / 2 + (r() - 0.5) * 0.4, 1, 1, 1, 0, col); }
+    }
+    if (r() < 0.7) {
+      const s = s0 + 20 + r() * (CHUNK - 40), n = 5 + Math.floor(r() * 5);
+      for (let j = 0; j < n; j++) {
+        const sj = s + (r() - 0.5) * 16, dd = 36.5 + r() * 6, k = 0.85 + r() * 0.35;
+        if (!land(sj)) continue;
+        road.toWorld(sj, -(W + dd), p);
+        this.flamingos.add(slot, p.x, sea - 0.22, p.z, r() * 6.28, k, k, k);
+      }
+    }
+    for (let j = 0; j < 2; j++) {
+      if (r() < 0.55) continue;
+      const s = s0 + r() * CHUNK, bk = this.bridgeAmt(s, feats), side = bk > 0.9 && r() < 0.5 ? 1 : -1, dd = 80 + r() * 190;
+      if (side > 0 && bk < 0.9) continue;
+      road.toWorld(s, side * (W + dd), p);
+      this.boats.add(slot, p.x, sea - 0.05, p.z, r() * 6.28, 1, 1, 1 + r() * 0.6);
+    }
+    // causeways: the bridge itself, with a line of neon along each rail
+    for (const f of feats) if (f.kind === 'bridge') {
+      this.bridge(f, Math.max(s0, f.a - 60), Math.min(s1, f.b + 60), slot, base, meshes);
+      const a = Math.max(s0, f.a - 40), b = Math.min(s1, f.b + 40);
+      if (b <= a) continue;
+      [-1, 1].forEach((side, k) => {
+        const tube = [];
+        for (let s = a; s < b; s += 4) {
+          const e = Math.min(b, s + 4), d = side * (W + 0.62);
+          const P = (ss, y) => { road.toWorld(ss, d, p); return [p.x - base.x, p.y + y, p.z - base.z]; };
+          const A = P(s, 0.98), B = P(e, 0.98), C = P(e, 1.12), D = P(s, 1.12);
+          tube.push(A, B, C, A, C, D);
+        }
+        meshes.push(triMesh(tube, this.matNeon[k]));
+      });
     }
   }
 
@@ -777,5 +952,164 @@ function adTexture(title, color, tag) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;
+  return t;
+}
+
+// ---------------------------------------------------------------- keys: colours, buildings, beach props, signs
+
+const PASTEL = [0xff8fb0, 0x6fe0d0, 0xffd77a, 0x8fbaff, 0xfff3e6, 0xffab78, 0xc09bff]; // hotel walls, lifeguard huts
+const NEON = [0xff2f9e, 0x2fe6ff, 0xb56bff, 0xffd23a, 0x5dff9a]; // the lines of light on them
+const GLASS_TINT = [0x6f86b8, 0x7fa3b8, 0x8a7fb0, 0x5d7396, 0x9aa6c4]; // the towers behind
+const BEACH = [0xff5a8a, 0x3de0ff, 0xffd23a, 0xffffff, 0xff8a3a, 0x6dff8a]; // umbrellas
+
+/** A box whose faces all sample one dark corner of the window texture: plain wall, no windows. */
+function plainBox(w, h, d) {
+  const g = new THREE.BoxGeometry(w, h, d), uv = g.getAttribute('uv');
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.008, 0.008);
+  return g;
+}
+
+/** Merge geometries that all carry position, normal and uv. */
+function mergeUV(list) {
+  const pos = [], nor = [], uv = [];
+  for (let g of list) {
+    if (g.index) g = g.toNonIndexed();
+    pos.push(...g.getAttribute('position').array); nor.push(...g.getAttribute('normal').array); uv.push(...g.getAttribute('uv').array);
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return out;
+}
+
+/**
+ * A beach-front hotel in the streamline style: a block with ledges over each pair of floors, a set-back penthouse,
+ * a fin up the middle of the front and a canopy over the door. The front faces +z.
+ */
+function hotelGeometry(w, h, d) {
+  const parts = [boxWithTiledUV(w, h, d), boxWithTiledUV(w * 0.56, h * 0.17, d * 0.7).translate(0, h, -d * 0.08)];
+  for (let y = 7; y < h + 0.5; y += 7) parts.push(plainBox(w + 1.2, 0.4, 1.5).translate(0, Math.min(y, h), d / 2 + 0.3)); // eyebrow ledges
+  parts.push(plainBox(w * 0.13, h * 1.34, 1.6).translate(0, h * 0.67, d / 2 + 0.75)); // the fin
+  parts.push(plainBox(w * 0.34, 0.45, 4.2).translate(0, 4.1, d / 2 + 2.1)); // the canopy
+  return mergeUV(parts);
+}
+
+/** The neon that goes with hotelGeometry: along the roof and the canopy, up both edges of the fin, round the penthouse. */
+function hotelNeonGeometry(w, h, d) {
+  const t = 0.24, zf = d / 2 + 1.12, fw = w * 0.13;
+  const parts = [
+    new THREE.BoxGeometry(w + 1.3, t, t).translate(0, h + 0.32, zf),
+    new THREE.BoxGeometry(w * 0.34 + 0.2, t, t).translate(0, 4.45, d / 2 + 4.25),
+    new THREE.BoxGeometry(w * 0.58, t, t).translate(0, h * 1.17 + 0.2, d * 0.27),
+    new THREE.BoxGeometry(fw + 0.5, t, t).translate(0, h * 1.34 + 0.15, d / 2 + 1.6),
+  ];
+  for (const sx of [-1, 1]) parts.push(new THREE.BoxGeometry(t, h * 1.34 - 4.6, t).translate(sx * (fw / 2 + 0.12), 4.6 + (h * 1.34 - 4.6) / 2, d / 2 + 1.6));
+  if (h > 14) parts.push(new THREE.BoxGeometry(w + 1.3, t * 0.8, t).translate(0, 7.3, zf));
+  return mergeGeos(parts);
+}
+
+/** A flamingo standing on one leg and a bit, about 1.5 m tall. */
+function flamingoGeometry() {
+  const pink = 0xff6f9f, pale = 0xff9dbd, dark = 0x1c1418;
+  const neck = [[0, 1.12, 0.3], [0, 1.38, 0.5], [0, 1.6, 0.42], [0, 1.74, 0.5]], parts = [], cols = [];
+  parts.push(new THREE.SphereGeometry(0.3, 7, 5).scale(0.8, 0.72, 1.5).translate(0, 1.05, 0)); cols.push(pink);
+  parts.push(new THREE.ConeGeometry(0.16, 0.5, 5).rotateX(-Math.PI / 2 - 0.3).translate(0, 1.0, -0.55)); cols.push(pale); // tail
+  for (let k = 1; k < neck.length; k++) {
+    const a = new THREE.Vector3(...neck[k - 1]), b = new THREE.Vector3(...neck[k]), mid = a.clone().add(b).multiplyScalar(0.5), len = a.distanceTo(b);
+    const g = new THREE.CylinderGeometry(0.05, 0.065, len + 0.05, 5);
+    g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize())).translate(mid.x, mid.y, mid.z);
+    parts.push(g); cols.push(pink);
+  }
+  parts.push(new THREE.SphereGeometry(0.085, 6, 4).translate(0, 1.76, 0.54)); cols.push(pink);
+  parts.push(new THREE.ConeGeometry(0.05, 0.2, 4).rotateX(Math.PI / 2 + 0.7).translate(0, 1.7, 0.68)); cols.push(dark); // beak
+  parts.push(new THREE.CylinderGeometry(0.022, 0.022, 0.95, 4).translate(0.07, 0.47, 0)); cols.push(pale);
+  parts.push(new THREE.CylinderGeometry(0.022, 0.022, 0.5, 4).rotateX(0.5).translate(-0.07, 0.72, -0.1)); cols.push(pale);
+  return mergeGeos(parts, cols);
+}
+
+/** A beach umbrella: white panels that take the instance colour on every other one, on a pole. */
+function umbrellaGeometry() {
+  const pos = [], col = [], N = 8, R = 1.7, y0 = 2.0, y1 = 2.65;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2, b = ((i + 1) / N) * Math.PI * 2, c = i % 2 ? [1, 1, 1] : [0.38, 0.38, 0.38];
+    pos.push(0, y1, 0, Math.cos(b) * R, y0, Math.sin(b) * R, Math.cos(a) * R, y0, Math.sin(a) * R);
+    for (let k = 0; k < 3; k++) col.push(...c);
+  }
+  const top = new THREE.BufferGeometry();
+  top.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  top.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  top.computeVertexNormals();
+  const pole = mergeGeos([new THREE.CylinderGeometry(0.035, 0.035, 2.7, 5).translate(0, 1.32, 0), new THREE.BoxGeometry(0.62, 0.1, 1.9).translate(0.95, 0.28, 0.2)], [0x8c8c96, 0xa9a9b4]); // a lounger beside it
+  const g = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal', 'color']) g.setAttribute(name, new THREE.Float32BufferAttribute([...top.getAttribute(name).array, ...pole.getAttribute(name).array], 3));
+  return g;
+}
+
+/** A lifeguard hut on stilts: its walls take the instance colour, roof and legs stay pale. */
+function hutGeometry() {
+  const parts = [new THREE.BoxGeometry(3, 2.1, 3).translate(0, 3.05, 0), new THREE.BoxGeometry(3.9, 0.16, 4.6).translate(0, 1.95, 0.5), new THREE.ConeGeometry(2.7, 1.1, 4).rotateY(Math.PI / 4).translate(0, 4.65, 0), new THREE.BoxGeometry(1.5, 0.12, 2.6).rotateX(0.62).translate(0, 1.05, 3.55)];
+  const cols = [0xffffff, 0x8f8a94, 0x77717e, 0x8f8a94];
+  for (const [x, z] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) { parts.push(new THREE.BoxGeometry(0.16, 2, 0.16).translate(x, 1, z)); cols.push(0x77717e); }
+  return mergeGeos(parts, cols);
+}
+
+/** A white motor yacht, bow towards +z. */
+function boatGeometry() {
+  const parts = [new THREE.BoxGeometry(3.4, 1.5, 8.5).translate(0, 0.45, -0.6), new THREE.ConeGeometry(2.4, 4.4, 4).rotateY(Math.PI / 4).rotateX(Math.PI / 2).scale(1, 0.44, 1).translate(0, 0.45, 5.8),
+    new THREE.BoxGeometry(2.7, 1.2, 4.4).translate(0, 1.8, -0.7), new THREE.BoxGeometry(2.75, 0.5, 3.6).translate(0, 1.95, -0.5), new THREE.BoxGeometry(2.1, 0.9, 2.3).translate(0, 2.85, -1.1), new THREE.BoxGeometry(3.5, 0.14, 8.6).translate(0, 0.15, -0.6)];
+  return mergeGeos(parts, [0xf4f1f6, 0xf4f1f6, 0xe9e4ee, 0x10202e, 0xf4f1f6, 0x1f5f8a]);
+}
+
+/** A tall roadside sign: a word in neon letters down the middle, a neon frame and an arrow. */
+function pylonTexture(word, color, color2) {
+  const W = 160, H = 480;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#140b1f'); g.addColorStop(1, '#07050c');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.lineWidth = 6; x.strokeStyle = color2; x.shadowColor = color2; x.shadowBlur = 16;
+  x.strokeRect(11, 11, W - 22, H - 22);
+  x.fillStyle = color; x.shadowColor = color; x.shadowBlur = 20; x.textAlign = 'center'; x.textBaseline = 'middle';
+  const step = Math.min(64, (H - 130) / word.length);
+  x.font = `bold ${Math.round(step * 0.95)}px system-ui, sans-serif`;
+  [...word].forEach((ch, i) => { x.fillText(ch, W / 2, 50 + step * (i + 0.5)); x.fillText(ch, W / 2, 50 + step * (i + 0.5)); });
+  // the arrow pointing in off the road
+  x.strokeStyle = color2; x.shadowColor = color2; x.lineWidth = 7; x.lineCap = 'round'; x.lineJoin = 'round';
+  const ay = H - 52;
+  x.beginPath(); x.moveTo(34, ay); x.lineTo(W - 38, ay); x.moveTo(W - 62, ay - 20); x.lineTo(W - 36, ay); x.lineTo(W - 62, ay + 20); x.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+/** The far shore at dusk: hazy towers in two layers with lit windows and a few neon roof lines. */
+function neonSkylineTexture() {
+  const W = 2048, H = 256;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const r = rng(7117);
+  const neon = ['#ff3aa8', '#3de0ff', '#b56bff', '#ffd23a'];
+  for (const [layer, shade, k] of [[0, 'rgba(112,62,124,0.8)', 0.75], [1, 'rgba(44,22,66,0.97)', 1]]) {
+    for (let px = 0; px < W;) {
+      const w = 12 + r() * 40, gap = r() < 0.22 ? 30 + r() * 90 : 0; // gaps: open water between the islands
+      const h = (16 + r() ** 2.2 * 120) * k;
+      x.fillStyle = shade; x.fillRect(px, H - 62 - h, w, h + 62);
+      if (layer) {
+        for (let wy = H - 62 - h + 4; wy < H - 64; wy += 5) for (let wx = px + 2; wx < px + w - 2; wx += 4) {
+          if (r() < 0.74) continue;
+          x.fillStyle = r() < 0.6 ? `rgba(255,${190 + r() * 50},${140 + r() * 60},${0.45 + r() * 0.5})` : r() < 0.5 ? `rgba(150,230,255,${0.4 + r() * 0.4})` : `rgba(255,120,200,${0.4 + r() * 0.4})`;
+          x.fillRect(wx, wy, 2, 2);
+        }
+        if (h > 46 && r() < 0.55) { x.fillStyle = neon[Math.floor(r() * neon.length)]; x.fillRect(px, H - 62 - h - 2, w, 2); }
+      }
+      px += w * (0.7 + r() * 0.5) + gap;
+    }
+  }
+  // the low shore the towers stand on
+  x.fillStyle = 'rgba(40,20,60,0.97)'; x.fillRect(0, H - 64, W, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
